@@ -4,45 +4,51 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 # --- 1. THIẾT LẬP GIAO DIỆN ---
-st.set_page_config(page_title="QA Color Dashboard", layout="wide")
-st.title("📊 Hệ thống Phân tích Chỉ số Màu sắc & Độ bóng")
+st.set_page_config(page_title="QA Lab Input Checker", layout="wide")
+st.title("📊 Hệ thống Kiểm soát Kết quả Lab & Chất lượng Sơn")
 st.markdown("---")
 
 # --- 2. HÀM TẢI DỮ LIỆU ---
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=10)
 def load_data():
     sheet_url = "https://docs.google.com/spreadsheets/d/1ugm7G1kgGmSlk5PhoKk62h_bs5pX4bDuwUgdaELLYHE/export?format=csv&gid=0"
     try:
         df = pd.read_csv(sheet_url)
-        # Đổi tên các cột kỹ thuật
+        # Đổi tên các cột (Lưu ý: 光澤 là cột Input của Lab)
         df = df.rename(columns={
-            '生產日期': 'Ngay_SX',
-            '製造批號': 'Batch_Lot',
+            '生產日期': 'Ngay_SX', 
+            '製造批號': 'Batch_Lot', 
             '塗料編號': 'Ma_Son',
+            '光澤': 'Gloss_Lab_Input', 
             'NORTH_TOP_DELTA_E': 'dE_N', 'NORTH_TOP_DELTA_L': 'dL_N', 'NORTH_TOP_DELTA_A': 'da_N', 'NORTH_TOP_DELTA_B': 'db_N',
             'SOUTH_TOP_DELTA_E': 'dE_S', 'SOUTH_TOP_DELTA_L': 'dL_S', 'SOUTH_TOP_DELTA_A': 'da_S', 'SOUTH_TOP_DELTA_B': 'db_S',
-            'NORTH_TOP_BLANCH': 'Gloss_N', 'SOUTH_TOP_BLANCH': 'Gloss_S',
             '光澤60度反射(下限)': 'LSL', '光澤60度反射(上限)': 'USL'
         })
         
-        cols_numeric = ['dE_N', 'dL_N', 'da_N', 'db_N', 'dE_S', 'dL_S', 'da_S', 'db_S', 'Gloss_N', 'Gloss_S', 'LSL', 'USL']
+        # Chuyển đổi kiểu số cho các cột đo lường
+        cols_numeric = ['Gloss_Lab_Input', 'dE_N', 'dE_S', 'dL_N', 'da_N', 'db_N', 'dL_S', 'da_S', 'db_S', 'LSL', 'USL']
         for col in cols_numeric:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
         
-        # CHỈNH SỬA TẠI ĐÂY: Chuyển về datetime rồi ép về kiểu date (bỏ giờ)
+        # Định dạng ngày (bỏ phần giờ 00:00:00)
         df['Ngay_SX'] = pd.to_datetime(df['Ngay_SX'], errors='coerce').dt.date
         
-        # BƯỚC 1: TÍNH TRUNG BÌNH MỖI CUỘN
+        # TÍNH TOÁN CÁC CHỈ SỐ DELTA TRUNG BÌNH (N+S)/2
         df['ΔE'] = df[['dE_N', 'dE_S']].mean(axis=1)
         df['ΔL'] = df[['dL_N', 'dL_S']].mean(axis=1)
         df['Δa'] = df[['da_N', 'da_S']].mean(axis=1)
         df['Δb'] = df[['db_N', 'db_S']].mean(axis=1)
-        df['Gloss'] = df[['Gloss_N', 'Gloss_S']].mean(axis=1)
+        
+        # KIỂM TRA ĐẠT/KHÔNG ĐẠT (Dựa trên Gloss Input của Lab và ΔE)
+        df['Check_Result'] = '✅ PASS'
+        # Điều kiện Fail: Gloss nằm ngoài LSL-USL HOẶC ΔE > 1.0
+        fail_condition = (df['Gloss_Lab_Input'] < df['LSL']) | (df['Gloss_Lab_Input'] > df['USL']) | (df['ΔE'] > 1.0)
+        df.loc[fail_condition, 'Check_Result'] = '❌ FAIL'
         
         return df
     except Exception as e:
-        st.error(f"⚠️ Lỗi: {e}")
+        st.error(f"⚠️ Lỗi kết nối dữ liệu: {e}")
         return pd.DataFrame()
 
 df_raw = load_data()
@@ -51,82 +57,65 @@ if df_raw.empty:
     st.stop()
 
 # --- 3. BỘ LỌC SIDEBAR ---
-st.sidebar.header("🔍 Lọc theo Mã Sơn")
+st.sidebar.header("🔍 Tra cứu Mã Sơn")
 list_ma_son = sorted(df_raw['Ma_Son'].dropna().unique().tolist())
 ma_son_selected = st.sidebar.selectbox("🎯 Chọn Mã Sơn (塗料編號):", list_ma_son)
 
 df_filtered = df_raw[df_raw['Ma_Son'] == ma_son_selected].copy()
 
-# --- 4. XỬ LÝ GỘP THEO BATCH_LOT ---
-df_batch_summary = df_filtered.groupby('Batch_Lot', as_index=False).agg({
-    'Ngay_SX': 'max', # Vẫn lấy ngày gần nhất
-    'Ma_Son': 'first',
-    'ΔE': 'mean',
-    'ΔL': 'mean',
-    'Δa': 'mean',
-    'Δb': 'mean',
-    'Gloss': 'mean',
-    'LSL': 'first',
-    'USL': 'first'
-}).sort_values(by='Ngay_SX')
+# --- 4. HÀM TÔ MÀU DÒNG LỖI ---
+def highlight_failed(row):
+    return ['background-color: #ffebee' if row['Check_Result'] == '❌ FAIL' else '' for _ in row]
 
 # --- 5. HIỂN THỊ ---
-tab1, tab2 = st.tabs(["📋 Bảng Tổng hợp Lab", "📉 Biểu đồ Xu hướng"])
+tab1, tab2 = st.tabs(["📋 KIỂM TRA LAB INPUT", "📉 TỔNG HỢP & XU HƯỚNG BATCH"])
 
 with tab1:
-    st.subheader(f"Thông số Batch chi tiết: {ma_son_selected}")
+    st.subheader(f"Xác nhận dữ liệu đầu vào cho mã: {ma_son_selected}")
     
-    m1, m2, m3 = st.columns(3)
-    m1.metric("Số lượng Batch", len(df_batch_summary))
-    m2.metric("ΔE Trung bình", f"{df_batch_summary['ΔE'].mean():.3f}")
-    m3.metric("Gloss Trung bình", f"{df_batch_summary['Gloss'].mean():.1f}")
+    # Hiển thị tiêu chuẩn kỹ thuật hiện tại
+    lsl_cur = df_filtered['LSL'].iloc[0] if not df_filtered.empty else 0
+    usl_cur = df_filtered['USL'].iloc[0] if not df_filtered.empty else 0
+    st.info(f"Tiêu chuẩn kỹ thuật: Gloss ({lsl_cur} - {usl_cur}) | ΔE (≤ 1.0)")
 
-    st.markdown("**Bảng tổng hợp chỉ số Δ (Trung bình lô):**")
+    # Bảng hiển thị dữ liệu Input
+    # Cột Gloss_Lab_Input chính là giá trị từ cột "光澤"
+    cols_to_show = ['Ngay_SX', 'Batch_Lot', 'Check_Result', 'Gloss_Lab_Input', 'LSL', 'USL', 'ΔE', 'ΔL', 'Δa', 'Δb']
     
-    # Định dạng hiển thị bảng
     st.dataframe(
-        df_batch_summary[['Batch_Lot', 'Ngay_SX', 'ΔE', 'ΔL', 'Δa', 'Δb', 'Gloss', 'LSL', 'USL']].style.format({
-            'Ngay_SX': lambda x: x.strftime('%Y-%m-%d') if hasattr(x, 'strftime') else str(x),
-            'ΔE': '{:.3f}', 'ΔL': '{:.3f}', 
-            'Δa': '{:.3f}', 'Δb': '{:.3f}',
-            'Gloss': '{:.2f}', 'LSL': '{:.1f}', 'USL': '{:.1f}'
+        df_filtered[cols_to_show].style.apply(highlight_failed, axis=1).format({
+            'Gloss_Lab_Input': '{:.1f}', 'ΔE': '{:.3f}', 'ΔL': '{:.3f}', 
+            'Δa': '{:.3f}', 'Δb': '{:.3f}', 'LSL': '{:.1f}', 'USL': '{:.1f}'
         }),
         use_container_width=True
     )
 
 with tab2:
-    if not df_batch_summary.empty:
-        # Biểu đồ dE và LAB
-        st.subheader("Phân tích biến động ΔE & Tọa độ màu (ΔL, Δa, Δb)")
-        fig1, ax1 = plt.subplots(figsize=(12, 5))
-        
-        # Chuyển Batch_Lot sang string để trục X biểu đồ không bị lỗi hiển thị
-        plot_data = df_batch_summary.copy()
-        plot_data['Batch_Lot'] = plot_data['Batch_Lot'].astype(str)
+    # Gộp Batch: Tính trung bình các giá trị Input của Lab theo số Batch
+    df_batch = df_filtered.groupby('Batch_Lot', as_index=False).agg({
+        'Ngay_SX': 'max',
+        'Gloss_Lab_Input': 'mean',
+        'ΔE': 'mean', 'ΔL': 'mean', 'Δa': 'mean', 'Δb': 'mean',
+        'LSL': 'first', 'USL': 'first'
+    }).sort_values(by='Ngay_SX')
 
-        sns.lineplot(data=plot_data, x='Batch_Lot', y='ΔE', marker='o', label='ΔE (Total)', color='black', linewidth=2.5)
-        sns.lineplot(data=plot_data, x='Batch_Lot', y='ΔL', marker='x', label='ΔL', alpha=0.7)
-        sns.lineplot(data=plot_data, x='Batch_Lot', y='Δa', marker='.', label='Δa', alpha=0.7)
-        sns.lineplot(data=plot_data, x='Batch_Lot', y='Δb', marker='.', label='Δb', alpha=0.7)
-        
-        ax1.axhline(0, color='gray', linestyle='-', linewidth=0.8)
-        ax1.axhline(1.0, color='red', linestyle='--', alpha=0.5)
-        ax1.set_title(f"Biến động các chỉ số Delta (Δ) - Mã {ma_son_selected}")
-        plt.xticks(rotation=45)
-        ax1.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-        st.pyplot(fig1)
+    st.subheader("Dữ liệu trung bình theo từng Lô (Batch Summary)")
+    st.dataframe(
+        df_batch.style.format({
+            'Gloss_Lab_Input': '{:.2f}', 'ΔE': '{:.3f}', 'ΔL': '{:.3f}', 'Δa': '{:.3f}', 'Δb': '{:.3f}'
+        }),
+        use_container_width=True
+    )
 
-        # Biểu đồ Gloss
-        st.subheader("Phân tích biến động Độ bóng (Gloss)")
-        fig2, ax2 = plt.subplots(figsize=(12, 5))
-        sns.lineplot(data=plot_data, x='Batch_Lot', y='Gloss', marker='s', color='tab:blue', label='Gloss Avg')
-        
-        lsl_val = df_batch_summary['LSL'].iloc[0]
-        usl_val = df_batch_summary['USL'].iloc[0]
-        if pd.notna(lsl_val):
-            ax2.axhline(lsl_val, color='orange', linestyle='--', label=f'LSL: {lsl_val}')
-            ax2.axhline(usl_val, color='orange', linestyle='--', label=f'USL: {usl_val}')
-            
-        plt.xticks(rotation=45)
-        ax2.legend()
-        st.pyplot(fig2)
+    # Biểu đồ xu hướng Gloss của Lab
+    st.markdown("---")
+    fig, ax = plt.subplots(figsize=(12, 5))
+    sns.lineplot(data=df_batch, x='Batch_Lot', y='Gloss_Lab_Input', marker='s', color='tab:blue', label='Gloss Lab Avg')
+    if pd.notna(lsl_cur):
+        ax.axhline(lsl_cur, color='red', linestyle='--', label='LSL')
+        ax.axhline(usl_cur, color='red', linestyle='--', label='USL')
+    
+    plt.xticks(rotation=45)
+    ax.set_title(f"Biến động Độ bóng Lab (光澤) theo Batch - {ma_son_selected}")
+    ax.legend()
+    st.pyplot(fig)
