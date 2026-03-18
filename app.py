@@ -115,30 +115,20 @@ with tab1:
         use_container_width=True
     )
 
-with tab2:
-    st.subheader("Biểu đồ Độ bóng Lab vs Line")
-    if not df_batch.empty:
-        fig, ax = plt.subplots(figsize=(12, 5))
-        plot_data = df_batch.copy()
-        plot_data['Batch_Lot'] = plot_data['Batch_Lot'].astype(str)
-
-        sns.lineplot(data=plot_data, x='Batch_Lot', y='Gloss_Lab', marker='o', label='Lab (光澤)', linewidth=3, color='black')
-        sns.lineplot(data=plot_data, x='Batch_Lot', y='Gloss_Line_Top', marker='s', label='Line Top Avg', alpha=0.6)
-        sns.lineplot(data=plot_data, x='Batch_Lot', y='Gloss_Line_Back', marker='^', label='Line Back Avg', alpha=0.6)
-        
-        if pd.notna(g_lsl):
-            ax.axhline(g_lsl, color='red', linestyle='--', label='Limit')
-            ax.axhline(g_usl, color='red', linestyle='--')
-                
-        plt.xticks(rotation=45)
-        ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-        st.pyplot(fig)
+st.markdown("---")
+    st.subheader("📊 Bảng tổng hợp Toàn diện (Gloss & Color) theo Batch")
     
-    st.markdown("---")
-    st.subheader("Bảng tổng hợp Delta (Δ) theo Batch")
+    # Gộp tất cả các cột quan trọng vào một bảng
+    full_summary_cols = ['Batch_Lot', 'Ngay_SX', 'Gloss_Lab', 'Gloss_Line_Top', 'ΔE', 'ΔL', 'Δa', 'Δb']
+    
     st.dataframe(
-        df_batch[['Batch_Lot', 'Ngay_SX', 'ΔE', 'ΔL', 'Δa', 'Δb']].style.format({
-            'ΔE': '{:.3f}', 'ΔL': '{:.3f}', 'Δa': '{:.3f}', 'Δb': '{:.3f}'
+        df_batch[full_summary_cols].style.format({
+            'Gloss_Lab': '{:.1f}', 
+            'Gloss_Line_Top': '{:.2f}',
+            'ΔE': '{:.3f}', 
+            'ΔL': '{:.3f}', 
+            'Δa': '{:.3f}', 
+            'Δb': '{:.3f}'
         }), 
         use_container_width=True
     )
