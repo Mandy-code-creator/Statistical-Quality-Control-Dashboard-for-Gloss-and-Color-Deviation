@@ -14,7 +14,6 @@ def load_data():
     sheet_url = "https://docs.google.com/spreadsheets/d/1ugm7G1kgGmSlk5PhoKk62h_bs5pX4bDuwUgdaELLYHE/export?format=csv&gid=0"
     try:
         df = pd.read_csv(sheet_url)
-        # Đổi tên các cột kỹ thuật - Ghi rõ LSL/USL của Gloss
         df = df.rename(columns={
             '生產日期': 'Ngay_SX', 
             '製造批號': 'Batch_Lot', 
@@ -26,10 +25,9 @@ def load_data():
             'NORTH_TOP_DELTA_L': 'dL_N', 'NORTH_TOP_DELTA_A': 'da_N', 'NORTH_TOP_DELTA_B': 'db_N',
             'SOUTH_TOP_DELTA_L': 'dL_S', 'SOUTH_TOP_DELTA_A': 'da_S', 'SOUTH_TOP_DELTA_B': 'db_S',
             '光澤60度反射(下限)': 'Gloss_LSL', 
-            '光澤60度反射(上限)': 'Gloss_USL'
+            '光澤60 độ 反射(上限)': 'Gloss_USL'
         })
         
-        # Chuyển đổi kiểu số
         cols_num = ['Gloss_Lab', 'G_Top_N', 'G_Top_S', 'G_Back_N', 'G_Back_S', 
                     'dE_N', 'dE_S', 'dL_N', 'da_N', 'db_N', 'dL_S', 'da_S', 'db_S',
                     'Gloss_LSL', 'Gloss_USL']
@@ -37,10 +35,8 @@ def load_data():
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
         
-        # Định dạng ngày (bỏ giờ)
         df['Ngay_SX'] = pd.to_datetime(df['Ngay_SX'], errors='coerce').dt.date
         
-        # TÍNH TOÁN TRUNG BÌNH
         df['ΔE'] = df[['dE_N', 'dE_S']].mean(axis=1)
         df['ΔL'] = df[['dL_N', 'dL_S']].mean(axis=1)
         df['Δa'] = df[['da_N', 'da_S']].mean(axis=1)
@@ -48,7 +44,6 @@ def load_data():
         df['Gloss_Line_Top'] = df[['G_Top_N', 'G_Top_S']].mean(axis=1)
         df['Gloss_Line_Back'] = df[['G_Back_N', 'G_Back_S']].mean(axis=1)
         
-        # KIỂM TRA TRẠNG THÁI (PASS/FAIL)
         df['Status'] = '✅ PASS'
         fail_cond = (df['Gloss_Lab'] < df['Gloss_LSL']) | (df['Gloss_Lab'] > df['Gloss_USL']) | (df['ΔE'] > 1.0)
         df.loc[fail_cond, 'Status'] = '❌ FAIL'
@@ -82,14 +77,10 @@ tab1, tab2 = st.tabs(["📋 KIỂM TRA INPUT (CHI TIẾT)", "📈 PHÂN TÍCH XU
 
 with tab1:
     st.subheader(f"So sánh kết quả đo: {ma_son_selected}")
-    
-    # Hiển thị tiêu chuẩn Gloss rõ ràng
-    g_lsl = df_filtered['Gloss_LSL'].iloc[0]
-    g_usl = df_filtered['Gloss_USL'].iloc[0]
+    g_lsl = df_filtered['Gloss_LSL'].iloc[0] if not df_filtered.empty else 0
+    g_usl = df_filtered['Gloss_USL'].iloc[0] if not df_filtered.empty else 0
     st.markdown(f"**Tiêu chuẩn Gloss:** `{g_lsl}` - `{g_usl}` | **Tiêu chuẩn ΔE:** `≤ 1.0`")
 
-    # Bảng Input
-    # Sắp xếp các cột Gloss đứng gần nhau để dễ nhìn sai lệch Lab/Line
     display_cols = ['Ngay_SX', 'Batch_Lot', 'Status', 'Gloss_Lab', 'Gloss_Line_Top', 'Gloss_Line_Back', 'Gloss_LSL', 'Gloss_USL', 'ΔE', 'ΔL', 'Δa', 'Δb']
     
     def style_fail(row):
@@ -106,23 +97,29 @@ with tab1:
 
 with tab2:
     st.subheader("Biểu đồ biến động Độ bóng (Lab vs Line)")
-    fig, ax = plt.subplots(figsize=(12, 5))
-    
-    plot_data = df_batch.copy()
-    plot_data['Batch_Lot'] = plot_data['Batch_Lot'].astype(str)
+    if not df_batch.empty:
+        fig, ax = plt.subplots(figsize=(12, 5))
+        plot_data = df_batch.copy()
+        plot_data['Batch_Lot'] = plot_data['Batch_Lot'].astype(str)
 
-    sns.lineplot(data=plot_data, x='Batch_Lot', y='Gloss_Lab', marker='o', label='Lab (光澤)', linewidth=3, color='black')
-    sns.lineplot(data=plot_data, x='Batch_Lot', y='Gloss_Line_Top', marker='s', label='Line Top Avg', alpha=0.6)
-    sns.lineplot(data=plot_data, x='Batch_Lot', y='Gloss_Line_Back', marker='^', label='Line Back Avg', alpha=0.6)
-    
-    if pd.notna(g_lsl):
-        ax.axhline(g_lsl, color='red', linestyle='--', label='Gloss Limit')
-        ax.axhline(g_usl, color='red', linestyle='--')
-            
-    plt.xticks(rotation=45)
-    ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-    st.pyplot(fig)
+        sns.lineplot(data=plot_data, x='Batch_Lot', y='Gloss_Lab', marker='o', label='Lab (光澤)', linewidth=3, color='black')
+        sns.lineplot(data=plot_data, x='Batch_Lot', y='Gloss_Line_Top', marker='s', label='Line Top Avg', alpha=0.6)
+        sns.lineplot(data=plot_data, x='Batch_Lot', y='Gloss_Line_Back', marker='^', label='Line Back Avg', alpha=0.6)
+        
+        if pd.notna(g_lsl):
+            ax.axhline(g_lsl, color='red', linestyle='--', label='Gloss Limit')
+            ax.axhline(g_usl, color='red', linestyle='--')
+                
+        plt.xticks(rotation=45)
+        ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        st.pyplot(fig)
     
     st.markdown("---")
     st.subheader("Bảng tổng hợp Delta (Δ) theo Batch")
-    st.dataframe(df_batch[['Batch_Lot', 'Ngay_SX', 'ΔE', 'ΔL', 'Δa', 'Δb']].style.format('{:.3f}'), use_container_width=True)
+    # ĐÃ SỬA LỖI TẠI ĐÂY: Chỉ định rõ cột số mới format {:.3f}
+    st.dataframe(
+        df_batch[['Batch_Lot', 'Ngay_SX', 'ΔE', 'ΔL', 'Δa', 'Δb']].style.format({
+            'ΔE': '{:.3f}', 'ΔL': '{:.3f}', 'Δa': '{:.3f}', 'Δb': '{:.3f}'
+        }), 
+        use_container_width=True
+    )
