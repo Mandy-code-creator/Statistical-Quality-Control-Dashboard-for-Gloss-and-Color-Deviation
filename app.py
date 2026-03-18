@@ -9,7 +9,7 @@ st.title("📊 Statistical Quality Control Dashboard")
 st.markdown("Hệ thống Phân tích Độ bóng (Gloss) và Độ lệch màu (Delta E) Tôn mạ màu.")
 st.markdown("---")
 
-# --- 2. TỪ ĐIỂN GIẢI MÃ (MAPPING DICTIONARIES) ---
+# --- 2. TỪ ĐIỂN GIẢI MÃ ---
 supplier_map = {
     'S': 'Yungchi', 'T': 'AKZO NOBEL', 'B': 'Beckers', 'C': 'Nan Pao',
     'U': 'Quali Poly', 'N': 'Nippon', 'K': 'Kansai', 'V': 'Valspar',
@@ -39,34 +39,44 @@ def load_data():
     try:
         df = pd.read_csv(sheet_url)
         
-        # Đổi tên cột
         df = df.rename(columns={
             '生產日期': 'Ngay_San_Xuat',
+            '製造批號': 'Batch_Lot',
             '塗料編號': 'Ma_Son',
-            '光澤': 'Do_Bong',
+            'NORTH_TOP_BLANCH': 'Gloss_North_Top', 
+            'SOUTH_TOP_BLANCH': 'Gloss_South_Top',
             'NORTH_TOP_DELTA_E': 'Delta_E_North',
-            'SOUTH_TOP_DELTA_E': 'Delta_E_South'
+            'SOUTH_TOP_DELTA_E': 'Delta_E_South',
+            '光澤60度反射(下限)': 'Gloss_LSL',
+            '光澤60度反射(上限)': 'Gloss_USL'
         })
         
-        # Làm sạch cơ bản
-        df = df.dropna(subset=['Ma_Son', 'Do_Bong', 'Ngay_San_Xuat'])
-        df['Do_Bong'] = pd.to_numeric(df['Do_Bong'], errors='coerce')
-        df['Delta_E_North'] = pd.to_numeric(df['Delta_E_North'], errors='coerce')
-        df['Delta_E_South'] = pd.to_numeric(df['Delta_E_South'], errors='coerce')
+        df = df.dropna(subset=['Ma_Son', 'Batch_Lot'])
         
-        # Bóc tách mã sơn
+        cols_to_numeric = [
+            'Gloss_North_Top', 'Gloss_South_Top', 
+            'Delta_E_North', 'Delta_E_South', 'Gloss_LSL', 'Gloss_USL'
+        ]
+        for col in cols_to_numeric:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+        
         df['Nha_Cung_Cap'] = df['Ma_Son'].str[1].map(supplier_map).fillna('Khác')
         df['Loai_Nhua'] = df['Ma_Son'].str[2].map(resin_map).fillna('Khác')
         df['Mau_Sac'] = df['Ma_Son'].str[6].map(color_map).fillna('Khác')
         
-        # Tính toán
-        df['Delta_E_Trung_Binh'] = df[['Delta_E_North', 'Delta_E_South']].mean(axis=1)
-        df = df.dropna(subset=['Do_Bong'])
+        # BƯỚC TRUNG BÌNH 1: TRUNG BÌNH CUỘN THÉP (Bắc + Nam) / 2
+        if 'Delta_E_North' in df.columns and 'Delta_E_South' in df.columns:
+            df['Delta_E_Trung_Binh'] = df[['Delta_E_North', 'Delta_E_South']].mean(axis=1)
         
-        # Sắp xếp theo ngày sản xuất để vẽ biểu đồ Trend chuẩn xác
+        if 'Gloss_North_Top' in df.columns and 'Gloss_South_Top' in df.columns:
+            df['Gloss_Trung_Binh'] = df[['Gloss_North_Top', 'Gloss_South_Top']].mean(axis=1)
+            df = df.dropna(subset=['Gloss_Trung_Binh'])
+        
         df['Ngay_San_Xuat'] = pd.to_datetime(df['Ngay_San_Xuat'], errors='coerce')
-        df = df.sort_values(by='Ngay_San_Xuat')
-        df['Ngay_San_Xuat_Str'] = df['Ngay_San_Xuat'].dt.strftime('%Y-%m-%d') # Format lại chuỗi để hiển thị
+        df = df.sort_values(by=['Ngay_San_Xuat', 'Batch_Lot'])
+        df['Batch_Lot'] = df['Batch_Lot'].astype(str)
+        df['Ngay_San_Xuat_Str'] = df['Ngay_San_Xuat'].dt.strftime('%Y-%m-%d')
         
         return df
     except Exception as e:
@@ -76,19 +86,17 @@ def load_data():
 df = load_data()
 
 if df.empty:
-    st.warning("Dữ liệu trống hoặc không kết nối được Google Sheet.")
+    st.warning("Dữ liệu trống hoặc thiếu các cột chuẩn.")
 else:
-    # --- 4. SIDEBAR - BỘ LỌC CHUNG ---
+    # --- 4. SIDEBAR ---
     st.sidebar.header("🔍 Cài đặt Phân tích")
     
-    # Lọc Màu sắc và Nhựa áp dụng cho TOÀN BỘ Dashboard
     danh_sach_mau = sorted([str(m) for m in df['Mau_Sac'].unique() if m != 'Khác'])
     mau_chon = st.sidebar.selectbox("🎨 Chọn Màu Sắc (Color):", ["Tất cả"] + danh_sach_mau)
     
     danh_sach_nhua = sorted([str(n) for n in df['Loai_Nhua'].unique() if n != 'Khác'])
     nhua_chon = st.sidebar.selectbox("🧪 Chọn Hệ Nhựa (Resin):", ["Tất cả"] + danh_sach_nhua)
     
-    # Lọc DataFrame chung
     df_main = df.copy()
     if mau_chon != "Tất cả":
         df_main = df_main[df_main['Mau_Sac'] == mau_chon]
@@ -98,103 +106,109 @@ else:
     if df_main.empty:
         st.info("Không có dữ liệu cho hệ màu/nhựa này.")
     else:
-        # --- 5. CHIA GIAO DIỆN THÀNH 2 TABS ---
+        # --- 5. CHIA TABS ---
         tab1, tab2 = st.tabs(["🏢 So sánh Nhà Cung Cấp (Vĩ mô)", "📉 Kiểm soát theo Lô Sản Xuất (Vi mô)"])
         
         # ==========================================
-        # TAB 1: SO SÁNH NHÀ CUNG CẤP (BENCHMARKING)
+        # TAB 1: SO SÁNH NHÀ CUNG CẤP (Giữ nguyên)
         # ==========================================
         with tab1:
             st.subheader(f"So sánh năng lực các hãng sơn - Màu: {mau_chon} | Nhựa: {nhua_chon}")
-            
-            # KPI Cards
             c1, c2, c3 = st.columns(3)
             c1.metric("Tổng số cuộn phân tích", len(df_main))
             c2.metric("Số lượng Nhà cung cấp", df_main['Nha_Cung_Cap'].nunique())
-            c3.metric("Độ lệch màu (dE) trung bình chung", f"{df_main['Delta_E_Trung_Binh'].mean():.2f}")
+            
+            df_main['Dat_Chuan_Gloss'] = (df_main['Gloss_Trung_Binh'] >= df_main['Gloss_LSL']) & (df_main['Gloss_Trung_Binh'] <= df_main['Gloss_USL'])
+            ty_le_dat = (df_main['Dat_Chuan_Gloss'].sum() / len(df_main)) * 100
+            c3.metric("Tỷ lệ đạt chuẩn Độ bóng màng sơn (%)", f"{ty_le_dat:.1f}%")
             
             st.markdown("---")
-            
-            # Biểu đồ Boxplot
             fig1, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
             
-            sns.boxplot(x='Nha_Cung_Cap', y='Do_Bong', data=df_main, ax=ax1, hue='Nha_Cung_Cap', palette="Set2", legend=False)
-            sns.stripplot(x='Nha_Cung_Cap', y='Do_Bong', data=df_main, color='black', alpha=0.3, jitter=True, ax=ax1)
-            ax1.set_title("Biến động Độ Bóng (Gloss Variation)", fontweight='bold')
+            sns.boxplot(x='Nha_Cung_Cap', y='Gloss_Trung_Binh', data=df_main, ax=ax1, hue='Nha_Cung_Cap', palette="Set2", legend=False)
+            sns.stripplot(x='Nha_Cung_Cap', y='Gloss_Trung_Binh', data=df_main, color='black', alpha=0.3, jitter=True, ax=ax1)
+            ax1.set_title("Biến động Độ Bóng Màng Sơn (Topcoat Gloss)", fontweight='bold')
             ax1.set_xlabel("Nhà Cung Cấp")
-            ax1.set_ylabel("Độ bóng (Gloss)")
+            ax1.set_ylabel("Độ bóng Thành phẩm")
             ax1.tick_params(axis='x', rotation=45)
             
             sns.boxplot(x='Nha_Cung_Cap', y='Delta_E_Trung_Binh', data=df_main, ax=ax2, hue='Nha_Cung_Cap', palette="Set1", legend=False)
             sns.stripplot(x='Nha_Cung_Cap', y='Delta_E_Trung_Binh', data=df_main, color='black', alpha=0.3, jitter=True, ax=ax2)
-            ax2.set_title("Biến động Độ Lệch Màu (Delta E Variation)", fontweight='bold')
+            ax2.set_title("Biến động Độ Lệch Màu (Delta E)", fontweight='bold')
             ax2.set_xlabel("Nhà Cung Cấp")
             ax2.set_ylabel("Delta E (dE)")
             ax2.axhline(y=1.0, color='r', linestyle='--', label='Target dE < 1.0')
             ax2.legend()
             ax2.tick_params(axis='x', rotation=45)
-            
             st.pyplot(fig1)
-            
-            # Bảng tóm tắt thống kê
-            st.markdown("#### Bảng thống kê theo Nhà cung cấp")
-            bang_thong_ke = df_main.groupby('Nha_Cung_Cap').agg(
-                So_Cuon=('Do_Bong', 'count'),
-                Gloss_TB=('Do_Bong', 'mean'),
-                Gloss_SD=('Do_Bong', 'std'),
-                dE_TB=('Delta_E_Trung_Binh', 'mean'),
-                dE_Max=('Delta_E_Trung_Binh', 'max')
-            ).reset_index()
-            st.dataframe(bang_thong_ke.style.format({
-                'Gloss_TB': '{:.1f}', 'Gloss_SD': '{:.2f}', 'dE_TB': '{:.2f}', 'dE_Max': '{:.2f}'
-            }))
 
         # ==========================================
         # TAB 2: KIỂM SOÁT THEO LÔ (BATCH/LOT CONTROL)
         # ==========================================
         with tab2:
-            st.subheader("Theo dõi xu hướng chất lượng qua từng đợt sản xuất (Trend Analysis)")
+            st.subheader("Theo dõi xu hướng chất lượng trung bình theo từng Lot Sơn (X-Bar Chart)")
             
-            # Chọn 1 nhà cung cấp cụ thể để xem chi tiết
             danh_sach_ncc_tab2 = sorted(df_main['Nha_Cung_Cap'].unique().tolist())
-            ncc_chon = st.selectbox("🏭 Chọn Hãng Sơn để phân tích xu hướng lô:", danh_sach_ncc_tab2)
-            
+            ncc_chon = st.selectbox("🏭 Chọn Hãng Sơn để phân tích các Lô:", danh_sach_ncc_tab2)
             df_lot = df_main[df_main['Nha_Cung_Cap'] == ncc_chon]
             
             if not df_lot.empty:
-                st.markdown(f"**Đang hiển thị:** Màu {mau_chon} | Nhựa {nhua_chon} | Hãng **{ncc_chon}**")
+                # BƯỚC TRUNG BÌNH 2: TÍNH TRUNG BÌNH CỦA TẤT CẢ CÁC CUỘN TRONG CÙNG 1 BATCH
+                df_batch_agg = df_lot.groupby(['Ngay_San_Xuat_Str', 'Batch_Lot'], as_index=False).agg(
+                    So_Luong_Cuon=('Ma_Son', 'count'),
+                    Gloss_Batch_TB=('Gloss_Trung_Binh', 'mean'), # Lấy trung bình Gloss của các cuộn
+                    dE_Batch_TB=('Delta_E_Trung_Binh', 'mean'),  # Lấy trung bình dE của các cuộn
+                    Gloss_LSL=('Gloss_LSL', 'first'),            # Giữ nguyên giới hạn dưới
+                    Gloss_USL=('Gloss_USL', 'first')             # Giữ nguyên giới hạn trên
+                )
                 
-                # Biểu đồ xu hướng (Run Chart / Line Chart)
-                fig2, (ax3, ax4) = plt.subplots(2, 1, figsize=(14, 10), sharex=True)
+                # Tạo nhãn trục X kết hợp Ngày và Batch để dễ nhìn
+                df_batch_agg['Label_Truc_X'] = df_batch_agg['Ngay_San_Xuat_Str'] + "\n(" + df_batch_agg['Batch_Lot'] + ")"
                 
-                # Biểu đồ Đường dE (Quan trọng hơn nên vẽ trước)
-                sns.lineplot(x='Ngay_San_Xuat_Str', y='Delta_E_Trung_Binh', data=df_lot, ax=ax3, marker='o', color='crimson', errorbar=None)
-                sns.scatterplot(x='Ngay_San_Xuat_Str', y='Delta_E_Trung_Binh', data=df_lot, ax=ax3, color='black', alpha=0.5)
-                ax3.set_title("Biểu đồ Kiểm soát Độ Lệch Màu (dE Run Chart)", fontweight='bold')
+                st.markdown(f"**Đang hiển thị:** Màu {mau_chon} | Nhựa {nhua_chon} | Hãng **{ncc_chon}** | Tổng số Lô: **{len(df_batch_agg)}**")
+                
+                # --- Vẽ Biểu Đồ ---
+                fig2, (ax3, ax4) = plt.subplots(2, 1, figsize=(15, 12), sharex=True)
+                
+                # Biểu đồ dE Trung bình Lot
+                sns.lineplot(x='Label_Truc_X', y='dE_Batch_TB', data=df_batch_agg, ax=ax3, marker='o', color='crimson', label='dE Trung Bình Lô')
+                ax3.set_title("Biểu đồ Kiểm soát dE (Trung bình Lô Sơn)", fontweight='bold')
                 ax3.set_ylabel("Delta E (dE)")
-                ax3.axhline(y=1.0, color='red', linestyle='--', label='Giới hạn chuẩn (UCL) = 1.0')
-                ax3.legend()
+                ax3.axhline(y=1.0, color='red', linestyle='--', label='Cảnh báo dE = 1.0')
+                ax3.legend(loc='upper right')
                 ax3.grid(True, linestyle=':', alpha=0.6)
                 
-                # Biểu đồ Đường Gloss
-                sns.lineplot(x='Ngay_San_Xuat_Str', y='Do_Bong', data=df_lot, ax=ax4, marker='s', color='teal', errorbar=None)
-                sns.scatterplot(x='Ngay_San_Xuat_Str', y='Do_Bong', data=df_lot, ax=ax4, color='black', alpha=0.5)
+                # Biểu đồ Gloss Trung bình Lot với LSL/USL
+                sns.lineplot(x='Label_Truc_X', y='Gloss_Batch_TB', data=df_batch_agg, ax=ax4, marker='s', color='teal', label='Gloss Trung Bình Lô')
+                sns.lineplot(x='Label_Truc_X', y='Gloss_USL', data=df_batch_agg, ax=ax4, color='darkorange', linestyle='--', label='Giới hạn trên (USL)')
+                sns.lineplot(x='Label_Truc_X', y='Gloss_LSL', data=df_batch_agg, ax=ax4, color='darkorange', linestyle='--', label='Giới hạn dưới (LSL)')
                 
-                # Tính toán Target Gloss (Giá trị trung bình của toàn bộ các lô)
-                target_gloss = df_lot['Do_Bong'].mean()
-                ax4.axhline(y=target_gloss, color='green', linestyle='-', label=f'Target (Mean) = {target_gloss:.1f}')
-                
-                ax4.set_title("Biểu đồ Xu hướng Độ Bóng (Gloss Run Chart)", fontweight='bold')
+                ax4.set_title("Biểu đồ Kiểm soát Độ Bóng (Trung bình Lô Sơn)", fontweight='bold')
                 ax4.set_ylabel("Độ bóng (Gloss)")
-                ax4.set_xlabel("Batch / Ngày Sản Xuất")
-                ax4.legend()
+                ax4.set_xlabel("Ngày Sản Xuất (Mã Lô)")
+                ax4.legend(loc='upper right')
                 ax4.tick_params(axis='x', rotation=45)
                 ax4.grid(True, linestyle=':', alpha=0.6)
                 
                 plt.tight_layout()
                 st.pyplot(fig2)
                 
-                # Dữ liệu chi tiết của Hãng đang chọn
-                st.markdown("#### Chi tiết các cuộn thuộc đợt sản xuất")
-                cols_to_show = ['Ngay_San_Xuat_Str', 'Ma_Son', 'Do_Bong', 'Delta_E_North', 'Delta_E_South', 'Delta_E_Trung_Binh']
-                st.dataframe(df_lot[cols_to_show].reset_index(drop=True))
+                # --- Bảng Dữ Liệu Đã Gộp Theo Batch ---
+                st.markdown("#### Bảng Dữ Liệu Tổng Hợp Theo Lot Sơn")
+                
+                def highlight_batch_errors(row):
+                    styles = [''] * len(row)
+                    # Vị trí cột: Gloss_Batch_TB (3), Gloss_LSL (5), Gloss_USL (6), dE_Batch_TB (4)
+                    try:
+                        if pd.notna(row['Gloss_Batch_TB']) and pd.notna(row['Gloss_LSL']) and pd.notna(row['Gloss_USL']):
+                            if row['Gloss_Batch_TB'] < row['Gloss_LSL'] or row['Gloss_Batch_TB'] > row['Gloss_USL']:
+                                styles[3] = 'background-color: #ffcccc; color: red; font-weight: bold;'
+                        if pd.notna(row['dE_Batch_TB']) and row['dE_Batch_TB'] > 1.0:
+                            styles[4] = 'background-color: #ffcccc; color: red; font-weight: bold;'
+                    except: pass
+                    return styles
+
+                df_display = df_batch_agg[['Ngay_San_Xuat_Str', 'Batch_Lot', 'So_Luong_Cuon', 'Gloss_Batch_TB', 'dE_Batch_TB', 'Gloss_LSL', 'Gloss_USL']]
+                st.dataframe(df_display.style.apply(highlight_batch_errors, axis=1).format({
+                    'Gloss_Batch_TB': '{:.1f}', 'dE_Batch_TB': '{:.2f}', 'Gloss_LSL': '{:.1f}', 'Gloss_USL': '{:.1f}'
+                }), width='stretch')
