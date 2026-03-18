@@ -82,23 +82,34 @@ df = load_data()
 if df.empty:
     st.warning("Dữ liệu trống hoặc thiếu các cột chuẩn.")
 else:
-    # --- 4. SIDEBAR ---
+    # --- 4. SIDEBAR - BỘ LỌC ĐA TẦNG ---
     st.sidebar.header("🔍 Cài đặt Phân tích")
     
+    # Tầng 1: Khoanh vùng bằng Nhóm Màu & Nhựa
     danh_sach_mau = sorted([str(m) for m in df['Mau_Sac'].unique() if m != 'Khác'])
-    mau_chon = st.sidebar.selectbox("🎨 Chọn Màu Sắc (Color):", ["Tất cả"] + danh_sach_mau)
+    mau_chon = st.sidebar.selectbox("🎨 Phân loại Nhóm Màu:", ["Tất cả"] + danh_sach_mau)
     
     danh_sach_nhua = sorted([str(n) for n in df['Loai_Nhua'].unique() if n != 'Khác'])
-    nhua_chon = st.sidebar.selectbox("🧪 Chọn Hệ Nhựa (Resin):", ["Tất cả"] + danh_sach_nhua)
+    nhua_chon = st.sidebar.selectbox("🧪 Phân loại Hệ Nhựa:", ["Tất cả"] + danh_sach_nhua)
     
-    df_main = df.copy()
+    # Lọc tạm thời để thu gọn danh sách Mã Sơn
+    df_temp = df.copy()
     if mau_chon != "Tất cả":
-        df_main = df_main[df_main['Mau_Sac'] == mau_chon]
+        df_temp = df_temp[df_temp['Mau_Sac'] == mau_chon]
     if nhua_chon != "Tất cả":
-        df_main = df_main[df_main['Loai_Nhua'] == nhua_chon]
+        df_temp = df_temp[df_temp['Loai_Nhua'] == nhua_chon]
+        
+    # Tầng 2: Chọn đích danh Mã Sơn (Cốt lõi để soi Lot)
+    danh_sach_ma_son = sorted(df_temp['Ma_Son'].unique().tolist())
+    ma_son_chon = st.sidebar.selectbox("🎯 Chọn Mã Sơn (塗料編號):", ["Tất cả"] + danh_sach_ma_son)
+    
+    # Áp dụng bộ lọc chính
+    df_main = df_temp.copy()
+    if ma_son_chon != "Tất cả":
+        df_main = df_main[df_main['Ma_Son'] == ma_son_chon]
 
     if df_main.empty:
-        st.info("Không có dữ liệu cho hệ màu/nhựa này.")
+        st.info("Không có dữ liệu cho cấu hình này.")
     else:
         # --- 5. CHIA TABS ---
         tab1, tab2 = st.tabs(["🏢 So sánh Nhà Cung Cấp (Vĩ mô)", "📉 Kiểm soát theo Lô Sản Xuất (Vi mô)"])
@@ -107,7 +118,10 @@ else:
         # TAB 1: SO SÁNH NHÀ CUNG CẤP
         # ==========================================
         with tab1:
-            st.subheader(f"So sánh năng lực các hãng sơn - Màu: {mau_chon} | Nhựa: {nhua_chon}")
+            if ma_son_chon != "Tất cả":
+                st.info(f"💡 Bạn đang lọc đích danh Mã Sơn **{ma_son_chon}**. Biểu đồ so sánh sẽ chỉ hiển thị hãng sản xuất mã này. Để so sánh nhiều hãng, vui lòng đổi Mã Sơn thành 'Tất cả' ở thanh công cụ bên trái.")
+                
+            st.subheader(f"So sánh năng lực - Màu: {mau_chon} | Nhựa: {nhua_chon}")
             c1, c2, c3 = st.columns(3)
             c1.metric("Tổng số cuộn phân tích", len(df_main))
             c2.metric("Số lượng Nhà cung cấp", df_main['Nha_Cung_Cap'].nunique())
@@ -141,11 +155,20 @@ else:
         # ==========================================
         with tab2:
             st.subheader("Theo dõi xu hướng chất lượng trung bình theo từng Lot Sơn (X-Bar Chart)")
+            
             danh_sach_ncc_tab2 = sorted(df_main['Nha_Cung_Cap'].unique().tolist())
-            ncc_chon = st.selectbox("🏭 Chọn Hãng Sơn để phân tích các Lô:", danh_sach_ncc_tab2)
+            
+            # Logic thông minh: Nếu chỉ có 1 hãng (do đã chọn Mã Sơn cụ thể), tự động chọn hãng đó!
+            if len(danh_sach_ncc_tab2) == 1:
+                ncc_chon = danh_sach_ncc_tab2[0]
+                st.markdown(f"🏭 Hệ thống nhận diện Hãng sản xuất: **{ncc_chon}**")
+            else:
+                ncc_chon = st.selectbox("🏭 Chọn Hãng Sơn để phân tích các Lô:", danh_sach_ncc_tab2)
+                
             df_lot = df_main[df_main['Nha_Cung_Cap'] == ncc_chon]
             
             if not df_lot.empty:
+                # TRUNG BÌNH KÉP: Tính trung bình của tất cả cuộn trong cùng 1 Lot
                 df_batch_agg = df_lot.groupby(['Ngay_San_Xuat_Str', 'Batch_Lot'], as_index=False).agg(
                     So_Luong_Cuon=('Ma_Son', 'count'),
                     Gloss_Batch_TB=('Gloss_Trung_Binh', 'mean'),
@@ -156,7 +179,7 @@ else:
                 
                 df_batch_agg['Label_Truc_X'] = df_batch_agg['Ngay_San_Xuat_Str'] + "\n(" + df_batch_agg['Batch_Lot'] + ")"
                 
-                # --- TÍNH NĂNG MỚI: CẢNH BÁO TỰ ĐỘNG ---
+                # Cảnh báo tự động
                 loi_gloss = df_batch_agg[(df_batch_agg['Gloss_Batch_TB'] < df_batch_agg['Gloss_LSL']) | (df_batch_agg['Gloss_Batch_TB'] > df_batch_agg['Gloss_USL'])]
                 loi_de = df_batch_agg[df_batch_agg['dE_Batch_TB'] > 1.0]
                 
@@ -169,7 +192,7 @@ else:
                 else:
                     st.success("✅ Tuyệt vời! Tất cả các Lot sơn đang hiển thị đều đạt chuẩn kiểm soát.")
                 
-                # --- Vẽ Biểu Đồ ---
+                # Vẽ Biểu Đồ
                 fig2, (ax3, ax4) = plt.subplots(2, 1, figsize=(15, 12), sharex=True)
                 
                 sns.lineplot(x='Label_Truc_X', y='dE_Batch_TB', data=df_batch_agg, ax=ax3, marker='o', color='crimson', label='dE Trung Bình Lô')
@@ -193,7 +216,7 @@ else:
                 plt.tight_layout()
                 st.pyplot(fig2)
                 
-                # --- Bảng Dữ Liệu ---
+                # Bảng Dữ Liệu
                 st.markdown("#### Bảng Dữ Liệu Tổng Hợp Theo Lot Sơn")
                 def highlight_batch_errors(row):
                     styles = [''] * len(row)
