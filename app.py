@@ -24,21 +24,13 @@ def load_data():
         
         df = df.rename(columns=col_mapping)
         
-        # --- BÓC TÁCH NHÀ CUNG CẤP TỪ MÃ SƠN (KÝ TỰ THỨ 2) ---
-        # Mandy lưu ý: str[1] trong Python chính là ký tự thứ 2 (đếm từ 0)
+        # --- TÁCH NHÀ CUNG CẤP (Ký tự thứ 2) ---
         df['Vendor_Code'] = df['Ma_Son'].astype(str).str[1]
         
-        # Định nghĩa tên Nhà cung cấp (Mandy có thể sửa lại tên cho đúng thực tế nhé)
-        vendor_map = {
-            'P': 'PPG',
-            'K': 'KCC',
-            'A': 'AkzoNobel',
-            'V': 'Valspar',
-            'B': 'Beckers'
-        }
+        # Định nghĩa Vendor (Mandy tự sửa tên ở đây nhé)
+        vendor_map = {'P': 'PPG', 'K': 'KCC', 'A': 'Akzo', 'V': 'Valspar', 'N': 'Nippon'}
         df['Nha_Cung_Cap'] = df['Vendor_Code'].map(vendor_map).fillna(df['Vendor_Code'])
         
-        # Xử lý số liệu
         cols_num = ['Gloss_Lab', 'dE_N', 'dE_S', 'dL_N', 'da_N', 'db_N', 'Gloss_LSL', 'Gloss_USL']
         for col in cols_num:
             if col in df.columns: df[col] = pd.to_numeric(df[col], errors='coerce')
@@ -56,87 +48,84 @@ if df_raw.empty: st.stop()
 
 # --- 3. SIDEBAR MENU ---
 with st.sidebar:
-    st.title("🛡️ Quality Strategic Analysis")
+    st.title("🛡️ Strategic Quality View")
     st.markdown("---")
-    
-    # Lọc theo Mã sơn (Toàn bộ hoặc theo nhóm)
     list_ma_son = sorted(df_raw['Ma_Son'].dropna().unique().tolist())
-    ma_son_selected = st.selectbox("🎯 Chọn Mã màu phân tích:", list_ma_son)
+    ma_son_selected = st.selectbox("🎯 Chọn Mã màu:", list_ma_son)
     df_filtered = df_raw[df_raw['Ma_Son'] == ma_son_selected].copy()
     
     st.markdown("---")
     view_mode = st.radio(
-        "Phân tích theo cấp độ:",
-        [
-            "🏢 Supplier Benchmarking",
-            "📦 Inter-Batch Color Control",
-            "📋 Raw Data View"
-        ]
+        "Chế độ phân tích:",
+        ["🏢 Supplier Benchmarking", "📦 Inter-Batch Control", "📋 Raw Data"]
     )
 
-# --- 4. XỬ LÝ CÁC VIEW ---
+# --- 4. XỬ LÝ VIEW ---
 
 if view_mode == "🏢 Supplier Benchmarking":
-    st.header(f"So sánh năng lực Nhà cung cấp (Dựa trên ký tự thứ 2: {df_filtered['Vendor_Code'].unique()})")
-    
-    # Để so sánh khách quan, chúng ta nên so sánh trên toàn bộ dữ liệu (không chỉ 1 mã màu) 
-    # để thấy năng lực chung của Vendor đó
-    st.info("💡 Hệ thống đang so sánh tất cả các lô hàng của các Nhà cung cấp để tìm ra đơn vị ổn định nhất.")
-    
-    c1, c2 = st.columns(2)
-    
-    with c1:
-        st.subheader("Độ ổn định Gloss (Boxplot)")
-        fig1, ax1 = plt.subplots(figsize=(8, 5))
-        sns.boxplot(data=df_raw, x='Nha_Cung_Cap', y='Gloss_Lab', palette='viridis')
-        st.pyplot(fig1)
-        st.caption("Cột càng ngắn = Nhà cung cấp càng ổn định về độ bóng.")
+    st.header(f"📊 So sánh Gloss & Color giữa các Nhà cung cấp")
+    st.info("Phân tích dựa trên tất cả dữ liệu có cùng ký tự thứ 2 trong mã sơn.")
 
-    with c2:
-        st.subheader("Sai lệch Màu sắc trung bình (ΔE)")
-        fig2, ax2 = plt.subplots(figsize=(8, 5))
-        vendor_de = df_raw.groupby('Nha_Cung_Cap')['ΔE'].mean().reset_index()
-        sns.barplot(data=vendor_de, x='Nha_Cung_Cap', y='ΔE', palette='Reds_d')
-        ax2.axhline(1.0, color='red', linestyle='--', label='Limit')
-        st.pyplot(fig2)
-        st.caption("Cột càng thấp = Màu sắc càng sát với mẫu chuẩn.")
-
-elif view_mode == "📦 Inter-Batch Color Control":
-    st.header(f"Phân tích Biến động Màu sắc giữa các Lô (Batch-to-Batch)")
+    # KHU VỰC PHÂN TÍCH ĐỘ BÓNG (GLOSS)
+    st.subheader("1. Phân tích Độ bóng (Gloss Performance)")
+    col1, col2 = st.columns([2, 1])
     
-    # Lọc dữ liệu theo mã màu đã chọn
-    df_batch = df_filtered.groupby('Batch_Lot', as_index=False).agg({
-        'Ngay_SX': 'max', 'ΔE': 'mean', 'dL_N': 'mean', 'da_N': 'mean', 'db_N': 'mean', 'Nha_Cung_Cap': 'first'
-    }).sort_values(by='Ngay_SX')
-
-    st.subheader(f"Biểu đồ Run Chart ΔE - Vendor: {df_batch['Nha_Cung_Cap'].unique()}")
-    fig3, ax3 = plt.subplots(figsize=(12, 4))
-    sns.lineplot(data=df_batch, x='Batch_Lot', y='ΔE', marker='o', color='darkred', linewidth=2)
-    ax3.axhline(0.7, color='orange', linestyle='--', label='Warning (0.7)')
-    ax3.axhline(1.0, color='red', label='Reject (1.0)')
-    plt.xticks(rotation=45)
-    st.pyplot(fig3)
+    with col1:
+        # Biểu đồ Boxplot so sánh độ ổn định Gloss giữa các NCC
+        fig_g, ax_g = plt.subplots(figsize=(10, 5))
+        sns.boxplot(data=df_raw, x='Nha_Cung_Cap', y='Gloss_Lab', palette='Set3', ax=ax_g)
+        ax_g.set_title("Độ phân tán Gloss theo Nhà cung cấp")
+        ax_g.set_ylabel("Gloss (Lab)")
+        st.pyplot(fig_g)
+    
+    with col2:
+        # Bảng chỉ số Gloss TB và Độ lệch chuẩn (Std)
+        gloss_stats = df_raw.groupby('Nha_Cung_Cap')['Gloss_Lab'].agg(['mean', 'std', 'count']).reset_index()
+        gloss_stats.columns = ['NCC', 'Gloss TB', 'Độ lệch (Std)', 'Số lô']
+        st.write("**Chỉ số ổn định Gloss**")
+        st.dataframe(gloss_stats.style.format({'Gloss TB': '{:.1f}', 'Độ lệch (Std)': '{:.2f}'}), use_container_width=True)
+        st.caption("Std càng thấp = Chất lượng càng đồng nhất.")
 
     st.markdown("---")
-    st.subheader("Ma trận Phân tích Hướng lệch màu (Color Matrix)")
-    col_a, col_b = st.columns(2)
+
+    # KHU VỰC PHÂN TÍCH MÀU SẮC (COLOR)
+    st.subheader("2. Phân tích Sai lệch màu (Color Performance)")
+    col3, col4 = st.columns([2, 1])
     
-    with col_a:
-        st.write("**Biểu đồ Tọa độ (Δa / Δb)**")
-        fig4, ax4 = plt.subplots(figsize=(6,6))
-        sns.scatterplot(data=df_batch, x='da_N', y='db_N', size='ΔE', hue='ΔE', palette='coolwarm')
-        ax4.axhline(0, color='black', lw=1); ax4.axvline(0, color='black', lw=1)
-        ax4.set_xlim(-1, 1); ax4.set_ylim(-1, 1)
-        st.pyplot(fig4)
+    with col3:
+        fig_c, ax_c = plt.subplots(figsize=(10, 5))
+        sns.barplot(data=df_raw, x='Nha_Cung_Cap', y='ΔE', palette='Reds', ax=ax_c)
+        ax_c.axhline(1.0, color='red', linestyle='--')
+        ax_c.set_title("Sai lệch màu ΔE trung bình")
+        st.pyplot(fig_c)
+        
+    with col4:
+        st.write("**Tỷ lệ hàng đạt (ΔE ≤ 1.0)**")
+        df_raw['Pass_Color'] = df_raw['ΔE'] <= 1.0
+        pass_rate = df_raw.groupby('Nha_Cung_Cap')['Pass_Color'].mean() * 100
+        st.table(pass_rate.rename("Tỷ lệ đạt (%)"))
 
-    with col_b:
-        st.write("**Biến động Độ sáng (ΔL)**")
-        fig5, ax5 = plt.subplots(figsize=(6,6))
-        plt.bar(df_batch['Batch_Lot'].astype(str), df_batch['dL_N'], color='gray')
-        ax5.axhline(0, color='red', linestyle='--')
-        plt.xticks(rotation=90)
-        st.pyplot(fig5)
+elif view_mode == "📦 Inter-Batch Control":
+    st.header(f"📦 Kiểm soát biến động lô - Mã: {ma_son_selected}")
+    
+    # Run Chart cho Gloss
+    st.subheader("Xu hướng Gloss qua từng lô")
+    fig_line, ax_line = plt.subplots(figsize=(12, 4))
+    sns.lineplot(data=df_filtered, x='Batch_Lot', y='Gloss_Lab', marker='o', color='blue', label='Gloss Lab')
+    if not df_filtered.empty:
+        ax_line.axhline(df_filtered['Gloss_LSL'].iloc[0], color='red', linestyle='--')
+        ax_line.axhline(df_filtered['Gloss_USL'].iloc[0], color='red', linestyle='--')
+    plt.xticks(rotation=45)
+    st.pyplot(fig_line)
 
-elif view_mode == "📋 Raw Data View":
-    st.subheader("Bảng dữ liệu đã bóc tách Vendor")
-    st.dataframe(df_filtered[['Ngay_SX', 'Batch_Lot', 'Ma_Son', 'Nha_Cung_Cap', 'Gloss_Lab', 'ΔE']], use_container_width=True)
+    st.markdown("---")
+    st.subheader("Xu hướng Sai lệch màu (ΔE)")
+    fig_de, ax_de = plt.subplots(figsize=(12, 4))
+    sns.lineplot(data=df_filtered, x='Batch_Lot', y='ΔE', marker='s', color='red')
+    ax_de.axhline(1.0, color='black', alpha=0.5)
+    plt.xticks(rotation=45)
+    st.pyplot(fig_de)
+
+elif view_mode == "📋 Raw Data":
+    st.subheader("Dữ liệu nguồn")
+    st.dataframe(df_filtered, use_container_width=True)
