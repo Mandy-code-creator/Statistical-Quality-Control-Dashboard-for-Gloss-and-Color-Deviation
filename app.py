@@ -14,7 +14,9 @@ def load_data():
     sheet_url = "https://docs.google.com/spreadsheets/d/1ugm7G1kgGmSlk5PhoKk62h_bs5pX4bDuwUgdaELLYHE/export?format=csv&gid=0"
     try:
         df = pd.read_csv(sheet_url)
-        df = df.rename(columns={
+        
+        # Mapping các cột cố định
+        col_mapping = {
             '生產日期': 'Ngay_SX', 
             '製造批號': 'Batch_Lot', 
             '塗料編號': 'Ma_Son',
@@ -23,11 +25,23 @@ def load_data():
             'NORTH_BACK_BLANCH': 'G_Back_N', 'SOUTH_BACK_BLANCH': 'G_Back_S',
             'NORTH_TOP_DELTA_E': 'dE_N', 'SOUTH_TOP_DELTA_E': 'dE_S',
             'NORTH_TOP_DELTA_L': 'dL_N', 'NORTH_TOP_DELTA_A': 'da_N', 'NORTH_TOP_DELTA_B': 'db_N',
-            'SOUTH_TOP_DELTA_L': 'dL_S', 'SOUTH_TOP_DELTA_A': 'da_S', 'SOUTH_TOP_DELTA_B': 'db_S',
-            '光澤60度反射(下限)': 'Gloss_LSL', 
-            '光澤60 độ 反射(上限)': 'Gloss_USL'
-        })
+            'SOUTH_TOP_DELTA_L': 'dL_S', 'SOUTH_TOP_DELTA_A': 'da_S', 'SOUTH_TOP_DELTA_B': 'db_S'
+        }
         
+        # TÌM KIẾM THÔNG MINH CHO LSL/USL (Dựa trên từ khóa 下限/上限)
+        for col in df.columns:
+            if '下限' in col and '光澤' in col:
+                col_mapping[col] = 'Gloss_LSL'
+            elif '上限' in col and '光澤' in col:
+                col_mapping[col] = 'Gloss_USL'
+        
+        df = df.rename(columns=col_mapping)
+        
+        # Kiểm tra nếu vẫn thiếu cột (do file gốc không có) thì tạo cột 0 để tránh crash
+        if 'Gloss_LSL' not in df.columns: df['Gloss_LSL'] = 0
+        if 'Gloss_USL' not in df.columns: df['Gloss_USL'] = 0
+        
+        # Chuyển đổi kiểu số
         cols_num = ['Gloss_Lab', 'G_Top_N', 'G_Top_S', 'G_Back_N', 'G_Back_S', 
                     'dE_N', 'dE_S', 'dL_N', 'da_N', 'db_N', 'dL_S', 'da_S', 'db_S',
                     'Gloss_LSL', 'Gloss_USL']
@@ -35,8 +49,10 @@ def load_data():
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
         
+        # Định dạng ngày (bỏ giờ)
         df['Ngay_SX'] = pd.to_datetime(df['Ngay_SX'], errors='coerce').dt.date
         
+        # TÍNH TOÁN TRUNG BÌNH
         df['ΔE'] = df[['dE_N', 'dE_S']].mean(axis=1)
         df['ΔL'] = df[['dL_N', 'dL_S']].mean(axis=1)
         df['Δa'] = df[['da_N', 'da_S']].mean(axis=1)
@@ -44,13 +60,14 @@ def load_data():
         df['Gloss_Line_Top'] = df[['G_Top_N', 'G_Top_S']].mean(axis=1)
         df['Gloss_Line_Back'] = df[['G_Back_N', 'G_Back_S']].mean(axis=1)
         
+        # KIỂM TRA TRẠNG THÁI (PASS/FAIL)
         df['Status'] = '✅ PASS'
         fail_cond = (df['Gloss_Lab'] < df['Gloss_LSL']) | (df['Gloss_Lab'] > df['Gloss_USL']) | (df['ΔE'] > 1.0)
         df.loc[fail_cond, 'Status'] = '❌ FAIL'
         
         return df
     except Exception as e:
-        st.error(f"⚠️ Lỗi kết nối: {e}")
+        st.error(f"⚠️ Lỗi cấu trúc: {e}")
         return pd.DataFrame()
 
 df_raw = load_data()
@@ -73,14 +90,17 @@ df_batch = df_filtered.groupby('Batch_Lot', as_index=False).agg({
 }).sort_values(by='Ngay_SX')
 
 # --- 5. HIỂN THỊ ---
-tab1, tab2 = st.tabs(["📋 KIỂM TRA INPUT (CHI TIẾT)", "📈 PHÂN TÍCH XU HƯỚNG"])
+tab1, tab2 = st.tabs(["📋 KIỂM TRA CHI TIẾT", "📈 XU HƯỚNG BATCH"])
 
 with tab1:
     st.subheader(f"So sánh kết quả đo: {ma_son_selected}")
+    
+    # Lấy thông số LSL/USL của mã sơn hiện tại để hiển thị tiêu đề
     g_lsl = df_filtered['Gloss_LSL'].iloc[0] if not df_filtered.empty else 0
     g_usl = df_filtered['Gloss_USL'].iloc[0] if not df_filtered.empty else 0
     st.markdown(f"**Tiêu chuẩn Gloss:** `{g_lsl}` - `{g_usl}` | **Tiêu chuẩn ΔE:** `≤ 1.0`")
 
+    # Bảng hiển thị
     display_cols = ['Ngay_SX', 'Batch_Lot', 'Status', 'Gloss_Lab', 'Gloss_Line_Top', 'Gloss_Line_Back', 'Gloss_LSL', 'Gloss_USL', 'ΔE', 'ΔL', 'Δa', 'Δb']
     
     def style_fail(row):
@@ -96,7 +116,7 @@ with tab1:
     )
 
 with tab2:
-    st.subheader("Biểu đồ biến động Độ bóng (Lab vs Line)")
+    st.subheader("Biểu đồ Độ bóng Lab vs Line")
     if not df_batch.empty:
         fig, ax = plt.subplots(figsize=(12, 5))
         plot_data = df_batch.copy()
@@ -107,7 +127,7 @@ with tab2:
         sns.lineplot(data=plot_data, x='Batch_Lot', y='Gloss_Line_Back', marker='^', label='Line Back Avg', alpha=0.6)
         
         if pd.notna(g_lsl):
-            ax.axhline(g_lsl, color='red', linestyle='--', label='Gloss Limit')
+            ax.axhline(g_lsl, color='red', linestyle='--', label='Limit')
             ax.axhline(g_usl, color='red', linestyle='--')
                 
         plt.xticks(rotation=45)
@@ -116,7 +136,6 @@ with tab2:
     
     st.markdown("---")
     st.subheader("Bảng tổng hợp Delta (Δ) theo Batch")
-    # ĐÃ SỬA LỖI TẠI ĐÂY: Chỉ định rõ cột số mới format {:.3f}
     st.dataframe(
         df_batch[['Batch_Lot', 'Ngay_SX', 'ΔE', 'ΔL', 'Δa', 'Δb']].style.format({
             'ΔE': '{:.3f}', 'ΔL': '{:.3f}', 'Δa': '{:.3f}', 'Δb': '{:.3f}'
