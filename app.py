@@ -38,7 +38,6 @@ def load_data():
     sheet_url = "https://docs.google.com/spreadsheets/d/1ugm7G1kgGmSlk5PhoKk62h_bs5pX4bDuwUgdaELLYHE/export?format=csv&gid=0"
     try:
         df = pd.read_csv(sheet_url)
-        
         df = df.rename(columns={
             '生產日期': 'Ngay_San_Xuat',
             '製造批號': 'Batch_Lot',
@@ -52,11 +51,7 @@ def load_data():
         })
         
         df = df.dropna(subset=['Ma_Son', 'Batch_Lot'])
-        
-        cols_to_numeric = [
-            'Gloss_North_Top', 'Gloss_South_Top', 
-            'Delta_E_North', 'Delta_E_South', 'Gloss_LSL', 'Gloss_USL'
-        ]
+        cols_to_numeric = ['Gloss_North_Top', 'Gloss_South_Top', 'Delta_E_North', 'Delta_E_South', 'Gloss_LSL', 'Gloss_USL']
         for col in cols_to_numeric:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
@@ -65,7 +60,6 @@ def load_data():
         df['Loai_Nhua'] = df['Ma_Son'].str[2].map(resin_map).fillna('Khác')
         df['Mau_Sac'] = df['Ma_Son'].str[6].map(color_map).fillna('Khác')
         
-        # BƯỚC TRUNG BÌNH 1: TRUNG BÌNH CUỘN THÉP (Bắc + Nam) / 2
         if 'Delta_E_North' in df.columns and 'Delta_E_South' in df.columns:
             df['Delta_E_Trung_Binh'] = df[['Delta_E_North', 'Delta_E_South']].mean(axis=1)
         
@@ -110,7 +104,7 @@ else:
         tab1, tab2 = st.tabs(["🏢 So sánh Nhà Cung Cấp (Vĩ mô)", "📉 Kiểm soát theo Lô Sản Xuất (Vi mô)"])
         
         # ==========================================
-        # TAB 1: SO SÁNH NHÀ CUNG CẤP (Giữ nguyên)
+        # TAB 1: SO SÁNH NHÀ CUNG CẤP
         # ==========================================
         with tab1:
             st.subheader(f"So sánh năng lực các hãng sơn - Màu: {mau_chon} | Nhựa: {nhua_chon}")
@@ -147,30 +141,37 @@ else:
         # ==========================================
         with tab2:
             st.subheader("Theo dõi xu hướng chất lượng trung bình theo từng Lot Sơn (X-Bar Chart)")
-            
             danh_sach_ncc_tab2 = sorted(df_main['Nha_Cung_Cap'].unique().tolist())
             ncc_chon = st.selectbox("🏭 Chọn Hãng Sơn để phân tích các Lô:", danh_sach_ncc_tab2)
             df_lot = df_main[df_main['Nha_Cung_Cap'] == ncc_chon]
             
             if not df_lot.empty:
-                # BƯỚC TRUNG BÌNH 2: TÍNH TRUNG BÌNH CỦA TẤT CẢ CÁC CUỘN TRONG CÙNG 1 BATCH
                 df_batch_agg = df_lot.groupby(['Ngay_San_Xuat_Str', 'Batch_Lot'], as_index=False).agg(
                     So_Luong_Cuon=('Ma_Son', 'count'),
-                    Gloss_Batch_TB=('Gloss_Trung_Binh', 'mean'), # Lấy trung bình Gloss của các cuộn
-                    dE_Batch_TB=('Delta_E_Trung_Binh', 'mean'),  # Lấy trung bình dE của các cuộn
-                    Gloss_LSL=('Gloss_LSL', 'first'),            # Giữ nguyên giới hạn dưới
-                    Gloss_USL=('Gloss_USL', 'first')             # Giữ nguyên giới hạn trên
+                    Gloss_Batch_TB=('Gloss_Trung_Binh', 'mean'),
+                    dE_Batch_TB=('Delta_E_Trung_Binh', 'mean'),
+                    Gloss_LSL=('Gloss_LSL', 'first'),
+                    Gloss_USL=('Gloss_USL', 'first')
                 )
                 
-                # Tạo nhãn trục X kết hợp Ngày và Batch để dễ nhìn
                 df_batch_agg['Label_Truc_X'] = df_batch_agg['Ngay_San_Xuat_Str'] + "\n(" + df_batch_agg['Batch_Lot'] + ")"
                 
-                st.markdown(f"**Đang hiển thị:** Màu {mau_chon} | Nhựa {nhua_chon} | Hãng **{ncc_chon}** | Tổng số Lô: **{len(df_batch_agg)}**")
+                # --- TÍNH NĂNG MỚI: CẢNH BÁO TỰ ĐỘNG ---
+                loi_gloss = df_batch_agg[(df_batch_agg['Gloss_Batch_TB'] < df_batch_agg['Gloss_LSL']) | (df_batch_agg['Gloss_Batch_TB'] > df_batch_agg['Gloss_USL'])]
+                loi_de = df_batch_agg[df_batch_agg['dE_Batch_TB'] > 1.0]
+                
+                if not loi_gloss.empty or not loi_de.empty:
+                    st.error("🚨 **CẢNH BÁO CHẤT LƯỢNG:** Phát hiện Lot sơn vi phạm tiêu chuẩn kiểm soát!")
+                    if not loi_gloss.empty:
+                        st.write(f"- **Lỗi Độ Bóng (Gloss):** Các Lot {', '.join(loi_gloss['Batch_Lot'].tolist())}")
+                    if not loi_de.empty:
+                        st.write(f"- **Lỗi Lệch Màu (dE > 1.0):** Các Lot {', '.join(loi_de['Batch_Lot'].tolist())}")
+                else:
+                    st.success("✅ Tuyệt vời! Tất cả các Lot sơn đang hiển thị đều đạt chuẩn kiểm soát.")
                 
                 # --- Vẽ Biểu Đồ ---
                 fig2, (ax3, ax4) = plt.subplots(2, 1, figsize=(15, 12), sharex=True)
                 
-                # Biểu đồ dE Trung bình Lot
                 sns.lineplot(x='Label_Truc_X', y='dE_Batch_TB', data=df_batch_agg, ax=ax3, marker='o', color='crimson', label='dE Trung Bình Lô')
                 ax3.set_title("Biểu đồ Kiểm soát dE (Trung bình Lô Sơn)", fontweight='bold')
                 ax3.set_ylabel("Delta E (dE)")
@@ -178,7 +179,6 @@ else:
                 ax3.legend(loc='upper right')
                 ax3.grid(True, linestyle=':', alpha=0.6)
                 
-                # Biểu đồ Gloss Trung bình Lot với LSL/USL
                 sns.lineplot(x='Label_Truc_X', y='Gloss_Batch_TB', data=df_batch_agg, ax=ax4, marker='s', color='teal', label='Gloss Trung Bình Lô')
                 sns.lineplot(x='Label_Truc_X', y='Gloss_USL', data=df_batch_agg, ax=ax4, color='darkorange', linestyle='--', label='Giới hạn trên (USL)')
                 sns.lineplot(x='Label_Truc_X', y='Gloss_LSL', data=df_batch_agg, ax=ax4, color='darkorange', linestyle='--', label='Giới hạn dưới (LSL)')
@@ -193,12 +193,10 @@ else:
                 plt.tight_layout()
                 st.pyplot(fig2)
                 
-                # --- Bảng Dữ Liệu Đã Gộp Theo Batch ---
+                # --- Bảng Dữ Liệu ---
                 st.markdown("#### Bảng Dữ Liệu Tổng Hợp Theo Lot Sơn")
-                
                 def highlight_batch_errors(row):
                     styles = [''] * len(row)
-                    # Vị trí cột: Gloss_Batch_TB (3), Gloss_LSL (5), Gloss_USL (6), dE_Batch_TB (4)
                     try:
                         if pd.notna(row['Gloss_Batch_TB']) and pd.notna(row['Gloss_LSL']) and pd.notna(row['Gloss_USL']):
                             if row['Gloss_Batch_TB'] < row['Gloss_LSL'] or row['Gloss_Batch_TB'] > row['Gloss_USL']:
