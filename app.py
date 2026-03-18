@@ -12,21 +12,31 @@ def load_data():
     sheet_url = "https://docs.google.com/spreadsheets/d/1ugm7G1kgGmSlk5PhoKk62h_bs5pX4bDuwUgdaELLYHE/export?format=csv&gid=0"
     try:
         df = pd.read_csv(sheet_url)
-        # Giả sử cột '廠商' hoặc '塗料廠' là Nhà cung cấp. 
-        # Nếu file của bạn dùng tên khác, hãy đổi 'Nha_Cung_Cap' bên dưới nhé.
         col_mapping = {
             '生產日期': 'Ngay_SX', '製造批號': 'Batch_Lot', '塗料編號': 'Ma_Son',
-            '供應商': 'Nha_Cung_Cap', # Tên cột giả định cho Nhà cung cấp
             '光澤': 'Gloss_Lab',
             'NORTH_TOP_DELTA_E': 'dE_N', 'SOUTH_TOP_DELTA_E': 'dE_S',
-            'NORTH_TOP_DELTA_L': 'dL_N', 'SOUTH_TOP_DELTA_A': 'da_N', 'NORTH_TOP_DELTA_B': 'db_N'
+            'NORTH_TOP_DELTA_L': 'dL_N', 'NORTH_TOP_DELTA_A': 'da_N', 'NORTH_TOP_DELTA_B': 'db_N'
         }
-        # Tự động map LSL/USL
         for col in df.columns:
             if '下限' in col and '光澤' in col: col_mapping[col] = 'Gloss_LSL'
             elif '上限' in col and '光澤' in col: col_mapping[col] = 'Gloss_USL'
         
         df = df.rename(columns=col_mapping)
+        
+        # --- BÓC TÁCH NHÀ CUNG CẤP TỪ MÃ SƠN (KÝ TỰ THỨ 2) ---
+        # Mandy lưu ý: str[1] trong Python chính là ký tự thứ 2 (đếm từ 0)
+        df['Vendor_Code'] = df['Ma_Son'].astype(str).str[1]
+        
+        # Định nghĩa tên Nhà cung cấp (Mandy có thể sửa lại tên cho đúng thực tế nhé)
+        vendor_map = {
+            'P': 'PPG',
+            'K': 'KCC',
+            'A': 'AkzoNobel',
+            'V': 'Valspar',
+            'B': 'Beckers'
+        }
+        df['Nha_Cung_Cap'] = df['Vendor_Code'].map(vendor_map).fillna(df['Vendor_Code'])
         
         # Xử lý số liệu
         cols_num = ['Gloss_Lab', 'dE_N', 'dE_S', 'dL_N', 'da_N', 'db_N', 'Gloss_LSL', 'Gloss_USL']
@@ -49,7 +59,7 @@ with st.sidebar:
     st.title("🛡️ Quality Strategic Analysis")
     st.markdown("---")
     
-    # Lọc Mã Màu chung (Ví dụ: Blue, White, Red...)
+    # Lọc theo Mã sơn (Toàn bộ hoặc theo nhóm)
     list_ma_son = sorted(df_raw['Ma_Son'].dropna().unique().tolist())
     ma_son_selected = st.selectbox("🎯 Chọn Mã màu phân tích:", list_ma_son)
     df_filtered = df_raw[df_raw['Ma_Son'] == ma_son_selected].copy()
@@ -66,78 +76,67 @@ with st.sidebar:
 
 # --- 4. XỬ LÝ CÁC VIEW ---
 
-# --- VIEW 1: SO SÁNH NHÀ CUNG CẤP ---
 if view_mode == "🏢 Supplier Benchmarking":
-    st.header(f"So sánh năng lực Nhà cung cấp - Mã: {ma_son_selected}")
+    st.header(f"So sánh năng lực Nhà cung cấp (Dựa trên ký tự thứ 2: {df_filtered['Vendor_Code'].unique()})")
     
-    if 'Nha_Cung_Cap' in df_filtered.columns:
-        c1, c2 = st.columns(2)
-        
-        with c1:
-            st.subheader("So sánh Độ ổn định Gloss")
-            fig1, ax1 = plt.subplots()
-            sns.boxplot(data=df_filtered, x='Nha_Cung_Cap', y='Gloss_Lab', palette='Set2')
-            # Vẽ đường biên tiêu chuẩn
-            lsl, usl = df_filtered['Gloss_LSL'].iloc[0], df_filtered['Gloss_USL'].iloc[0]
-            ax1.axhline(lsl, color='red', linestyle='--')
-            ax1.axhline(usl, color='red', linestyle='--')
-            st.pyplot(fig1)
-            st.caption("Biểu đồ hộp thể hiện độ phân tán Gloss. Hộp càng ngắn, NCC đó càng ổn định.")
+    # Để so sánh khách quan, chúng ta nên so sánh trên toàn bộ dữ liệu (không chỉ 1 mã màu) 
+    # để thấy năng lực chung của Vendor đó
+    st.info("💡 Hệ thống đang so sánh tất cả các lô hàng của các Nhà cung cấp để tìm ra đơn vị ổn định nhất.")
+    
+    c1, c2 = st.columns(2)
+    
+    with c1:
+        st.subheader("Độ ổn định Gloss (Boxplot)")
+        fig1, ax1 = plt.subplots(figsize=(8, 5))
+        sns.boxplot(data=df_raw, x='Nha_Cung_Cap', y='Gloss_Lab', palette='viridis')
+        st.pyplot(fig1)
+        st.caption("Cột càng ngắn = Nhà cung cấp càng ổn định về độ bóng.")
 
-        with c2:
-            st.subheader("So sánh Sai lệch Màu (ΔE)")
-            fig2, ax2 = plt.subplots()
-            sns.barplot(data=df_filtered, x='Nha_Cung_Cap', y='ΔE', estimator='mean', palette='Reds')
-            ax2.axhline(1.0, color='red', label='Limit (1.0)')
-            st.pyplot(fig2)
-            st.caption("NCC nào có cột thấp hơn thì màu sắc gần với mẫu chuẩn hơn.")
-    else:
-        st.warning("Dữ liệu của bạn chưa có cột 'Nha_Cung_Cap' (供應商). Vui lòng kiểm tra lại file gốc.")
+    with c2:
+        st.subheader("Sai lệch Màu sắc trung bình (ΔE)")
+        fig2, ax2 = plt.subplots(figsize=(8, 5))
+        vendor_de = df_raw.groupby('Nha_Cung_Cap')['ΔE'].mean().reset_index()
+        sns.barplot(data=vendor_de, x='Nha_Cung_Cap', y='ΔE', palette='Reds_d')
+        ax2.axhline(1.0, color='red', linestyle='--', label='Limit')
+        st.pyplot(fig2)
+        st.caption("Cột càng thấp = Màu sắc càng sát với mẫu chuẩn.")
 
-# --- VIEW 2: QUẢN LÝ KIỂM SOÁT LỆCH MÀU GIỮA CÁC LÔ ---
 elif view_mode == "📦 Inter-Batch Color Control":
     st.header(f"Phân tích Biến động Màu sắc giữa các Lô (Batch-to-Batch)")
     
+    # Lọc dữ liệu theo mã màu đã chọn
     df_batch = df_filtered.groupby('Batch_Lot', as_index=False).agg({
-        'Ngay_SX': 'max', 'ΔE': 'mean', 'dL_N': 'mean', 'da_N': 'mean', 'db_N': 'mean'
+        'Ngay_SX': 'max', 'ΔE': 'mean', 'dL_N': 'mean', 'da_N': 'mean', 'db_N': 'mean', 'Nha_Cung_Cap': 'first'
     }).sort_values(by='Ngay_SX')
 
-    # Biểu đồ Run Chart cho Delta E
-    st.subheader("Biểu đồ Run Chart ΔE qua từng lô sản xuất")
+    st.subheader(f"Biểu đồ Run Chart ΔE - Vendor: {df_batch['Nha_Cung_Cap'].unique()}")
     fig3, ax3 = plt.subplots(figsize=(12, 4))
     sns.lineplot(data=df_batch, x='Batch_Lot', y='ΔE', marker='o', color='darkred', linewidth=2)
-    ax3.axhline(1.0, color='red', linestyle='-', label='Rejection Limit')
-    ax3.axhline(0.7, color='orange', linestyle='--', label='Warning Limit')
+    ax3.axhline(0.7, color='orange', linestyle='--', label='Warning (0.7)')
+    ax3.axhline(1.0, color='red', label='Reject (1.0)')
     plt.xticks(rotation=45)
-    ax3.legend()
     st.pyplot(fig3)
 
     st.markdown("---")
-    
-    # Phân tích hướng lệch màu
-    st.subheader("Ma trận Phân tích Hướng lệch (Color Direction)")
-    col_a, col_b = st.columns([1, 1])
+    st.subheader("Ma trận Phân tích Hướng lệch màu (Color Matrix)")
+    col_a, col_b = st.columns(2)
     
     with col_a:
-        st.write("**Lệch Đỏ/Xanh (Δa) & Vàng/Lục (Δb)**")
+        st.write("**Biểu đồ Tọa độ (Δa / Δb)**")
         fig4, ax4 = plt.subplots(figsize=(6,6))
         sns.scatterplot(data=df_batch, x='da_N', y='db_N', size='ΔE', hue='ΔE', palette='coolwarm')
         ax4.axhline(0, color='black', lw=1); ax4.axvline(0, color='black', lw=1)
         ax4.set_xlim(-1, 1); ax4.set_ylim(-1, 1)
         st.pyplot(fig4)
-        st.info("🎯 Mục tiêu là các chấm phải tập trung tại tâm (0,0).")
 
     with col_b:
-        st.write("**Biến động độ sáng (ΔL)**")
-        # Dùng biểu đồ Area để thấy sự trồi sụt của độ sáng
+        st.write("**Biến động Độ sáng (ΔL)**")
         fig5, ax5 = plt.subplots(figsize=(6,6))
-        plt.fill_between(df_batch['Batch_Lot'].astype(str), df_batch['dL_N'], color="gray", alpha=0.3)
-        plt.plot(df_batch['Batch_Lot'].astype(str), df_batch['dL_N'], color="black", marker='s')
+        plt.bar(df_batch['Batch_Lot'].astype(str), df_batch['dL_N'], color='gray')
         ax5.axhline(0, color='red', linestyle='--')
         plt.xticks(rotation=90)
         st.pyplot(fig5)
 
-# --- VIEW 3: DỮ LIỆU THÔ ---
 elif view_mode == "📋 Raw Data View":
-    st.subheader("Dữ liệu chi tiết")
-    st.dataframe(df_filtered, use_container_width=True)
+    st.subheader("Bảng dữ liệu đã bóc tách Vendor")
+    st.dataframe(df_filtered[['Ngay_SX', 'Batch_Lot', 'Ma_Son', 'Nha_Cung_Cap', 'Gloss_Lab', 'ΔE']], use_container_width=True)
