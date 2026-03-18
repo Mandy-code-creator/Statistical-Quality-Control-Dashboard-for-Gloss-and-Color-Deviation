@@ -30,7 +30,8 @@ def load_data():
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
         
-        df['Ngay_SX'] = pd.to_datetime(df['Ngay_SX'], errors='coerce')
+        # CHỈNH SỬA TẠI ĐÂY: Chuyển về datetime rồi ép về kiểu date (bỏ giờ)
+        df['Ngay_SX'] = pd.to_datetime(df['Ngay_SX'], errors='coerce').dt.date
         
         # BƯỚC 1: TÍNH TRUNG BÌNH MỖI CUỘN
         df['ΔE'] = df[['dE_N', 'dE_S']].mean(axis=1)
@@ -56,10 +57,9 @@ ma_son_selected = st.sidebar.selectbox("🎯 Chọn Mã Sơn (塗料編號):", l
 
 df_filtered = df_raw[df_raw['Ma_Son'] == ma_son_selected].copy()
 
-# --- 4. XỬ LÝ GỘP THEO BATCH_LOT (TRUNG BÌNH LẦN 2) ---
-# Dùng ký hiệu Delta trực tiếp trong tên cột để hiển thị lên bảng
+# --- 4. XỬ LÝ GỘP THEO BATCH_LOT ---
 df_batch_summary = df_filtered.groupby('Batch_Lot', as_index=False).agg({
-    'Ngay_SX': 'max',
+    'Ngay_SX': 'max', # Vẫn lấy ngày gần nhất
     'Ma_Son': 'first',
     'ΔE': 'mean',
     'ΔL': 'mean',
@@ -76,16 +76,17 @@ tab1, tab2 = st.tabs(["📋 Bảng Tổng hợp Lab", "📉 Biểu đồ Xu hư�
 with tab1:
     st.subheader(f"Thông số Batch chi tiết: {ma_son_selected}")
     
-    # Metrics tổng quan
     m1, m2, m3 = st.columns(3)
     m1.metric("Số lượng Batch", len(df_batch_summary))
     m2.metric("ΔE Trung bình", f"{df_batch_summary['ΔE'].mean():.3f}")
     m3.metric("Gloss Trung bình", f"{df_batch_summary['Gloss'].mean():.1f}")
 
     st.markdown("**Bảng tổng hợp chỉ số Δ (Trung bình lô):**")
-    # Định dạng bảng với ký hiệu Delta
+    
+    # Định dạng hiển thị bảng
     st.dataframe(
         df_batch_summary[['Batch_Lot', 'Ngay_SX', 'ΔE', 'ΔL', 'Δa', 'Δb', 'Gloss', 'LSL', 'USL']].style.format({
+            'Ngay_SX': lambda x: x.strftime('%Y-%m-%d') if hasattr(x, 'strftime') else str(x),
             'ΔE': '{:.3f}', 'ΔL': '{:.3f}', 
             'Δa': '{:.3f}', 'Δb': '{:.3f}',
             'Gloss': '{:.2f}', 'LSL': '{:.1f}', 'USL': '{:.1f}'
@@ -98,15 +99,19 @@ with tab2:
         # Biểu đồ dE và LAB
         st.subheader("Phân tích biến động ΔE & Tọa độ màu (ΔL, Δa, Δb)")
         fig1, ax1 = plt.subplots(figsize=(12, 5))
-        sns.lineplot(data=df_batch_summary, x='Batch_Lot', y='ΔE', marker='o', label='ΔE (Total)', color='black', linewidth=2.5)
-        sns.lineplot(data=df_batch_summary, x='Batch_Lot', y='ΔL', marker='x', label='ΔL (Lightness)', alpha=0.7)
-        sns.lineplot(data=df_batch_summary, x='Batch_Lot', y='Δa', marker='.', label='Δa (Red-Green)', alpha=0.7)
-        sns.lineplot(data=df_batch_summary, x='Batch_Lot', y='Δb', marker='.', label='Δb (Yellow-Blue)', alpha=0.7)
+        
+        # Chuyển Batch_Lot sang string để trục X biểu đồ không bị lỗi hiển thị
+        plot_data = df_batch_summary.copy()
+        plot_data['Batch_Lot'] = plot_data['Batch_Lot'].astype(str)
+
+        sns.lineplot(data=plot_data, x='Batch_Lot', y='ΔE', marker='o', label='ΔE (Total)', color='black', linewidth=2.5)
+        sns.lineplot(data=plot_data, x='Batch_Lot', y='ΔL', marker='x', label='ΔL', alpha=0.7)
+        sns.lineplot(data=plot_data, x='Batch_Lot', y='Δa', marker='.', label='Δa', alpha=0.7)
+        sns.lineplot(data=plot_data, x='Batch_Lot', y='Δb', marker='.', label='Δb', alpha=0.7)
         
         ax1.axhline(0, color='gray', linestyle='-', linewidth=0.8)
-        ax1.axhline(1.0, color='red', linestyle='--', alpha=0.5, label='Limit ΔE=1.0')
-        ax1.set_title(f"Biến động các chỉ số Delta (Δ) - Mã {ma_son_selected}", fontsize=14)
-        ax1.set_ylabel("Giá trị Delta")
+        ax1.axhline(1.0, color='red', linestyle='--', alpha=0.5)
+        ax1.set_title(f"Biến động các chỉ số Delta (Δ) - Mã {ma_son_selected}")
         plt.xticks(rotation=45)
         ax1.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
         st.pyplot(fig1)
@@ -114,7 +119,7 @@ with tab2:
         # Biểu đồ Gloss
         st.subheader("Phân tích biến động Độ bóng (Gloss)")
         fig2, ax2 = plt.subplots(figsize=(12, 5))
-        sns.lineplot(data=df_batch_summary, x='Batch_Lot', y='Gloss', marker='s', color='tab:blue', label='Gloss Avg')
+        sns.lineplot(data=plot_data, x='Batch_Lot', y='Gloss', marker='s', color='tab:blue', label='Gloss Avg')
         
         lsl_val = df_batch_summary['LSL'].iloc[0]
         usl_val = df_batch_summary['USL'].iloc[0]
@@ -122,8 +127,6 @@ with tab2:
             ax2.axhline(lsl_val, color='orange', linestyle='--', label=f'LSL: {lsl_val}')
             ax2.axhline(usl_val, color='orange', linestyle='--', label=f'USL: {usl_val}')
             
-        ax2.set_title("Kiểm soát Độ bóng theo Batch", fontsize=14)
-        ax2.set_ylabel("Gloss (60°)")
         plt.xticks(rotation=45)
         ax2.legend()
         st.pyplot(fig2)
