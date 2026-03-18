@@ -3,107 +3,102 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-# --- 1. THIẾT LẬP CẤU HÌNH TRANG ---
-st.set_page_config(page_title="SQC Dashboard - Data Check", layout="wide")
-st.title("📊 Statistical Quality Control Dashboard")
-st.markdown("Hệ thống Phân tích & Kiểm tra Dữ liệu Tôn mạ màu.")
+# --- 1. THIẾT LẬP CẤU HÌNH ---
+st.set_page_config(page_title="QA Steel Dashboard", layout="wide")
+st.title("📊 Hệ thống Kiểm soát Chất lượng Sơn Tôn")
 st.markdown("---")
 
-# --- 2. TỪ ĐIỂN GIẢI MÃ ---
-supplier_map = {'S':'Yungchi','T':'AKZO NOBEL','B':'Beckers','C':'Nan Pao','U':'Quali Poly','N':'Nippon','K':'Kansai','V':'Valspar','J':'Valspar (SW)','L':'KCC','R':'Noroo','Q':'Paoqun','F':'KCC (New)','D':'DNT','P':'KCC (Posco)'}
-resin_map = {'1':'PU','2':'PE','3':'EPOXY','4':'PVC','5':'PVDF','6':'SMP','7':'AC','8':'WB','9':'IP','A':'PVB','B':'PVF','G':'PET'}
-color_map = {'0':'Clear','1':'Red','R':'Red','O':'Orange','2':'Orange','3':'Yellow','Y':'Yellow','4':'Green','G':'Green','5':'Blue','L':'Blue','V':'Violet','6':'Violet','N':'Brown','7':'Brown','T':'White','H':'White','W':'White','8':'White','A':'Gray','C':'Gray','9':'Gray','B':'Black','S':'Silver','M':'Metallic','D':'Dark'}
-
-# --- 3. HÀM TẢI VÀ XỬ LÝ DỮ LIỆU ---
-@st.cache_data(ttl=60) # Giảm thời gian cache để cập nhật dữ liệu nhanh hơn khi bạn sửa Sheet
+# --- 2. TẢI DỮ LIỆU ---
+@st.cache_data(ttl=60)
 def load_data():
     sheet_url = "https://docs.google.com/spreadsheets/d/1ugm7G1kgGmSlk5PhoKk62h_bs5pX4bDuwUgdaELLYHE/export?format=csv&gid=0"
     try:
-        df_raw = pd.read_csv(sheet_url)
-        
-        # Đổi tên cột để dễ xử lý code
-        df = df_raw.rename(columns={
-            '生產日期': 'Ngay_San_Xuat',
+        df = pd.read_csv(sheet_url)
+        # Đổi tên cột chuẩn
+        df = df.rename(columns={
+            '生產日期': 'Ngay_SX',
             '製造批號': 'Batch_Lot',
             '塗料編號': 'Ma_Son',
-            'NORTH_TOP_BLANCH': 'Gloss_North', 
-            'SOUTH_TOP_BLANCH': 'Gloss_South',
-            'NORTH_TOP_DELTA_E': 'dE_North',
-            'SOUTH_TOP_DELTA_E': 'dE_South',
-            '光澤60度反射(下限)': 'Gloss_LSL',
-            '光澤60度反射(上限)': 'Gloss_USL'
+            'NORTH_TOP_BLANCH': 'Gloss_N', 
+            'SOUTH_TOP_BLANCH': 'Gloss_S',
+            'NORTH_TOP_DELTA_E': 'dE_N',
+            'SOUTH_TOP_DELTA_E': 'dE_S',
+            '光澤60度反射(下限)': 'LSL',
+            '光澤60度反射(上限)': 'USL'
         })
+        # Chuyển kiểu số
+        for col in ['Gloss_N', 'Gloss_S', 'dE_N', 'dE_S', 'LSL', 'USL']:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
         
-        # Chuyển đổi kiểu dữ liệu số
-        cols_num = ['Gloss_North', 'Gloss_South', 'dE_North', 'dE_South', 'Gloss_LSL', 'Gloss_USL']
-        for col in cols_num:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors='coerce')
+        # BƯỚC 1: TRUNG BÌNH MỖI CUỘN (N + S) / 2
+        df['Gloss_Coil_Avg'] = df[['Gloss_N', 'Gloss_S']].mean(axis=1)
+        df['dE_Coil_Avg'] = df[['dE_N', 'dE_S']].mean(axis=1)
         
-        # Tính toán giá trị trung bình theo yêu cầu của bạn (Double Average Step 1)
-        df['dE_Avg_Coil'] = df[['dE_North', 'dE_South']].mean(axis=1)
-        df['Gloss_Avg_Coil'] = df[['Gloss_North', 'Gloss_South']].mean(axis=1)
-        
-        # Giải mã thông tin từ Mã Sơn
-        df['Nha_Cung_Cap'] = df['Ma_Son'].str[1].map(supplier_map).fillna('Khác')
-        df['Loai_Nhua'] = df['Ma_Son'].str[2].map(resin_map).fillna('Khác')
-        df['Mau_Sac'] = df['Ma_Son'].str[6].map(color_map).fillna('Khác')
-        
-        return df, df_raw
+        return df
     except Exception as e:
-        st.error(f"Lỗi tải dữ liệu: {e}")
-        return pd.DataFrame(), pd.DataFrame()
+        st.error(f"Lỗi kết nối dữ liệu: {e}")
+        return pd.DataFrame()
 
-df, df_raw = load_data()
+df_raw = load_data()
 
-if df.empty:
-    st.warning("Không thể tải dữ liệu. Vui lòng kiểm tra lại link Google Sheets.")
-else:
-    # --- 4. CHIA TABS ---
-    tab0, tab1, tab2 = st.tabs(["📋 DỮ LIỆU TỔNG HỢP", "🏢 SO SÁNH HÃNG", "📉 KIỂM SOÁT LÔ (LOT)"])
+if df_raw.empty:
+    st.stop()
 
-    # ==========================================
-    # TAB 0: XUẤT DATA TỔNG HỢP (KIỂM TRA LỖI)
-    # ==========================================
-    with tab0:
-        st.subheader("Bảng dữ liệu chi tiết (Raw Data & Processed)")
-        st.info("Mandy hãy kiểm tra bảng này xem các giá trị North/South và Mã Sơn đã khớp với thực tế chưa.")
-        
-        # Cho phép người dùng chọn xem toàn bộ hoặc chỉ 1 số cột quan trọng
-        view_mode = st.radio("Chế độ xem:", ["Dữ liệu đã xử lý (Gọn)", "Dữ liệu gốc từ Google Sheets"], horizontal=True)
-        
-        if view_mode == "Dữ liệu đã xử lý (Gọn)":
-            st.dataframe(df[['Ngay_San_Xuat', 'Batch_Lot', 'Ma_Son', 'Gloss_North', 'Gloss_South', 'Gloss_Avg_Coil', 'dE_Avg_Coil', 'Nha_Cung_Cap']], use_container_width=True)
-        else:
-            st.dataframe(df_raw, use_container_width=True)
+# --- 3. SIDEBAR: LỌC THEO MÃ SƠN (BỎ LỌC MÀU) ---
+st.sidebar.header("🔍 Bộ lọc Kỹ thuật")
+# Lấy danh sách mã sơn duy nhất
+list_ma_son = sorted(df_raw['Ma_Son'].dropna().unique().tolist())
+ma_son_selected = st.sidebar.selectbox("🎯 Chọn Mã Sơn (塗料編號):", list_ma_son)
 
-    # ==========================================
-    # TAB 1 & 2 (Giữ nguyên logic lọc thông minh của bạn)
-    # ==========================================
-    # (Phần Sidebar lọc dữ liệu)
-    st.sidebar.header("🔍 Bộ lọc")
-    mau_list = sorted(df['Mau_Sac'].unique().tolist())
-    mau_chon = st.sidebar.selectbox("Màu sắc:", ["Tất cả"] + mau_list)
+# Lọc dữ liệu theo mã sơn đã chọn
+df_filtered = df_raw[df_raw['Ma_Son'] == ma_son_selected].copy()
+
+# --- 4. HIỂN THỊ TABS ---
+tab1, tab2 = st.tabs(["📋 Bảng Dữ liệu Tổng hợp", "📉 Biểu đồ Xu hướng Batch"])
+
+with tab1:
+    st.subheader(f"Dữ liệu chi tiết cho mã: {ma_son_selected}")
     
-    df_filter = df.copy()
-    if mau_chon != "Tất cả":
-        df_filter = df_filter[df_filter['Mau_Sac'] == mau_chon]
-        
-    with tab1:
-        st.write(f"Đang phân tích {len(df_filter)} bản ghi.")
-        # [Code vẽ Boxplot tương tự như trước...]
-        fig1, ax1 = plt.subplots(figsize=(10, 4))
-        sns.boxplot(x='Nha_Cung_Cap', y='Gloss_Avg_Coil', data=df_filter, ax=ax1)
-        st.pyplot(fig1)
+    # Hiển thị bảng dữ liệu từng cuộn trước để Mandy kiểm tra
+    st.markdown("**1. Chi tiết từng cuộn (Dữ liệu thô):**")
+    st.dataframe(df_filtered[['Ngay_SX', 'Batch_Lot', 'Ma_Son', 'Gloss_N', 'Gloss_S', 'Gloss_Coil_Avg', 'dE_Coil_Avg']], use_container_width=True)
 
-    with tab2:
-        # BƯỚC TRUNG BÌNH 2: TRUNG BÌNH THEO BATCH
-        df_batch = df_filter.groupby(['Ngay_San_Xuat', 'Batch_Lot'], as_index=False).agg({
-            'Gloss_Avg_Coil': 'mean',
-            'dE_Avg_Coil': 'mean',
-            'Gloss_LSL': 'first',
-            'Gloss_USL': 'first'
-        })
-        st.markdown("#### Biểu đồ Xu hướng theo Batch (Sau khi lấy trung bình lần 2)")
-        # [Code vẽ Line chart tương tự như trước...]
-        st.dataframe(df_batch)
+    # BƯỚC 2: TRUNG BÌNH LẦN 2 THEO BATCH
+    # Quan trọng: Gộp theo cả Ngày và Batch để không bị sót
+    df_batch_summary = df_filtered.groupby(['Ngay_SX', 'Batch_Lot'], as_index=False).agg({
+        'Ma_Son': 'first',
+        'Gloss_Coil_Avg': 'mean',
+        'dE_Coil_Avg': 'mean',
+        'LSL': 'first',
+        'USL': 'first'
+    }).rename(columns={'Gloss_Coil_Avg': 'Gloss_Batch_Avg', 'dE_Coil_Avg': 'dE_Batch_Avg'})
+
+    st.markdown(f"**2. Tổng hợp theo từng Batch Lot (Đã tính trung bình lần 2):**")
+    st.write(f"Tìm thấy **{len(df_batch_summary)}** Batch cho mã sơn này.")
+    st.dataframe(df_batch_summary, use_container_width=True)
+
+with tab2:
+    if not df_batch_summary.empty:
+        st.subheader(f"Biểu đồ kiểm soát mã {ma_son_selected}")
+        
+        # Vẽ biểu đồ dE và Gloss
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10))
+        
+        # Chart dE
+        sns.lineplot(data=df_batch_summary, x='Batch_Lot', y='dE_Batch_Avg', marker='o', ax=ax1, color='red')
+        ax1.axhline(1.0, color='black', linestyle='--', label='Target dE=1.0')
+        ax1.set_title("Biến động dE theo từng Batch")
+        ax1.tick_params(axis='x', rotation=45)
+        
+        # Chart Gloss
+        sns.lineplot(data=df_batch_summary, x='Batch_Lot', y='Gloss_Batch_Avg', marker='s', ax=ax2, color='blue')
+        # Vẽ LSL/USL nếu có
+        if pd.notna(df_batch_summary['LSL'].iloc[0]):
+            ax2.axhline(df_batch_summary['LSL'].iloc[0], color='orange', linestyle='--', label='LSL')
+            ax2.axhline(df_batch_summary['USL'].iloc[0], color='orange', linestyle='--', label='USL')
+        
+        ax2.set_title("Biến động Độ bóng theo từng Batch")
+        ax2.tick_params(axis='x', rotation=45)
+        
+        plt.tight_layout()
+        st.pyplot(fig)
