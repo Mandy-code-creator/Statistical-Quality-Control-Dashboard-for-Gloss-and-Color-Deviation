@@ -1,100 +1,148 @@
 import streamlit as st
 import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
 
-# --- 1. CẤU HÌNH GIAO DIỆN ---
-st.set_page_config(page_title="Steel QA - Summary Report", layout="wide")
+# --- 1. THIẾT LẬP GIAO DIỆN ---
+st.set_page_config(page_title="Steel QA Dashboard", layout="wide")
+st.title("📊 Hệ thống Kiểm soát Chất lượng Lab & Line")
+st.markdown("---")
 
+# --- 2. HÀM TẢI DỮ LIỆU ---
 @st.cache_data(ttl=10)
-def load_summary_data():
+def load_data():
     sheet_url = "https://docs.google.com/spreadsheets/d/1ugm7G1kgGmSlk5PhoKk62h_bs5pX4bDuwUgdaELLYHE/export?format=csv&gid=0"
     try:
         df = pd.read_csv(sheet_url)
-        # Mapping cột theo file gốc của Mandy
-        col_map = {
-            '生產日期': 'Ngay_SX', '製造批號': 'Batch_Lot', '塗料編號': 'Ma_Son',
-            '光澤': 'Gloss_Lab', 'NORTH_TOP_DELTA_E': 'dE_N', 'SOUTH_TOP_DELTA_E': 'dE_S'
+        
+        # Mapping các cột cố định
+        col_mapping = {
+            '生產日期': 'Ngay_SX', 
+            '製造批號': 'Batch_Lot', 
+            '塗料編號': 'Ma_Son',
+            '光澤': 'Gloss_Lab',
+            'NORTH_TOP_BLANCH': 'G_Top_N', 'SOUTH_TOP_BLANCH': 'G_Top_S',
+            'NORTH_BACK_BLANCH': 'G_Back_N', 'SOUTH_BACK_BLANCH': 'G_Back_S',
+            'NORTH_TOP_DELTA_E': 'dE_N', 'SOUTH_TOP_DELTA_E': 'dE_S',
+            'NORTH_TOP_DELTA_L': 'dL_N', 'NORTH_TOP_DELTA_A': 'da_N', 'NORTH_TOP_DELTA_B': 'db_N',
+            'SOUTH_TOP_DELTA_L': 'dL_S', 'SOUTH_TOP_DELTA_A': 'da_S', 'SOUTH_TOP_DELTA_B': 'db_S'
         }
-        # Tìm cột giới hạn Gloss
+        
+        # Tìm kiếm thông minh cho LSL/USL dựa trên từ khóa "下限" và "上限"
         for col in df.columns:
-            if '下限' in col and '光澤' in col: col_map[col] = 'LSL'
-            elif '上限' in col and '光澤' in col: col_map[col] = 'USL'
+            if '下限' in col and '光澤' in col:
+                col_mapping[col] = 'Gloss_LSL'
+            elif '上限' in col and '光澤' in col:
+                col_mapping[col] = 'Gloss_USL'
         
-        df = df.rename(columns=col_map)
-        df['Ma_Son_Str'] = df['Ma_Son'].astype(str).str.upper()
-
-        # --- GIẢI MÃ THEO QUY TẮC MỚI NHẤT ---
-        v_map = {
-            'S': 'Yungchi', 'T': 'AKZO NOBEL', 'B': 'Beckers', 'C': 'Nan Pao', 
-            'U': 'Quali Poly', 'N': 'Nippon', 'K': 'Kansai', 'V': 'Valspar', 
-            'J': 'Valspar (Sherwin Williams)', 'L': 'KCC', 'R': 'Noroo', 'Q': 'Paoqun'
-        }
-        r_map = {
-            '1': 'PU', '2': 'PE', '3': 'EPOXY', '4': 'PVC', '5': 'PVDF', 
-            '6': 'SMP', '7': 'AC', '8': 'WB', '9': 'IP', 'A': 'PVB', 'B': 'PVF'
-        }
+        df = df.rename(columns=col_mapping)
         
-        df['Vendor'] = df['Ma_Son_Str'].str[1].map(v_map)
-        df['Resin'] = df['Ma_Son_Str'].str[2].map(r_map)
-        df['Color_4'] = df['Ma_Son_Str'].str[-4:] # Mã màu 4 số cuối
-
+        # Đảm bảo có cột để không bị lỗi Key
+        if 'Gloss_LSL' not in df.columns: df['Gloss_LSL'] = 0
+        if 'Gloss_USL' not in df.columns: df['Gloss_USL'] = 0
+        
         # Chuyển đổi kiểu số
-        cols_num = ['Gloss_Lab', 'LSL', 'USL', 'dE_N', 'dE_S']
+        cols_num = ['Gloss_Lab', 'G_Top_N', 'G_Top_S', 'G_Back_N', 'G_Back_S', 
+                    'dE_N', 'dE_S', 'dL_N', 'da_N', 'db_N', 'dL_S', 'da_S', 'db_S',
+                    'Gloss_LSL', 'Gloss_USL']
         for col in cols_num:
-            df[col] = pd.to_numeric(df[col], errors='coerce')
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
         
+        # Định dạng ngày (bỏ phần giờ 00:00:00)
+        df['Ngay_SX'] = pd.to_datetime(df['Ngay_SX'], errors='coerce').dt.date
+        
+        # TÍNH TOÁN CÁC CHỈ SỐ TRUNG BÌNH
         df['ΔE'] = df[['dE_N', 'dE_S']].mean(axis=1)
-        # Tính Pass/Fail dựa trên từng dòng dữ liệu thực tế
-        df['Is_Pass'] = (df['Gloss_Lab'] >= df['LSL']) & (df['Gloss_Lab'] <= df['USL'])
+        df['ΔL'] = df[['dL_N', 'dL_S']].mean(axis=1)
+        df['Δa'] = df[['da_N', 'da_S']].mean(axis=1)
+        df['Δb'] = df[['db_N', 'db_S']].mean(axis=1)
+        df['Gloss_Line_Top'] = df[['G_Top_N', 'G_Top_S']].mean(axis=1)
+        df['Gloss_Line_Back'] = df[['G_Back_N', 'G_Back_S']].mean(axis=1)
         
-        return df.dropna(subset=['Vendor', 'Resin'])
+        # KIỂM TRA TRẠNG THÁI (PASS/FAIL)
+        df['Status'] = '✅ PASS'
+        fail_cond = (df['Gloss_Lab'] < df['Gloss_LSL']) | (df['Gloss_Lab'] > df['Gloss_USL']) | (df['ΔE'] > 1.0)
+        df.loc[fail_cond, 'Status'] = '❌ FAIL'
+        
+        return df
     except Exception as e:
         st.error(f"⚠️ Lỗi dữ liệu: {e}")
         return pd.DataFrame()
 
-df_raw = load_summary_data()
+df_raw = load_data()
+if df_raw.empty: st.stop()
 
-# --- 2. HIỂN THỊ BẢNG SUMMARY DATA ---
-st.title("📊 Summary Data: Kiểm soát chất lượng Nhà cung cấp")
+# --- 3. BỘ LỌC SIDEBAR ---
+st.sidebar.header("🔍 Lọc dữ liệu")
+list_ma_son = sorted(df_raw['Ma_Son'].dropna().unique().tolist())
+ma_son_selected = st.sidebar.selectbox("🎯 Chọn Mã Sơn:", list_ma_son)
+df_filtered = df_raw[df_raw['Ma_Son'] == ma_son_selected].copy()
 
-if not df_raw.empty:
-    # Nhóm dữ liệu để tính toán Summary
-    summary = df_raw.groupby(['Resin', 'Color_4', 'Vendor']).agg({
-        'Batch_Lot': 'count',
-        'Gloss_Lab': ['mean', 'std', 'min', 'max'],
-        'LSL': 'mean',
-        'USL': 'mean',
-        'Is_Pass': 'mean',
-        'ΔE': 'mean'
-    }).reset_index()
+# --- 4. TỔNG HỢP THEO BATCH ---
+df_batch = df_filtered.groupby('Batch_Lot', as_index=False).agg({
+    'Ngay_SX': 'max',
+    'Gloss_Lab': 'mean',
+    'Gloss_Line_Top': 'mean',
+    'Gloss_Line_Back': 'mean',
+    'ΔE': 'mean', 'ΔL': 'mean', 'Δa': 'mean', 'Δb': 'mean',
+    'Gloss_LSL': 'first', 'Gloss_USL': 'first'
+}).sort_values(by='Ngay_SX')
 
-    # Đặt lại tên cột cho bảng Summary chuẩn
-    summary.columns = [
-        'Hệ Nhựa', 'Mã Màu (4 cuối)', 'Nhà Cung Cấp', 'Số Lô', 
-        'Gloss TB', 'Std (Độ lệch)', 'Min', 'Max', 
-        'Spec LSL', 'Spec USL', '% Đạt', 'ΔE TB'
-    ]
+# --- 5. HIỂN THỊ TABS ---
+tab1, tab2 = st.tabs(["📋 KIỂM TRA CHI TIẾT", "📈 TỔNG HỢP & XU HƯỚNG"])
 
-    # Định dạng % đạt
-    summary['% Đạt'] = (summary['% Đạt'] * 100).round(1).astype(str) + '%'
+with tab1:
+    st.subheader(f"Dữ liệu Input từng cuộn: {ma_son_selected}")
+    g_lsl = df_filtered['Gloss_LSL'].iloc[0] if not df_filtered.empty else 0
+    g_usl = df_filtered['Gloss_USL'].iloc[0] if not df_filtered.empty else 0
+    st.info(f"Tiêu chuẩn: Gloss ({g_lsl} - {g_usl}) | ΔE (≤ 1.0)")
 
-    # Hiển thị bảng dữ liệu chính
-    st.subheader("Bảng thống kê năng lực thực tế")
+    # Định nghĩa các cột hiển thị
+    display_cols = ['Ngay_SX', 'Batch_Lot', 'Status', 'Gloss_Lab', 'Gloss_Line_Top', 'Gloss_Line_Back', 'Gloss_LSL', 'Gloss_USL', 'ΔE', 'ΔL', 'Δa', 'Δb']
+    
+    def style_fail(row):
+        return ['background-color: #ffebee' if row['Status'] == '❌ FAIL' else '' for _ in row]
+
     st.dataframe(
-        summary.style.format({
-            'Gloss TB': '{:.1f}',
-            'Std (Độ lệch)': '{:.2f}',
-            'Min': '{:.1f}',
-            'Max': '{:.1f}',
-            'Spec LSL': '{:.0f}',
-            'Spec USL': '{:.0f}',
-            'ΔE TB': '{:.2f}'
-        }).background_gradient(cmap='RdYlGn_r', subset=['Std (Độ lệch)']) # Std thấp (xanh) là tốt
-          .background_gradient(cmap='RdYlGn', subset=['ΔE TB'], low=1, high=0), # ΔE thấp (xanh) là tốt
-        use_container_width=True,
-        hide_index=True
+        df_filtered[display_cols].style.apply(style_fail, axis=1).format({
+            'Gloss_Lab': '{:.1f}', 'Gloss_Line_Top': '{:.2f}', 'Gloss_Line_Back': '{:.2f}',
+            'ΔE': '{:.3f}', 'ΔL': '{:.3f}', 'Δa': '{:.3f}', 'Δb': '{:.3f}',
+            'Gloss_LSL': '{:.1f}', 'Gloss_USL': '{:.1f}'
+        }),
+        use_container_width=True
     )
 
+with tab2:
+    st.subheader("Biểu đồ Xu hướng Độ bóng (Lab vs Line)")
+    if not df_batch.empty:
+        fig, ax = plt.subplots(figsize=(12, 5))
+        plot_data = df_batch.copy()
+        plot_data['Batch_Lot'] = plot_data['Batch_Lot'].astype(str)
+
+        sns.lineplot(data=plot_data, x='Batch_Lot', y='Gloss_Lab', marker='o', label='Lab (光澤)', linewidth=3, color='black')
+        sns.lineplot(data=plot_data, x='Batch_Lot', y='Gloss_Line_Top', marker='s', label='Line Top Avg', alpha=0.6)
+        sns.lineplot(data=plot_data, x='Batch_Lot', y='Gloss_Line_Back', marker='^', label='Line Back Avg', alpha=0.6)
+        
+        if pd.notna(g_lsl):
+            ax.axhline(g_lsl, color='red', linestyle='--', label='Limit')
+            ax.axhline(g_usl, color='red', linestyle='--')
+                
+        plt.xticks(rotation=45)
+        ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        st.pyplot(fig)
+    
     st.markdown("---")
-    st.write("**Ghi chú:** Bảng trên đã khôi phục lại logic tính toán nguyên bản, đảm bảo lấy đúng giới hạn kiểm soát từ file gốc của Mandy.")
-else:
-    st.warning("Đang kết nối dữ liệu...")
+    st.subheader("📊 Bảng tổng hợp Toàn diện (Gloss & Color) theo Batch")
+    
+    # Bảng kết hợp cả Gloss và các chỉ số Delta
+    summary_cols = ['Batch_Lot', 'Ngay_SX', 'Gloss_Lab', 'Gloss_Line_Top', 'ΔE', 'ΔL', 'Δa', 'Δb']
+    
+    st.dataframe(
+        df_batch[summary_cols].style.format({
+            'Gloss_Lab': '{:.1f}', 
+            'Gloss_Line_Top': '{:.2f}',
+            'ΔE': '{:.3f}', 'ΔL': '{:.3f}', 'Δa': '{:.3f}', 'Δb': '{:.3f}'
+        }), 
+        use_container_width=True
+    )
