@@ -3,24 +3,23 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-# Thiết lập cấu hình trang
+# 1. Thiết lập cấu hình trang
 st.set_page_config(page_title="SQC Dashboard", layout="wide")
-
-# Tiêu đề dự án
 st.title("Statistical Quality Control Dashboard for Gloss and Color Deviation")
 st.markdown("---")
 
-# 1. Các từ điển ánh xạ (Mapping Dictionaries)
+# 2. Các từ điển giải mã (Mapping Dictionaries)
 supplier_map = {
     'S': 'Yungchi', 'T': 'AKZO NOBEL', 'B': 'Beckers', 'C': 'Nan Pao',
     'U': 'Quali Poly', 'N': 'Nippon', 'K': 'Kansai', 'V': 'Valspar',
-    'J': 'Valspar (Sherwin Williams)', 'L': 'KCC', 'R': 'Noroo', 'Q': 'Paoqun'
+    'J': 'Valspar (Sherwin Williams)', 'L': 'KCC', 'R': 'Noroo', 'Q': 'Paoqun',
+    'F': 'KCC (New)', 'D': 'DNT', 'P': 'KCC (Posco)' 
 }
 
 resin_map = {
     '1': 'PU', '2': 'PE', '3': 'EPOXY', '4': 'PVC',
     '5': 'PVDF', '6': 'SMP', '7': 'AC', '8': 'WB',
-    '9': 'IP', 'A': 'PVB', 'B': 'PVF'
+    '9': 'IP', 'A': 'PVB', 'B': 'PVF', 'G': 'PET'
 }
 
 color_map = {
@@ -28,68 +27,108 @@ color_map = {
     '3': 'Yellow', 'Y': 'Yellow', '4': 'Green', 'G': 'Green',
     '5': 'Blue', 'L': 'Blue', 'V': 'Violet', '6': 'Violet',
     'N': 'Brown', '7': 'Brown', 'T': 'White', 'H': 'White', 'W': 'White', '8': 'White',
-    'A': 'Gray', 'C': 'Gray', '9': 'Gray', 'B': 'Black', 'S': 'Silver', 'M': 'Metallic'
+    'A': 'Gray', 'C': 'Gray', '9': 'Gray', 'B': 'Black', 'S': 'Silver', 'M': 'Metallic',
+    'D': 'Dark'
 }
 
-# 2. Hàm tải và xử lý dữ liệu (Tạm thời dùng dữ liệu giả lập, sẽ thay bằng Google Sheets sau)
-@st.cache_data
+# 3. Hàm tải dữ liệu trực tiếp từ Google Sheet
+@st.cache_data(ttl=600) # Cập nhật lại dữ liệu mỗi 10 phút (600s)
 def load_data():
-    # Dữ liệu mẫu
-    data = {
-        'Ngay_San_Xuat': ['2026-03-15', '2026-03-16', '2026-03-17', '2026-03-18', '2026-03-18'],
-        'Ma_Son': ['PJ6CD3WZS', 'PT2CD18ZS', 'PB5XY2TZS', 'PL5XY3WZS', 'PT2CD1RZS'],
-        'Do_Bong': [85.2, 86.5, 84.1, 85.8, 35.5]
-    }
-    df = pd.DataFrame(data)
+    # Chuyển đổi link Google Sheet sang dạng xuất CSV
+    sheet_url = "https://docs.google.com/spreadsheets/d/1ugm7G1kgGmSlk5PhoKk62h_bs5pX4bDuwUgdaELLYHE/export?format=csv&gid=0"
     
-    # Bóc tách dữ liệu
-    df['Nha_Cung_Cap'] = df['Ma_Son'].str[1].map(supplier_map)
-    df['Loai_Nhua'] = df['Ma_Son'].str[2].map(resin_map)
-    df['Mau_Sac'] = df['Ma_Son'].str[6].map(color_map)
+    # Đọc dữ liệu
+    df = pd.read_csv(sheet_url)
+    
+    # Đổi tên các cột tiếng Trung sang tiếng Việt/Anh để dễ lập trình 
+    df = df.rename(columns={
+        '生產日期': 'Ngay_San_Xuat',
+        '塗料編號': 'Ma_Son',
+        '光澤': 'Do_Bong',
+        'NORTH_TOP_DELTA_E': 'Delta_E_North',
+        'SOUTH_TOP_DELTA_E': 'Delta_E_South'
+    })
+    
+    # Làm sạch dữ liệu: Bỏ các dòng thiếu Mã sơn hoặc Độ bóng
+    df = df.dropna(subset=['Ma_Son', 'Do_Bong'])
+    
+    # Ép kiểu dữ liệu (chuyển chữ thành số)
+    df['Do_Bong'] = pd.to_numeric(df['Do_Bong'], errors='coerce')
+    df['Delta_E_North'] = pd.to_numeric(df['Delta_E_North'], errors='coerce')
+    df['Delta_E_South'] = pd.to_numeric(df['Delta_E_South'], errors='coerce')
+    
+    # Bóc tách cấu trúc Mã sơn
+    df['Nha_Cung_Cap'] = df['Ma_Son'].str[1].map(supplier_map).fillna('Khác')
+    df['Loai_Nhua'] = df['Ma_Son'].str[2].map(resin_map).fillna('Khác')
+    df['Mau_Sac'] = df['Ma_Son'].str[6].map(color_map).fillna('Khác')
+    
+    # Lấy giá trị Delta E trung bình giữa hai mép cuộn (North và South)
+    df['Delta_E_Trung_Binh'] = df[['Delta_E_North', 'Delta_E_South']].mean(axis=1)
+    
     return df
 
+# Tải dữ liệu
 df = load_data()
 
-# 3. Khu vực Sidebar (Thanh công cụ bên trái)
-st.sidebar.header("Bộ lọc Dữ liệu (Filters)")
+# 4. Khu vực Thanh công cụ bộ lọc (Sidebar)
+st.sidebar.header("🔍 Bộ Lọc Dữ Liệu")
 
-# Tạo danh sách các màu và nhựa có trong tập dữ liệu để lọc
-danh_sach_mau = df['Mau_Sac'].dropna().unique().tolist()
-mau_chon = st.sidebar.selectbox("Chọn Màu Sắc để phân tích Gloss:", ["Tất cả"] + danh_sach_mau)
+# Chọn Màu sắc
+danh_sach_mau = sorted(df['Mau_Sac'].astype(str).unique().tolist())
+mau_chon = st.sidebar.selectbox("Chọn Màu Sắc (Color):", ["Tất cả"] + danh_sach_mau)
 
-# Lọc dữ liệu theo lựa chọn
+# Chọn Loại Nhựa
+danh_sach_nhua = sorted(df['Loai_Nhua'].astype(str).unique().tolist())
+nhua_chon = st.sidebar.selectbox("Chọn Hệ Nhựa (Resin):", ["Tất cả"] + danh_sach_nhua)
+
+# Áp dụng bộ lọc
+df_filtered = df.copy()
 if mau_chon != "Tất cả":
-    df_filtered = df[df['Mau_Sac'] == mau_chon]
-else:
-    df_filtered = df
+    df_filtered = df_filtered[df_filtered['Mau_Sac'] == mau_chon]
+if nhua_chon != "Tất cả":
+    df_filtered = df_filtered[df_filtered['Loai_Nhua'] == nhua_chon]
 
-# 4. Khu vực Nội dung chính (Main Content)
-st.subheader(f"Phân tích Gloss - Màu: {mau_chon}")
+# 5. Khu vực hiển thị Dashboard
+st.subheader(f"📊 Thống kê cho Màu: {mau_chon} | Nhựa: {nhua_chon}")
 
-# Hiển thị các chỉ số tổng quan (KPI)
-col1, col2, col3 = st.columns(3)
-with col1:
-    st.metric(label="Tổng số cuộn", value=len(df_filtered))
-with col2:
-    gloss_tb = df_filtered['Do_Bong'].mean()
-    st.metric(label="Độ bóng Trung bình", value=f"{gloss_tb:.1f}" if pd.notna(gloss_tb) else "N/A")
-with col3:
-    gloss_std = df_filtered['Do_Bong'].std()
-    st.metric(label="Độ lệch chuẩn (SD)", value=f"{gloss_std:.2f}" if pd.notna(gloss_std) else "0.00")
-
-# Vẽ biểu đồ Boxplot so sánh các nhà cung cấp
-st.markdown("### Phân phối Độ bóng theo Nhà cung cấp")
 if not df_filtered.empty:
-    fig, ax = plt.subplots(figsize=(10, 5))
-    sns.boxplot(x='Nha_Cung_Cap', y='Do_Bong', data=df_filtered, ax=ax, palette="Set2")
-    sns.stripplot(x='Nha_Cung_Cap', y='Do_Bong', data=df_filtered, color='black', alpha=0.5, jitter=True, ax=ax)
-    plt.xticks(rotation=45)
-    plt.xlabel("Nhà cung cấp")
-    plt.ylabel("Độ bóng (Gloss)")
-    st.pyplot(fig)
-else:
-    st.warning("Không có dữ liệu cho bộ lọc này.")
+    # --- KPI Metrics ---
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric(label="Tổng số lượng cuộn (Coils)", value=len(df_filtered))
+    col2.metric(label="Độ bóng trung bình (Gloss)", value=f"{df_filtered['Do_Bong'].mean():.1f}")
+    col3.metric(label="Độ lệch chuẩn Gloss (SD)", value=f"{df_filtered['Do_Bong'].std():.2f}")
+    col4.metric(label="Độ lệch màu Delta E (TB)", value=f"{df_filtered['Delta_E_Trung_Binh'].mean():.2f}")
 
-# Hiển thị bảng dữ liệu chi tiết
-st.markdown("### Bảng dữ liệu chi tiết")
-st.dataframe(df_filtered)
+    st.markdown("---")
+
+    # --- Charts ---
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
+
+    # Biểu đồ 1: Phân phối Gloss
+    sns.boxplot(x='Nha_Cung_Cap', y='Do_Bong', data=df_filtered, ax=ax1, palette="Set2")
+    sns.stripplot(x='Nha_Cung_Cap', y='Do_Bong', data=df_filtered, color='black', alpha=0.4, jitter=True, ax=ax1)
+    ax1.set_title("Biến động Độ Bóng (Gloss Variation)", fontweight='bold')
+    ax1.set_xlabel("Nhà Cung Cấp (Supplier)")
+    ax1.set_ylabel("Gloss")
+    ax1.tick_params(axis='x', rotation=45)
+
+    # Biểu đồ 2: Phân phối Color Deviation (Delta E)
+    sns.boxplot(x='Nha_Cung_Cap', y='Delta_E_Trung_Binh', data=df_filtered, ax=ax2, palette="Set1")
+    sns.stripplot(x='Nha_Cung_Cap', y='Delta_E_Trung_Binh', data=df_filtered, color='black', alpha=0.4, jitter=True, ax=ax2)
+    ax2.set_title("Biến động Độ Lệch Màu (Delta E Variation)", fontweight='bold')
+    ax2.set_xlabel("Nhà Cung Cấp (Supplier)")
+    ax2.set_ylabel("Delta E (dE)")
+    ax2.axhline(y=1.0, color='r', linestyle='--', label='Target dE < 1.0') # Giả lập Target dE thông dụng là 1.0
+    ax2.legend()
+    ax2.tick_params(axis='x', rotation=45)
+
+    st.pyplot(fig)
+
+    # --- Bảng Dữ Liệu Chi Tiết ---
+    st.markdown("### Dữ liệu thô chi tiết (Raw Data Extract)")
+    # Chỉ hiển thị các cột quan trọng đã xử lý
+    hien_thi_cols = ['Ngay_San_Xuat', 'Ma_Son', 'Nha_Cung_Cap', 'Loai_Nhua', 'Mau_Sac', 'Do_Bong', 'Delta_E_North', 'Delta_E_South']
+    st.dataframe(df_filtered[hien_thi_cols].reset_index(drop=True), use_container_width=True)
+
+else:
+    st.warning("Không tìm thấy dữ liệu nào phù hợp với bộ lọc hiện tại. Vui lòng chọn màu/nhựa khác.")
