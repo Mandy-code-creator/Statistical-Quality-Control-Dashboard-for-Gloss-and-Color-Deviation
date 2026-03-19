@@ -534,7 +534,7 @@ elif view_mode == "🤝 Supplier Comparison":
     st.subheader("🚨 Radar Cảnh báo Đàm phán (Blacklist Nhà Cung Cấp)")
     st.caption("Các mã sơn có **Cpk < 1.0** (Độ bóng thiếu ổn định) hoặc **ΔE Max > 1.0** (Lệch màu) sẽ bị đưa vào danh sách này.")
     
-    dff_radar = dff.dropna(subset=['Online_Gloss_Top', 'Supplier', 'Gloss_LSL', 'Gloss_USL', 'Color_Group', 'Color_Code'])
+    dff_radar = dff.dropna(subset=['Online_Gloss_Top', 'Supplier', 'Gloss_LSL', 'Gloss_USL', 'Color_Group', 'Color_Code', 'dL_N', 'da_N', 'db_N'])
     dff_radar = dff_radar[(dff_radar['Gloss_LSL'] > 0) & (dff_radar['Gloss_USL'] > 0) & (dff_radar['Online_Gloss_Top'] > 0)]
     
     if not dff_radar.empty:
@@ -592,6 +592,7 @@ elif view_mode == "🤝 Supplier Comparison":
             sel_ma_4so = None
             
     if sel_ma_4so:
+        # LOGIC TỰ ĐỘNG CHUYỂN ĐỔI CHẾ ĐỘ PHÂN TÍCH
         if sel_ma_4so == 'Tất cả':
             dff_comp = dff_nhom.copy()
             title_suffix = f"Nhóm: {sel_nhom_mau} (Tất cả mã)"
@@ -601,7 +602,7 @@ elif view_mode == "🤝 Supplier Comparison":
             title_suffix = f"Mã màu: {sel_ma_4so}"
             is_mixed = False
         
-        dff_comp = dff_comp.dropna(subset=['Online_Gloss_Top', 'Supplier', 'Gloss_LSL', 'Gloss_USL'])
+        dff_comp = dff_comp.dropna(subset=['Online_Gloss_Top', 'Supplier', 'Gloss_LSL', 'Gloss_USL', 'dL_N', 'da_N', 'db_N'])
         dff_comp = dff_comp[(dff_comp['Gloss_LSL'] > 0) & (dff_comp['Gloss_USL'] > 0) & (dff_comp['Online_Gloss_Top'] > 0)]
         
         dff_comp['Gloss_Target'] = (dff_comp['Gloss_LSL'] + dff_comp['Gloss_USL']) / 2
@@ -614,7 +615,7 @@ elif view_mode == "🤝 Supplier Comparison":
         if len(dff_comp['Supplier'].unique()) >= 1:
             st.markdown("---")
             
-            # --- PHẦN 1: TỔNG QUAN ---
+            # --- PHẦN 1: TỔNG QUAN THEO NHÀ CUNG CẤP ---
             c1, c2 = st.columns([2, 2.2]) 
             plot_col = 'Gloss_Dev' if is_mixed else 'Online_Gloss_Top'
             plot_ylabel = "Độ lệch so với Tâm (ΔGloss)" if is_mixed else "Độ bóng Online (Line Gloss)"
@@ -675,71 +676,67 @@ elif view_mode == "🤝 Supplier Comparison":
                         use_container_width=True, hide_index=True
                     )
 
-            # --- PHẦN 2: BẢNG BIẾN ĐỘNG GIỮA CÁC LÔ (BATCH-TO-BATCH VARIATION) ---
+            # --- PHẦN 2: BẢNG BIẾN ĐỘNG GLOSS GIỮA CÁC LÔ ---
             st.markdown("---")
-            st.subheader("📉 Biến động Giữa Các Lô (Batch-to-Batch Variation)")
-            st.caption("Bảng này đo lường sự thiếu đồng nhất **giữa các mẻ sơn khác nhau** của cùng một nhà cung cấp. Mức chênh lệch (Max - Min) càng lớn, chứng tỏ khâu pha sơn (Batching) của Vendor càng kém ổn định.")
+            st.subheader("📉 Biến động Gloss Giữa Các Lô (Batch-to-Batch)")
+            st.caption("Khoảng chênh lệch (Gap) Max-Min giữa giá trị trung bình của các lô. Gap càng lớn, Vendor kiểm soát mẻ pha sơn càng kém.")
             
-            # Tính trung bình của từng lô
             batch_means = dff_comp.groupby(['Supplier', 'Batch_Lot']).agg(
                 Mean_Line=('Online_Gloss_Top', 'mean')
             ).reset_index()
             
-            # Tổng hợp khoảng cách giữa các lô của từng hãng
             b2b_table = batch_means.groupby('Supplier').agg(
                 So_Lo=('Batch_Lot', 'count'),
                 Min_Batch_Mean=('Mean_Line', 'min'),
                 Max_Batch_Mean=('Mean_Line', 'max')
             ).reset_index()
             
-            # Tính độ chênh lệch giữa Lô trung bình cao nhất và Lô trung bình thấp nhất
             b2b_table['Chenh_Lech'] = b2b_table['Max_Batch_Mean'] - b2b_table['Min_Batch_Mean']
-            
-            # Chỉ hiển thị các hãng có từ 2 lô trở lên để thấy sự chênh lệch
             b2b_table = b2b_table[b2b_table['So_Lo'] >= 2]
             
             if not b2b_table.empty:
                 b2b_table = b2b_table.sort_values('Chenh_Lech', ascending=False)
-                b2b_table.columns = ['Supplier', 'Số Lô (Batches)', 'Lô TB Thấp Nhất', 'Lô TB Cao Nhất', 'Chênh Lệch Giữa Các Lô (Gap)']
+                b2b_table.columns = ['Supplier', 'Số Lô', 'Lô TB Thấp Nhất', 'Lô TB Cao Nhất', 'Chênh Lệch Gap']
                 
                 st.dataframe(
                     b2b_table.style.format({
-                        'Lô TB Thấp Nhất': '{:.1f}',
-                        'Lô TB Cao Nhất': '{:.1f}',
-                        'Chênh Lệch Giữa Các Lô (Gap)': '{:.1f}'
-                    }).background_gradient(cmap='Oranges', subset=['Chênh Lệch Giữa Các Lô (Gap)']), # Cam đậm = chênh lệch lớn
+                        'Lô TB Thấp Nhất': '{:.1f}', 'Lô TB Cao Nhất': '{:.1f}', 'Chênh Lệch Gap': '{:.1f}'
+                    }).background_gradient(cmap='Oranges', subset=['Chênh Lệch Gap']), 
                     use_container_width=True, hide_index=True
                 )
             else:
-                st.info("Chưa đủ dữ liệu nhiều lô để so sánh sự biến động Batch-to-Batch.")
+                st.info("Chưa đủ dữ liệu nhiều lô để so sánh sự biến động Batch-to-Batch của Gloss.")
 
-            # --- PHẦN 3: TRUY VẾT CHI TIẾT TỪNG LÔ ---
+            # --- 🚀 PHẦN 3 MỚI: BẢNG Heatmap MÀU SẮC GIỮA CÁC LÔ (COLOR DRIFT) ---
             st.markdown("---")
-            st.subheader("🔎 Chi tiết Từng Lô (Batch Drill-down)")
+            st.subheader("🎨 Phân tích Biến động Chi tiết Yếu tố Màu sắc Giữa Các Lô (Batch Color Drift)")
+            st.caption("Bảng hiển thị giá trị TRUNG BÌNH của từng yếu tố màu sắc ($\Delta L, \Delta a, \Delta b$) theo từng mẻ sơn. Cột **Mã Sơn (Full)** giúp Vendor biết chính xác công thức gốc.")
+            st.caption("🔴 **Màu đỏ sậm:** Lệch nhiều về hướng Sáng (ΔL+), Đỏ (Δa+), hoặc Vàng (Δb+).")
+            st.caption("🔵 **Màu xanh sậm:** Lệch nhiều về hướng Tối (ΔL-), Lục (Δa-), hoặc Lam (Δb-).")
             
-            batch_table = dff_comp.groupby(['Supplier', 'Batch_Lot']).agg(
-                Ma_Son_Full=('Ma_Son', 'first'), 
+            # Tính trung bình các yếu tố màu theo lô
+            color_drift = dff_comp.groupby(['Supplier', 'Batch_Lot']).agg(
+                Ma_Son_Full=('Ma_Son', 'first'),
                 Ngay_SX=('Ngay_SX', 'min'),
-                So_Cuon=('Online_Gloss_Top', 'count'),
-                LSL=('Gloss_LSL', 'first'),
-                USL=('Gloss_USL', 'first'),
-                Mean_Line=('Online_Gloss_Top', 'mean'),
-                Std_Line=('Online_Gloss_Top', 'std'),
-                Min_Line=('Online_Gloss_Top', 'min'),
-                Max_Line=('Online_Gloss_Top', 'max'),
-                dE_Max=('ΔE', 'max') 
+                Mean_dL=('dL_N', 'mean'),
+                Mean_da=('da_N', 'mean'),
+                Mean_db=('db_N', 'mean'),
+                Max_dE=('ΔE', 'max')
             ).reset_index()
             
-            batch_table['Std_Line'] = batch_table['Std_Line'].fillna(0)
-            batch_table = batch_table.sort_values(by=['Std_Line'], ascending=False)
-            batch_table.columns = ['Supplier', 'Lô Sản Xuất', 'Mã Sơn (Full)', 'Ngày SX', 'Số Cuộn', 'LSL', 'USL', 'Mean (Line)', 'Std (Line)', 'Min (Line)', 'Max (Line)', 'ΔE Max']
+            color_drift = color_drift.sort_values(by=['Supplier', 'Ngay_SX'])
             
+            color_drift.columns = ['Supplier', 'Lô Sản Xuất', 'Mã Sơn (Full)', 'Ngày SX', 'ΔL (Avg)', 'Δa (Avg)', 'Δb (Avg)', 'ΔE Max']
+            
+            # Định nghĩa hàm bôi màu Heatmap Đỏ - Trắng - Xanh
+            # Giá trị càng xa mốc 0 càng đậm màu.
             st.dataframe(
-                batch_table.style.format({
-                    'LSL': '{:.0f}', 'USL': '{:.0f}', 'Mean (Line)': '{:.1f}',
-                    'Std (Line)': '{:.2f}', 'Min (Line)': '{:.1f}', 'Max (Line)': '{:.1f}',
-                    'ΔE Max': '{:.2f}'
-                }).background_gradient(cmap='Reds', subset=['Std (Line)', 'ΔE Max']), 
+                color_drift.style.format({
+                    'ΔL (Avg)': '{:+.2f}', 'Δa (Avg)': '{:+.2f}', 'Δb (Avg)': '{:+.2f}', 'ΔE Max': '{:.2f}'
+                }).background_gradient(cmap='bwr', subset=['ΔL (Avg)'], vmin=-0.5, vmax=0.5) # Heatmap dL
+                  .background_gradient(cmap='bwr', subset=['Δa (Avg)'], vmin=-0.3, vmax=0.3) # Heatmap da (nhạy hơn)
+                  .background_gradient(cmap='bwr', subset=['Δb (Avg)'], vmin=-0.3, vmax=0.3) # Heatmap db
+                  .background_gradient(cmap='Reds', subset=['ΔE Max'], vmin=0, vmax=1.0),
                 use_container_width=True, hide_index=True
             )
 
