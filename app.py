@@ -28,21 +28,13 @@ def load_and_prep_data():
             elif '上限' in col and '光澤' in col: col_map[col] = 'Gloss_USL'
             
         df = df.rename(columns=col_map)
-        df['Ma_Son_Str'] = df['Ma_Son'].astype(str).str.upper()
+        df['Ma_Son_Str'] = df['Ma_Son'].astype(str).str.upper().str.strip()
 
-        v_map = {'S':'Yungchi', 
-            'T':'AKZO NOBEL', 
-            'A':'AKZO NOBEL',  # <--- Đã thêm mã A cho Akzo Nobel
-            'B':'Beckers', 
-            'C':'Nan Pao', 
-            'U':'Quali Poly', 
-            'N':'Nippon', 
-            'K':'Kansai', 
-            'V':'Valspar', 
-            'J':'Valspar (SW)', 
-            'L':'KCC', 
-            'R':'Noroo', 
-            'Q':'Paoqun'
+        # --- CẬP NHẬT TỪ ĐIỂN NHÀ CUNG CẤP (Đã thêm mã 'A') ---
+        v_map = {
+            'S':'Yungchi', 'T':'AKZO NOBEL', 'A':'AKZO NOBEL', 'B':'Beckers', 
+            'C':'Nan Pao', 'U':'Quali Poly', 'N':'Nippon', 'K':'Kansai', 
+            'V':'Valspar', 'J':'Valspar (SW)', 'L':'KCC', 'R':'Noroo', 'Q':'Paoqun'
         }
         r_map = {'1':'PU','2':'PE','3':'EPOXY','4':'PVC','5':'PVDF','6':'SMP','7':'AC','8':'WB','9':'IP','A':'PVB','B':'PVF'}
         c_map = {'0':'Clear','1':'Red','R':'Red','O':'Orange','2':'Orange','Y':'Yellow','3':'Yellow','4':'Green','G':'Green','5':'Blue','L':'Blue','V':'Violet','6':'Violet','N':'Brown','7':'Brown','T':'White','H':'White','W':'White','8':'White','A':'Gray','C':'Gray','9':'Gray','B':'Black','S':'Silver','M':'Metallic'}
@@ -56,9 +48,22 @@ def load_and_prep_data():
         for c in num_cols:
             if c in df.columns: df[c] = pd.to_numeric(df[c], errors='coerce')
 
-        # Làm sạch dữ liệu (Bỏ Gloss = 0)
-        df = df.dropna(subset=['Gloss_Lab'])
+        # ==========================================
+        # 🚀 BƯỚC LÀM SẠCH DỮ LIỆU (DATA CLEANING)
+        # ==========================================
+        
+        # 1. Bỏ dòng không có mã sơn hoặc không có độ bóng
+        df = df.dropna(subset=['Gloss_Lab', 'Ma_Son'])
+        
+        # 2. Bỏ lỗi Gloss = 0
         df = df[df['Gloss_Lab'] > 0] 
+        
+        # 3. LỌC BỎ MÃ MÀU RÁC (0, 0000, NA, N/A, NAN)
+        invalid_codes = ['0', '00', '000', '0000', 'NA', 'N/A', 'NAN', 'NULL', 'NONE']
+        df = df[~df['Ma_Son_Str'].isin(invalid_codes)]
+        df = df[~df['Color_Code'].isin(invalid_codes)]
+
+        # ==========================================
 
         df['Ngay_SX'] = pd.to_datetime(df['Ngay_SX'], errors='coerce').dt.date
         df['Online_Gloss_Top'] = df[['G_Top_N', 'G_Top_S']].mean(axis=1)
@@ -69,6 +74,7 @@ def load_and_prep_data():
         df['Color_Pass'] = df['ΔE'] <= 1.0
         df['Final_Status'] = np.where(df['Gloss_Pass'] & df['Color_Pass'], '✅ PASS', '❌ FAIL/NG')
 
+        # Sắp xếp theo ngày sản xuất để biểu đồ line chart chạy mượt
         return df.dropna(subset=['Supplier', 'Ngay_SX']).sort_values('Ngay_SX')
     except Exception as e:
         st.error(f"⚠️ System Error: {e}")
@@ -79,7 +85,6 @@ if df.empty: st.stop()
 
 # --- 3. SIDEBAR: NAVIGATION & SMART FILTERS ---
 with st.sidebar:
-    # 3.1 MENU ĐIỀU HƯỚNG CHÍNH (Theo đúng ảnh Mandy gửi)
     st.markdown("### 📊 View Mode")
     view_mode = st.radio(
         "Chọn màn hình phân tích:",
@@ -94,13 +99,11 @@ with st.sidebar:
     )
     
     st.markdown("---")
-    st.markdown("### 🔍 Bộ Lọc Dữ Liệu (Filters)")
+    st.markdown("### 🔍 Bộ Lọc Dữ Liệu")
     
-    # 3.2 LỌC THỜI GIAN (Date Range)
     min_date, max_date = df['Ngay_SX'].min(), df['Ngay_SX'].max()
     date_range = st.date_input("📅 Chọn khoảng thời gian:", [min_date, max_date], min_value=min_date, max_value=max_date)
     
-    # 3.3 LỌC GỌN GÀNG (1 là Tất cả, 2 là Chọn từng cái)
     list_sup = ['Tất cả'] + sorted(df['Supplier'].unique().tolist())
     sel_sup = st.selectbox("🏭 Supplier (Nhà cung cấp):", list_sup)
     
@@ -119,7 +122,7 @@ with st.sidebar:
     if sel_col != 'Tất cả': dff = dff[dff['Color_Group'] == sel_col]
     
     st.markdown("---")
-    st.caption(f"📦 Đang hiển thị: {len(dff)} cuộn thép")
+    st.caption(f"📦 Đang hiển thị: {len(dff)} cuộn thép (Đã lọc mã rác)")
 
 # --- 4. XỬ LÝ HIỂN THỊ THEO VIEW MODE ---
 
@@ -142,10 +145,9 @@ if view_mode == "🚀 Executive Overview":
     st.markdown("---")
     st.subheader("Gloss Process Stability (Theo Thời gian)")
     
-    # FIX LỖI ĐEN XÌ TRỤC X: Chuyển sang dùng Ngày Sản Xuất (Ngay_SX)
     fig_ov, ax_ov = plt.subplots(figsize=(15, 4))
     sns.scatterplot(data=dff, x='Ngay_SX', y='Gloss_Lab', color='#2E86C1', alpha=0.7, ax=ax_ov, label='Lab Gloss')
-    sns.lineplot(data=dff, x='Ngay_SX', y='Gloss_Lab', color='#2E86C1', alpha=0.3, ax=ax_ov) # Đường mờ nối xu hướng
+    sns.lineplot(data=dff, x='Ngay_SX', y='Gloss_Lab', color='#2E86C1', alpha=0.3, ax=ax_ov) 
     
     if not dff.empty:
         ax_ov.axhline(dff['Gloss_LSL'].mean(), color='red', ls='--', label='Avg LSL')
