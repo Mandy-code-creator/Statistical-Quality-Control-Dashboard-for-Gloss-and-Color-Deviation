@@ -528,7 +528,7 @@ elif view_mode == "📋 Summary Data Report":
 # VIEW 5: SUPPLIER COMPARISON (SO SÁNH NHÀ CUNG CẤP)
 # ==========================================
 elif view_mode == "🤝 Supplier Comparison":
-    st.info("💡 So sánh năng lực thực chiến: Hệ thống sử dụng dữ liệu đo TRÊN DÂY CHUYỀN (Online Gloss) để đánh giá độ ổn định thực tế của sơn khi qua lò sấy tốc độ cao.")
+    st.info("💡 Chế độ linh hoạt: Chọn 1 mã cụ thể để so sánh năng lực (Cpk). Chọn 'Tất cả' để đánh giá độ ổn định tổng thể của cả nhóm màu dựa trên Độ lệch tâm (ΔGloss).")
     
     col_f1, col_f2 = st.columns(2)
     with col_f1:
@@ -542,17 +542,30 @@ elif view_mode == "🤝 Supplier Comparison":
     with col_f2:
         if sel_nhom_mau:
             dff_nhom = dff[dff['Color_Group'] == sel_nhom_mau].copy()
-            list_ma_4so = sorted(dff_nhom['Color_Code'].dropna().unique().tolist())
+            # THÊM LẠI LỰA CHỌN "TẤT CẢ" LÊN ĐẦU DANH SÁCH
+            list_ma_4so = ['Tất cả'] + sorted(dff_nhom['Color_Code'].dropna().unique().tolist())
             sel_ma_4so = st.selectbox("🔢 B2: Chọn Mã màu cụ thể (4 ký tự cuối):", list_ma_4so)
         else:
             sel_ma_4so = None
             
     if sel_ma_4so:
-        dff_comp = dff_nhom[dff_nhom['Color_Code'] == sel_ma_4so].copy()
+        # LOGIC TỰ ĐỘNG CHUYỂN ĐỔI CHẾ ĐỘ PHÂN TÍCH
+        if sel_ma_4so == 'Tất cả':
+            dff_comp = dff_nhom.copy()
+            title_suffix = f"Nhóm: {sel_nhom_mau} (Tất cả mã)"
+            is_mixed = True
+        else:
+            dff_comp = dff_nhom[dff_nhom['Color_Code'] == sel_ma_4so].copy()
+            title_suffix = f"Mã màu: {sel_ma_4so}"
+            is_mixed = False
         
-        # CHUYỂN TRỤC DỮ LIỆU: Bắt buộc phải có Online Gloss và LSL/USL
+        # Bắt buộc phải có Online Gloss và Tiêu chuẩn
         dff_comp = dff_comp.dropna(subset=['Online_Gloss_Top', 'Supplier', 'Gloss_LSL', 'Gloss_USL'])
         dff_comp = dff_comp[(dff_comp['Gloss_LSL'] > 0) & (dff_comp['Gloss_USL'] > 0) & (dff_comp['Online_Gloss_Top'] > 0)]
+        
+        # Tính Độ Lệch Tâm cho chế độ "Tất cả"
+        dff_comp['Gloss_Target'] = (dff_comp['Gloss_LSL'] + dff_comp['Gloss_USL']) / 2
+        dff_comp['Gloss_Dev'] = dff_comp['Online_Gloss_Top'] - dff_comp['Gloss_Target']
         
         counts = dff_comp['Supplier'].value_counts()
         valid_suppliers = counts[counts >= 2].index
@@ -563,66 +576,86 @@ elif view_mode == "🤝 Supplier Comparison":
             
             # --- PHẦN 1: TỔNG QUAN THEO NHÀ CUNG CẤP ---
             c1, c2 = st.columns([2, 2.2]) 
+            
+            # Xác định trục Y theo chế độ
+            plot_col = 'Gloss_Dev' if is_mixed else 'Online_Gloss_Top'
+            plot_ylabel = "Độ lệch so với Tâm (ΔGloss)" if is_mixed else "Độ bóng Online (Line Gloss)"
+            
             with c1:
-                st.subheader(f"📊 Phân tán Độ bóng Dây chuyền (Mã: {sel_ma_4so})")
+                st.subheader(f"📊 Phân tán Độ bóng Dây chuyền ({title_suffix})")
                 fig_comp1, ax_comp1 = plt.subplots(figsize=(10, 5))
                 
-                sns.boxplot(data=dff_comp, x='Supplier', y='Online_Gloss_Top', palette='Set2', ax=ax_comp1, showfliers=False)
-                sns.stripplot(data=dff_comp, x='Supplier', y='Online_Gloss_Top', color='black', alpha=0.5, size=4, jitter=True, ax=ax_comp1)
+                sns.boxplot(data=dff_comp, x='Supplier', y=plot_col, palette='Set2', ax=ax_comp1, showfliers=False)
+                # Làm mờ và thu nhỏ chấm đen để tránh rối mắt khi chọn Tất cả
+                sns.stripplot(data=dff_comp, x='Supplier', y=plot_col, color='black', alpha=0.3, size=3, jitter=True, ax=ax_comp1)
                 
-                lsl_val = dff_comp['Gloss_LSL'].iloc[0]
-                usl_val = dff_comp['Gloss_USL'].iloc[0]
-                ax_comp1.axhline(lsl_val, color='red', ls='--', lw=2, label=f'LSL ({lsl_val:.0f})')
-                ax_comp1.axhline(usl_val, color='red', ls='--', lw=2, label=f'USL ({usl_val:.0f})')
-                
-                tong_mean = dff_comp['Online_Gloss_Top'].mean()
-                ax_comp1.axhline(tong_mean, color='gray', ls=':', lw=1.5, label=f'Avg Line Chung ({tong_mean:.1f})')
+                if is_mixed:
+                    ax_comp1.axhline(0, color='green', ls='--', lw=2, label='Tâm Tiêu Chuẩn (0)')
+                else:
+                    lsl_val = dff_comp['Gloss_LSL'].iloc[0]
+                    usl_val = dff_comp['Gloss_USL'].iloc[0]
+                    ax_comp1.axhline(lsl_val, color='red', ls='--', lw=2, label=f'LSL ({lsl_val:.0f})')
+                    ax_comp1.axhline(usl_val, color='red', ls='--', lw=2, label=f'USL ({usl_val:.0f})')
+                    tong_mean = dff_comp['Online_Gloss_Top'].mean()
+                    ax_comp1.axhline(tong_mean, color='gray', ls=':', lw=1.5, label=f'Avg Line ({tong_mean:.1f})')
                 
                 ax_comp1.set_xlabel("Nhà cung cấp (Supplier)")
-                ax_comp1.set_ylabel("Độ bóng Online thực tế (Line Gloss)")
+                ax_comp1.set_ylabel(plot_ylabel)
                 plt.legend()
                 st.pyplot(fig_comp1)
                 
             with c2:
-                st.subheader("Bảng Chỉ số Thực chiến (Online Cpk)")
-                st.caption("🔍 Đánh giá năng lực thực tế. Cpk > 1.33 (Màu xanh) là quá trình rất ổn định.")
-                
-                comp_table = dff_comp.groupby('Supplier').agg(
-                    So_Cuon=('Batch_Lot', 'count'),
-                    LSL=('Gloss_LSL', 'mean'), 
-                    USL=('Gloss_USL', 'mean'), 
-                    Mean_Gloss=('Online_Gloss_Top', 'mean'), 
-                    Std_Gloss=('Online_Gloss_Top', 'std'),   
-                    Avg_dE=('ΔE', 'mean')
-                ).reset_index()
-                
-                def calc_cpk(row):
-                    if pd.isna(row['Std_Gloss']) or row['Std_Gloss'] == 0: 
-                        return np.nan
-                    cpk_upper = (row['USL'] - row['Mean_Gloss']) / (3 * row['Std_Gloss'])
-                    cpk_lower = (row['Mean_Gloss'] - row['LSL']) / (3 * row['Std_Gloss'])
-                    return min(cpk_upper, cpk_lower)
+                if is_mixed:
+                    st.subheader("Bảng Chỉ số Ổn định (Gộp)")
+                    st.caption("🔍 Chế độ Gộp: Độ phân tán (Std) càng nhỏ, hãng pha sơn càng đều tay trên toàn bộ dải màu.")
+                    comp_table = dff_comp.groupby('Supplier').agg(
+                        So_Cuon=('Batch_Lot', 'count'),
+                        Mean_Dev=('Gloss_Dev', 'mean'),
+                        Std_Dev=('Gloss_Dev', 'std'),   
+                        Avg_dE=('ΔE', 'mean')
+                    ).reset_index()
+                    comp_table = comp_table.sort_values('Std_Dev', ascending=True)
+                    comp_table.columns = ['Supplier', 'Cuộn', 'Lệch Tâm TB', 'Độ phân tán (Std)', 'ΔE TB']
                     
-                comp_table['Cpk (Line)'] = comp_table.apply(calc_cpk, axis=1)
-                comp_table = comp_table.sort_values('Cpk (Line)', ascending=False)
-                comp_table.columns = ['Supplier', 'Cuộn', 'LSL', 'USL', 'Mean (Line)', 'Std (Line)', 'ΔE TB', 'Cpk (Line)']
-                
-                st.dataframe(
-                    comp_table.style.format({
-                        'LSL': '{:.0f}', 'USL': '{:.0f}', 'Mean (Line)': '{:.1f}',
-                        'Std (Line)': '{:.2f}', 'ΔE TB': '{:.2f}', 'Cpk (Line)': '{:.2f}'
-                    }).background_gradient(cmap='RdYlGn', subset=['Cpk (Line)']), 
-                    use_container_width=True, hide_index=True
-                )
+                    st.dataframe(
+                        comp_table.style.format({
+                            'Lệch Tâm TB': '{:+.2f}', 'Độ phân tán (Std)': '{:.2f}', 'ΔE TB': '{:.2f}'
+                        }).background_gradient(cmap='RdYlGn_r', subset=['Độ phân tán (Std)']), 
+                        use_container_width=True, hide_index=True
+                    )
+                else:
+                    st.subheader("Bảng Chỉ số Thực chiến (Online Cpk)")
+                    st.caption("🔍 Chế độ Đơn: Đánh giá năng lực thực tế. Cpk > 1.33 là cực kỳ ổn định.")
+                    comp_table = dff_comp.groupby('Supplier').agg(
+                        So_Cuon=('Batch_Lot', 'count'),
+                        LSL=('Gloss_LSL', 'mean'), USL=('Gloss_USL', 'mean'), 
+                        Mean_Gloss=('Online_Gloss_Top', 'mean'), Std_Gloss=('Online_Gloss_Top', 'std'),   
+                        Avg_dE=('ΔE', 'mean')
+                    ).reset_index()
+                    
+                    def calc_cpk(row):
+                        if pd.isna(row['Std_Gloss']) or row['Std_Gloss'] == 0: return np.nan
+                        return min((row['USL'] - row['Mean_Gloss']) / (3 * row['Std_Gloss']), (row['Mean_Gloss'] - row['LSL']) / (3 * row['Std_Gloss']))
+                        
+                    comp_table['Cpk (Line)'] = comp_table.apply(calc_cpk, axis=1)
+                    comp_table = comp_table.sort_values('Cpk (Line)', ascending=False)
+                    comp_table.columns = ['Supplier', 'Cuộn', 'LSL', 'USL', 'Mean (Line)', 'Std (Line)', 'ΔE TB', 'Cpk (Line)']
+                    
+                    st.dataframe(
+                        comp_table.style.format({
+                            'LSL': '{:.0f}', 'USL': '{:.0f}', 'Mean (Line)': '{:.1f}',
+                            'Std (Line)': '{:.2f}', 'ΔE TB': '{:.2f}', 'Cpk (Line)': '{:.2f}'
+                        }).background_gradient(cmap='RdYlGn', subset=['Cpk (Line)']), 
+                        use_container_width=True, hide_index=True
+                    )
 
             # --- PHẦN 2: TRUY VẾT LÔ SẢN XUẤT (BATCH DRILL-DOWN) ---
             st.markdown("---")
             st.subheader("🔎 Truy vết Lô sơn thiếu ổn định (Batch Drill-down)")
-            st.caption("Danh sách các lô sơn sắp xếp theo độ dao động (Độ lệch chuẩn - Std) giảm dần. Cột **Mã Sơn (Full)** giúp bạn gửi khiếu nại chính xác đến nhà cung cấp.")
+            st.caption("Danh sách các lô sơn sắp xếp theo độ dao động (Độ lệch chuẩn - Std) giảm dần. Lô bị bôi đỏ là lô kéo chất lượng đi xuống.")
             
-            # Nhóm dữ liệu theo Nhà cung cấp và Lô sản xuất, THÊM MÃ SƠN ĐẦY ĐỦ VÀ dE Max
             batch_table = dff_comp.groupby(['Supplier', 'Batch_Lot']).agg(
-                Ma_Son_Full=('Ma_Son', 'first'), # Lấy mã sơn đầy đủ
+                Ma_Son_Full=('Ma_Son', 'first'), 
                 Ngay_SX=('Ngay_SX', 'min'),
                 So_Cuon=('Online_Gloss_Top', 'count'),
                 LSL=('Gloss_LSL', 'first'),
@@ -631,16 +664,11 @@ elif view_mode == "🤝 Supplier Comparison":
                 Std_Line=('Online_Gloss_Top', 'std'),
                 Min_Line=('Online_Gloss_Top', 'min'),
                 Max_Line=('Online_Gloss_Top', 'max'),
-                dE_Max=('ΔE', 'max') # Lấy ΔE lớn nhất của lô đó
+                dE_Max=('ΔE', 'max') 
             ).reset_index()
             
-            # Xử lý các lô chỉ có 1 cuộn (Std sẽ bằng NaN) -> Đổi thành 0
             batch_table['Std_Line'] = batch_table['Std_Line'].fillna(0)
-            
-            # Sắp xếp những lô dao động mạnh nhất (Std cao) lên đầu
             batch_table = batch_table.sort_values(by=['Std_Line'], ascending=False)
-            
-            # Cập nhật tên cột hiển thị
             batch_table.columns = ['Supplier', 'Lô Sản Xuất', 'Mã Sơn (Full)', 'Ngày SX', 'Số Cuộn', 'LSL', 'USL', 'Mean (Line)', 'Std (Line)', 'Min (Line)', 'Max (Line)', 'ΔE Max']
             
             st.dataframe(
@@ -648,7 +676,7 @@ elif view_mode == "🤝 Supplier Comparison":
                     'LSL': '{:.0f}', 'USL': '{:.0f}', 'Mean (Line)': '{:.1f}',
                     'Std (Line)': '{:.2f}', 'Min (Line)': '{:.1f}', 'Max (Line)': '{:.1f}',
                     'ΔE Max': '{:.2f}'
-                }).background_gradient(cmap='Reds', subset=['Std (Line)', 'ΔE Max']), # Bôi đỏ đậm các lô có Std hoặc dE cao
+                }).background_gradient(cmap='Reds', subset=['Std (Line)', 'ΔE Max']), 
                 use_container_width=True, hide_index=True
             )
 
