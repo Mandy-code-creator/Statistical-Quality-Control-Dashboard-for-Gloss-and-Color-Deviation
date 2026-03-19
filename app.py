@@ -624,14 +624,13 @@ elif view_mode == "🤝 Supplier Comparison":
             else:
                 st.info("Not enough multi-batch data to compare Batch-to-Batch gloss variation.")
 
-            # --- COLOR DRIFT ---
+           # --- COLOR DRIFT ---
             st.markdown("---")
             st.subheader("🎨 Batch Color Drift Detailed Analysis")
             st.caption("Table displays AVERAGE values of color components (ΔL, Δa, Δb) per batch. The **Full Paint Code** column helps Vendors trace exact formulas.")
             st.caption("🔴 **Dark Red:** Significant shift towards Lighter (ΔL+), Redder (Δa+), or Yellower (Δb+).")
             st.caption("🔵 **Dark Blue:** Significant shift towards Darker (ΔL-), Greener (Δa-), or Bluer (Δb-).")
             
-            # Tính trung bình các yếu tố màu theo lô
             color_drift = dff_comp.groupby(['Supplier', 'Batch_Lot']).agg(
                 Ma_Son_Full=('Ma_Son', 'first'),
                 Ngay_SX=('Ngay_SX', 'min'),
@@ -644,15 +643,25 @@ elif view_mode == "🤝 Supplier Comparison":
             color_drift = color_drift.sort_values(by=['Supplier', 'Ngay_SX'])
             color_drift.columns = ['Supplier', 'Batch Lot', 'Full Paint Code', 'Production Date', 'ΔL (Avg)', 'Δa (Avg)', 'Δb (Avg)', 'Max ΔE']
             
-            # --- 🚀 BỘ LỌC THEO TỪNG NHÀ CUNG CẤP ---
-            drift_suppliers = ['All Suppliers'] + color_drift['Supplier'].unique().tolist()
-            sel_drift_sup = st.selectbox("🏭 Select Supplier to view details:", drift_suppliers, key="drift_sup_filter")
+            # --- 🚀 DOUBLE FILTERS: SUPPLIER & PAINT CODE ---
+            c_drift1, c_drift2 = st.columns(2)
             
+            with c_drift1:
+                drift_suppliers = ['All Suppliers'] + sorted(color_drift['Supplier'].unique().tolist())
+                sel_drift_sup = st.selectbox("🏭 Select Supplier:", drift_suppliers, key="drift_sup_filter")
+                
             if sel_drift_sup != 'All Suppliers':
-                # Lọc bảng chỉ giữ lại nhà cung cấp được chọn
                 color_drift = color_drift[color_drift['Supplier'] == sel_drift_sup]
+                
+            with c_drift2:
+                # Danh sách mã sơn tự động cập nhật theo nhà cung cấp đã chọn
+                drift_codes = ['All Paint Codes'] + sorted(color_drift['Full Paint Code'].unique().tolist())
+                sel_drift_code = st.selectbox("🎯 Select Full Paint Code:", drift_codes, key="drift_code_filter")
+                
+            if sel_drift_code != 'All Paint Codes':
+                color_drift = color_drift[color_drift['Full Paint Code'] == sel_drift_code]
             
-            # Hiển thị bảng sau khi đã lọc
+            # --- HIỂN THỊ BẢNG SAU KHI LỌC ---
             st.dataframe(
                 color_drift.style.format({
                     'ΔL (Avg)': '{:+.2f}', 'Δa (Avg)': '{:+.2f}', 'Δb (Avg)': '{:+.2f}', 'Max ΔE': '{:.2f}'
