@@ -130,75 +130,127 @@ st.title(view_mode)
 st.markdown("---")
 
 # ==========================================
-# VIEW 1: OVERVIEW
+# ==========================================
+# VIEW 1: OVERVIEW (EXECUTIVE SUMMARY)
 # ==========================================
 if view_mode == "🚀 Executive Overview":
-    k1, k2, k3, k4, k5 = st.columns(5)
-    k1.metric("Avg Gloss (Lab)", f"{dff['Gloss_Lab'].mean():.1f}")
-    k2.metric("Avg Gloss (Online)", f"{dff['Online_Gloss_Top'].mean():.1f}")
-    k3.metric("Avg ΔE", f"{dff['ΔE'].mean():.2f}")
-    yield_rate = (dff['Final_Status'] == '✅ PASS').mean() * 100 if len(dff) > 0 else 0
-    k4.metric("Yield Rate (Pass %)", f"{yield_rate:.1f}%")
+    st.info("💡 Màn hình Tổng quan đánh giá năng lực toàn xưởng. Để phân tích độ bóng (Gloss) của từng mã màu cụ thể, vui lòng sang Tab 'Gloss Analysis (SPC)'.")
+    
+    # 1. KPI CARDS CẤP QUẢN TRỊ (Không tính trung bình tuyệt đối các mã màu khác nhau)
+    k1, k2, k3, k4 = st.columns(4)
+    
+    total_coils = len(dff)
+    k1.metric("📦 Tổng Sản Lượng", f"{total_coils} cuộn")
+    
+    yield_rate = (dff['Final_Status'] == '✅ PASS').mean() * 100 if total_coils > 0 else 0
+    k2.metric("✅ Tỷ lệ Đạt (Yield %)", f"{yield_rate:.1f}%")
+    
     ng_count = (dff['Final_Status'] == '❌ FAIL/NG').sum()
-    k5.metric("NG Coils", f"{ng_count} cuộn", delta_color="inverse")
+    k3.metric("🚨 Tổng số cuộn NG", f"{ng_count} cuộn", delta_color="inverse")
+    
+    # Avg Gap (Online - Lab) là giá trị tương đối, nên có thể tính trung bình toàn xưởng để xem line có đang chạy sát với lab không
+    avg_gap = dff['Gap_Gloss'].mean() if total_coils > 0 else 0
+    k4.metric("⚖️ Độ lệch Lab vs Line (Avg Gap)", f"{avg_gap:.1f} GU")
 
     st.markdown("---")
-    st.subheader("Gloss Process Stability (Theo Thời gian)")
     
-    fig_ov, ax_ov = plt.subplots(figsize=(15, 4))
-    sns.scatterplot(data=dff, x='Ngay_SX', y='Gloss_Lab', color='#2E86C1', alpha=0.7, ax=ax_ov, label='Lab Gloss')
-    sns.lineplot(data=dff, x='Ngay_SX', y='Gloss_Lab', color='#2E86C1', alpha=0.3, ax=ax_ov) 
+    # 2. BIỂU ĐỒ TỶ LỆ PASS THEO NGÀY SẢN XUẤT (Trend Chart chuẩn QC cho mixed-products)
+    st.subheader("📉 Xu hướng Chất lượng toàn xưởng (Yield Trend by Date)")
     
     if not dff.empty:
-        ax_ov.axhline(dff['Gloss_LSL'].mean(), color='red', ls='--', label='Avg LSL')
-        ax_ov.axhline(dff['Gloss_USL'].mean(), color='red', ls='--', label='Avg USL')
-    
-    plt.xticks(rotation=45)
-    ax_ov.set_xlabel("Ngày Sản Xuất")
-    ax_ov.set_ylabel("Độ bóng (Gloss)")
-    plt.legend()
-    st.pyplot(fig_ov)
+        # Tính tỷ lệ Pass theo từng ngày
+        daily_yield = dff.groupby('Ngay_SX').apply(
+            lambda x: (x['Final_Status'] == '✅ PASS').mean() * 100
+        ).reset_index()
+        daily_yield.columns = ['Ngay_SX', 'Yield_Rate']
+        
+        fig_ov, ax_ov = plt.subplots(figsize=(15, 4))
+        sns.lineplot(data=daily_yield, x='Ngay_SX', y='Yield_Rate', marker='o', color='#2ca02c', linewidth=2, ax=ax_ov)
+        
+        # Thêm các đường cảnh báo
+        ax_ov.axhline(100, color='gray', ls='--', alpha=0.5) # Đường 100% hoàn hảo
+        ax_ov.axhline(95, color='orange', ls='--', label='Warning (95%)') # Ngưỡng cảnh báo
+        
+        ax_ov.set_ylim(min(80, daily_yield['Yield_Rate'].min() - 5), 105)
+        ax_ov.set_xlabel("Ngày Sản Xuất")
+        ax_ov.set_ylabel("Tỷ lệ Đạt (%)")
+        plt.xticks(rotation=45)
+        plt.legend()
+        st.pyplot(fig_ov)
 
+    # 3. DANH SÁCH HÀNG LỖI (Để follow-up)
     if ng_count > 0:
-        st.error(f"🚨 Top Lô hàng bị NG (Ngoại vi tiêu chuẩn)")
-        st.dataframe(dff[dff['Final_Status'] == '❌ FAIL/NG'][['Ngay_SX', 'Batch_Lot', 'Ma_Son', 'Gloss_Lab', 'ΔE', 'Final_Status']], use_container_width=True)
-
+        st.error(f"🚨 Danh sách chi tiết {ng_count} cuộn bị NG (Cần kiểm tra lại)")
+        st.dataframe(
+            dff[dff['Final_Status'] == '❌ FAIL/NG'][
+                ['Ngay_SX', 'Batch_Lot', 'Ma_Son', 'Supplier', 'Gloss_Lab', 'Gloss_LSL', 'Gloss_USL', 'ΔE', 'Final_Status']
+            ], 
+            use_container_width=True
+        )
+# ==========================================
 # ==========================================
 # VIEW 2: GLOSS ANALYSIS (SPC)
 # ==========================================
 elif view_mode == "✨ Gloss Analysis (SPC)":
-    st.info("💡 SPC Analysis yêu cầu chọn một Mã sơn cụ thể để đánh giá chính xác LSL/USL.")
+    st.info("💡 Phân tích SPC so sánh trực tiếp phân phối độ bóng giữa Phòng Lab và Dây chuyền (Line) trên cùng một tiêu chuẩn (LSL/USL).")
     list_ma_son_tab2 = sorted(dff['Ma_Son'].dropna().unique().tolist())
     
     if list_ma_son_tab2:
         sel_ma_son_tab2 = st.selectbox("🎯 Chọn Mã sơn đầy đủ:", list_ma_son_tab2)
         dff_g = dff[dff['Ma_Son'] == sel_ma_son_tab2].copy()
         
+        # Lọc bỏ thêm các cuộn chưa có dữ liệu Online Gloss để biểu đồ không bị lỗi
+        dff_g = dff_g.dropna(subset=['Online_Gloss_Top'])
+        
         if not dff_g.empty:
             c1, c2 = st.columns([2, 1])
             with c1:
-                st.subheader(f"Phân phối Độ bóng (Histogram) - {sel_ma_son_tab2}")
+                st.subheader(f"Phân phối Độ bóng (Lab vs Line) - {sel_ma_son_tab2}")
                 fig_g1, ax_g1 = plt.subplots(figsize=(10, 5))
-                sns.histplot(dff_g['Gloss_Lab'], kde=True, color='skyblue', ax=ax_g1)
+                
+                # Vẽ biểu đồ phân phối cho Lab (Màu xanh)
+                sns.histplot(dff_g['Gloss_Lab'], kde=True, color='#3498db', alpha=0.5, label='Lab Gloss', ax=ax_g1)
+                # Vẽ biểu đồ phân phối cho Line (Màu cam)
+                sns.histplot(dff_g['Online_Gloss_Top'], kde=True, color='#e67e22', alpha=0.5, label='Line Gloss (Top)', ax=ax_g1)
                 
                 lsl_val = dff_g['Gloss_LSL'].iloc[0]
                 usl_val = dff_g['Gloss_USL'].iloc[0]
-                mean_val = dff_g['Gloss_Lab'].mean()
+                mean_lab = dff_g['Gloss_Lab'].mean()
+                mean_line = dff_g['Online_Gloss_Top'].mean()
                 
+                # Vẽ LSL / USL
                 ax_g1.axvline(lsl_val, color='red', ls='--', linewidth=2, label=f'LSL ({lsl_val})')
                 ax_g1.axvline(usl_val, color='red', ls='--', linewidth=2, label=f'USL ({usl_val})')
-                ax_g1.axvline(mean_val, color='green', ls='-.', linewidth=2, label=f'Mean ({mean_val:.1f})')
                 
-                plt.legend(); st.pyplot(fig_g1)
+                # Vẽ đường trung bình
+                ax_g1.axvline(mean_lab, color='#2980b9', ls='-.', linewidth=2, label=f'Mean Lab ({mean_lab:.1f})')
+                ax_g1.axvline(mean_line, color='#d35400', ls='-.', linewidth=2, label=f'Mean Line ({mean_line:.1f})')
+                
+                ax_g1.set_xlabel("Độ bóng (Gloss)")
+                plt.legend()
+                st.pyplot(fig_g1)
                 
             with c2:
-                st.subheader("Độ phân tán Gloss (Boxplot)")
+                st.subheader("Độ phân tán (Lab vs Line)")
                 fig_g2, ax_g2 = plt.subplots(figsize=(5, 5))
-                sns.boxplot(data=dff_g, x='Supplier', y='Gloss_Lab', palette='Set2', ax=ax_g2)
+                
+                # Biến đổi dữ liệu để vẽ Boxplot so sánh 2 cột
+                df_melt = dff_g.melt(value_vars=['Gloss_Lab', 'Online_Gloss_Top'], var_name='Nguồn đo', value_name='Gloss')
+                
+                sns.boxplot(data=df_melt, x='Nguồn đo', y='Gloss', palette=['#3498db', '#e67e22'], ax=ax_g2)
+                
+                # Vẽ LSL/USL sang Boxplot
                 ax_g2.axhline(lsl_val, color='red', ls='--', alpha=0.5)
                 ax_g2.axhline(usl_val, color='red', ls='--', alpha=0.5)
-                plt.xticks(rotation=0)
+                
+                # Sửa lại nhãn trục X cho đẹp
+                ax_g2.set_xticklabels(['Lab Gloss', 'Line Gloss'])
+                ax_g2.set_xlabel("")
+                ax_g2.set_ylabel("Độ bóng (Gloss)")
+                
                 st.pyplot(fig_g2)
+        else:
+            st.warning("Mã sơn này hiện chưa có dữ liệu đo trên Line (Online Gloss).")
 
 # ==========================================
 # VIEW 3: COLOR DEVIATION
