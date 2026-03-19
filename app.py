@@ -192,8 +192,8 @@ if view_mode == "🚀 Executive Overview":
 # VIEW 2: GLOSS ANALYSIS (SPC)
 # ==========================================
 elif view_mode == "✨ Gloss Analysis (SPC)":
-    st.info("💡 Phân tích SPC so sánh trực tiếp phân phối độ bóng giữa Phòng Lab và Dây chuyền (Line). Các cuộn thiếu giới hạn tiêu chuẩn (LSL/USL) sẽ được tự động bỏ qua.")
-    import scipy.stats as stats # Import thư viện tính toán thống kê
+    st.info("💡 Phân tích SPC toàn diện: Bao gồm Biểu đồ xu hướng (Control Chart) để theo dõi tính ổn định và Biểu đồ phân phối (Histogram) để đánh giá năng lực quá trình.")
+    import scipy.stats as stats 
     
     list_ma_son_tab2 = sorted(dff['Ma_Son'].dropna().unique().tolist())
     
@@ -201,52 +201,77 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
         sel_ma_son_tab2 = st.selectbox("🎯 Chọn Mã sơn đầy đủ:", list_ma_son_tab2)
         dff_g = dff[dff['Ma_Son'] == sel_ma_son_tab2].copy()
         
-        # --- LỌC BỎ CUỘN THIẾU TIÊU CHUẨN HOẶC THIẾU DỮ LIỆU ---
+        # Lọc bỏ cuộn thiếu tiêu chuẩn hoặc thiếu dữ liệu Line
         dff_g = dff_g.dropna(subset=['Gloss_LSL', 'Gloss_USL'])
         dff_g = dff_g[(dff_g['Gloss_LSL'] > 0) & (dff_g['Gloss_USL'] > 0)]
         dff_g = dff_g.dropna(subset=['Online_Gloss_Top'])
         dff_g = dff_g[dff_g['Online_Gloss_Top'] > 0]
         
-        # Cần ít nhất 2 cuộn để tính được độ lệch chuẩn (Std) và vẽ đường cong
         if len(dff_g) > 1:
+            # Tạo trục X là "Thứ tự cuộn" để theo dõi diễn biến liên tục
+            dff_g = dff_g.reset_index(drop=True)
+            dff_g['Coil_Seq'] = dff_g.index + 1
+            
+            lsl_val = dff_g['Gloss_LSL'].iloc[0]
+            usl_val = dff_g['Gloss_USL'].iloc[0]
+            mean_lab, std_lab = dff_g['Gloss_Lab'].mean(), dff_g['Gloss_Lab'].std()
+            mean_line, std_line = dff_g['Online_Gloss_Top'].mean(), dff_g['Online_Gloss_Top'].std()
+
+            # --- 1. BIỂU ĐỒ XU HƯỚNG (CONTROL CHART / TREND LINE) ---
+            st.markdown("---")
+            st.subheader(f"📈 Biểu đồ Xu hướng Kiểm soát (Trend Line) - {sel_ma_son_tab2}")
+            fig_trend, ax_trend = plt.subplots(figsize=(12, 4))
+            
+            # Vẽ đường xu hướng Lab và Line
+            ax_trend.plot(dff_g['Coil_Seq'], dff_g['Gloss_Lab'], marker='o', color='#2980b9', lw=2, label='Lab Gloss')
+            ax_trend.plot(dff_g['Coil_Seq'], dff_g['Online_Gloss_Top'], marker='s', color='#d35400', lw=2, alpha=0.7, label='Line Gloss')
+            
+            # Vẽ các đường giới hạn đỏ
+            ax_trend.axhline(lsl_val, color='red', ls='--', lw=2, label=f'LSL ({lsl_val:.1f})')
+            ax_trend.axhline(usl_val, color='red', ls='--', lw=2, label=f'USL ({usl_val:.1f})')
+            ax_trend.axhline(mean_lab, color='#3498db', ls=':', lw=1.5, label=f'Mean Lab ({mean_lab:.1f})')
+            
+            ax_trend.set_xlabel("Thứ tự cuộn thép (Coil Sequence)")
+            ax_trend.set_ylabel("Độ bóng (Gloss)")
+            
+            # Xử lý hiển thị nhãn trục X cho gọn gàng
+            if len(dff_g) <= 30:
+                ax_trend.set_xticks(dff_g['Coil_Seq'])
+            else:
+                ax_trend.set_xticks(dff_g['Coil_Seq'][::int(len(dff_g)/15)]) # Chỉ hiện ~15 mốc nếu quá nhiều cuộn
+            
+            plt.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
+            st.pyplot(fig_trend)
+            
+            st.markdown("---")
+
+            # --- 2. BIỂU ĐỒ PHÂN PHỐI VÀ ĐỘ PHÂN TÁN ---
             c1, c2 = st.columns([2, 1])
             with c1:
-                st.subheader(f"Phân phối Độ bóng (Lab vs Line) - {sel_ma_son_tab2}")
+                st.subheader("Phân phối Độ bóng (Histogram)")
                 fig_g1, ax_g1 = plt.subplots(figsize=(10, 5))
                 
-                # Tắt KDE mặc định, chuyển trục Y sang Mật độ (Density) để khớp với đường chuẩn
                 sns.histplot(dff_g['Gloss_Lab'], stat="density", bins=8, color='#3498db', alpha=0.5, label='Lab Gloss (Bar)', ax=ax_g1)
                 sns.histplot(dff_g['Online_Gloss_Top'], stat="density", bins=8, color='#e67e22', alpha=0.5, label='Line Gloss (Bar)', ax=ax_g1)
                 
-                lsl_val = dff_g['Gloss_LSL'].iloc[0]
-                usl_val = dff_g['Gloss_USL'].iloc[0]
-                
-                # Lấy Mean và Std
-                mean_lab, std_lab = dff_g['Gloss_Lab'].mean(), dff_g['Gloss_Lab'].std()
-                mean_line, std_line = dff_g['Online_Gloss_Top'].mean(), dff_g['Online_Gloss_Top'].std()
-                
-                # --- VẼ ĐƯỜNG NORMAL CURVE ĐÍCH THỰC ---
                 xmin, xmax = ax_g1.get_xlim()
-                x_axis = np.linspace(xmin, xmax, 100) # Tạo 100 điểm để vẽ đường cong mượt
+                x_axis = np.linspace(xmin, xmax, 100)
                 
                 if pd.notna(std_lab) and std_lab > 0:
-                    ax_g1.plot(x_axis, stats.norm.pdf(x_axis, mean_lab, std_lab), color='#2980b9', lw=2.5, label=f'Normal Lab (μ={mean_lab:.1f}, σ={std_lab:.1f})')
+                    ax_g1.plot(x_axis, stats.norm.pdf(x_axis, mean_lab, std_lab), color='#2980b9', lw=2.5, label=f'Normal Lab (σ={std_lab:.1f})')
                 if pd.notna(std_line) and std_line > 0:
-                    ax_g1.plot(x_axis, stats.norm.pdf(x_axis, mean_line, std_line), color='#d35400', lw=2.5, label=f'Normal Line (μ={mean_line:.1f}, σ={std_line:.1f})')
+                    ax_g1.plot(x_axis, stats.norm.pdf(x_axis, mean_line, std_line), color='#d35400', lw=2.5, label=f'Normal Line (σ={std_line:.1f})')
                 
-                # Vẽ LSL / USL
                 ax_g1.axvline(lsl_val, color='red', ls='--', linewidth=2, label=f'LSL ({lsl_val:.1f})')
                 ax_g1.axvline(usl_val, color='red', ls='--', linewidth=2, label=f'USL ({usl_val:.1f})')
                 
                 ax_g1.set_xlabel("Độ bóng (Gloss)")
                 ax_g1.set_ylabel("Mật độ phân phối (Density)")
-                
-                # Chuyển ghi chú ra ngoài biểu đồ để không che đường cong
-                plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+                plt.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
                 st.pyplot(fig_g1)
                 
             with c2:
-                st.subheader("Độ phân tán (Lab vs Line)")
+                st.subheader("Độ phân tán (Boxplot)")
                 fig_g2, ax_g2 = plt.subplots(figsize=(5, 5))
                 
                 df_melt = dff_g.melt(value_vars=['Gloss_Lab', 'Online_Gloss_Top'], var_name='Nguồn đo', value_name='Gloss')
@@ -254,14 +279,12 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
                 
                 ax_g2.axhline(lsl_val, color='red', ls='--', alpha=0.5)
                 ax_g2.axhline(usl_val, color='red', ls='--', alpha=0.5)
-                
                 ax_g2.set_xticklabels(['Lab Gloss', 'Line Gloss'])
                 ax_g2.set_xlabel("")
                 ax_g2.set_ylabel("Độ bóng (Gloss)")
-                
                 st.pyplot(fig_g2)
         else:
-            st.warning("⚠️ Mã sơn này hiện chưa đủ dữ liệu (cần ít nhất 2 cuộn) để vẽ đường cong phân phối chuẩn (Normal Curve).")
+            st.warning("⚠️ Mã sơn này hiện chưa đủ dữ liệu (cần ít nhất 2 cuộn hợp lệ) để tiến hành phân tích SPC.")
 # ==========================================
 # VIEW 3: COLOR DEVIATION
 # ==========================================
