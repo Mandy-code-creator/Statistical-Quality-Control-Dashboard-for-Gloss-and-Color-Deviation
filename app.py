@@ -192,7 +192,7 @@ if view_mode == "🚀 Executive Overview":
 # VIEW 2: GLOSS ANALYSIS (SPC)
 # ==========================================
 elif view_mode == "✨ Gloss Analysis (SPC)":
-    st.info("💡 Phân tích SPC toàn diện: Bao gồm Biểu đồ xu hướng (Control Chart) để theo dõi tính ổn định và Biểu đồ phân phối (Histogram) để đánh giá năng lực quá trình.")
+    st.info("💡 Phân tích SPC toàn diện: Bao gồm Biểu đồ xu hướng (Control Chart) theo Lô sản xuất và Biểu đồ phân phối (Histogram) để đánh giá năng lực.")
     import scipy.stats as stats 
     
     list_ma_son_tab2 = sorted(dff['Ma_Son'].dropna().unique().tolist())
@@ -208,9 +208,8 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
         dff_g = dff_g[dff_g['Online_Gloss_Top'] > 0]
         
         if len(dff_g) > 1:
-            # Tạo trục X là "Thứ tự cuộn" để theo dõi diễn biến liên tục
-            dff_g = dff_g.reset_index(drop=True)
-            dff_g['Coil_Seq'] = dff_g.index + 1
+            # Ép kiểu Batch_Lot sang dạng chuỗi (String) để vẽ trục X
+            dff_g['Batch_Lot'] = dff_g['Batch_Lot'].astype(str)
             
             lsl_val = dff_g['Gloss_LSL'].iloc[0]
             usl_val = dff_g['Gloss_USL'].iloc[0]
@@ -222,23 +221,26 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
             st.subheader(f"📈 Biểu đồ Xu hướng Kiểm soát (Trend Line) - {sel_ma_son_tab2}")
             fig_trend, ax_trend = plt.subplots(figsize=(12, 4))
             
-            # Vẽ đường xu hướng Lab và Line
-            ax_trend.plot(dff_g['Coil_Seq'], dff_g['Gloss_Lab'], marker='o', color='#2980b9', lw=2, label='Lab Gloss')
-            ax_trend.plot(dff_g['Coil_Seq'], dff_g['Online_Gloss_Top'], marker='s', color='#d35400', lw=2, alpha=0.7, label='Line Gloss')
+            # Vẽ đường xu hướng trực tiếp theo Batch Lot
+            ax_trend.plot(dff_g['Batch_Lot'], dff_g['Gloss_Lab'], marker='o', color='#2980b9', lw=2, label='Lab Gloss')
+            ax_trend.plot(dff_g['Batch_Lot'], dff_g['Online_Gloss_Top'], marker='s', color='#d35400', lw=2, alpha=0.7, label='Line Gloss')
             
             # Vẽ các đường giới hạn đỏ
             ax_trend.axhline(lsl_val, color='red', ls='--', lw=2, label=f'LSL ({lsl_val:.1f})')
             ax_trend.axhline(usl_val, color='red', ls='--', lw=2, label=f'USL ({usl_val:.1f})')
             ax_trend.axhline(mean_lab, color='#3498db', ls=':', lw=1.5, label=f'Mean Lab ({mean_lab:.1f})')
             
-            ax_trend.set_xlabel("Thứ tự cuộn thép (Coil Sequence)")
+            ax_trend.set_xlabel("Lô Sản Xuất (Batch Lot)")
             ax_trend.set_ylabel("Độ bóng (Gloss)")
             
-            # Xử lý hiển thị nhãn trục X cho gọn gàng
-            if len(dff_g) <= 30:
-                ax_trend.set_xticks(dff_g['Coil_Seq'])
-            else:
-                ax_trend.set_xticks(dff_g['Coil_Seq'][::int(len(dff_g)/15)]) # Chỉ hiện ~15 mốc nếu quá nhiều cuộn
+            # Xoay nhãn trục X 45 độ để không bị đè lên nhau (Hết đen xì)
+            plt.xticks(rotation=45, ha='right')
+            
+            # Tự động ẩn bớt nhãn nếu có quá nhiều Batch Lot (Ví dụ > 40 mốc)
+            locs, labels = plt.xticks()
+            if len(locs) > 40:
+                for i, label in enumerate(labels):
+                    if i % 3 != 0: label.set_visible(False)
             
             plt.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
             st.pyplot(fig_trend)
