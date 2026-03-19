@@ -444,7 +444,8 @@ elif view_mode == "⚖️ Process Uniformity":
         st.pyplot(fig_u2)
 
 # ==========================================
-# VIEW 5: SUPPLIER COMPARISON 
+# ==========================================
+# VIEW 5: SUPPLIER COMPARISON (SO SÁNH NHÀ CUNG CẤP)
 # ==========================================
 elif view_mode == "🤝 Supplier Comparison":
     st.info("💡 Flexible Mode: Select a specific code for capability comparison (Cpk). Select 'All' to evaluate overall stability of a color group based on Target Deviation (ΔGloss).")
@@ -540,12 +541,25 @@ elif view_mode == "🤝 Supplier Comparison":
             with c1:
                 st.subheader(f"📊 Line Gloss Dispersion ({title_suffix})")
                 fig_comp1, ax_comp1 = plt.subplots(figsize=(10, 5))
-                sns.boxplot(data=dff_comp, x='Supplier', y=plot_col, palette='Set2', ax=ax_comp1, showfliers=False)
-                sns.stripplot(data=dff_comp, x='Supplier', y=plot_col, color='black', alpha=0.3, size=3, jitter=True, ax=ax_comp1)
                 
+                num_sups = dff_comp['Supplier'].nunique()
+                
+                # --- NÂNG CẤP ĐỒ HỌA BIỂU ĐỒ ---
                 if is_mixed:
+                    # Chế độ "All": Nhiều dữ liệu -> Dùng Boxplot màu, chấm nhỏ mờ
+                    b_width = 0.5 if num_sups > 1 else 0.3
+                    sns.boxplot(data=dff_comp, x='Supplier', y=plot_col, palette='Set2', ax=ax_comp1, showfliers=False, width=b_width)
+                    sns.stripplot(data=dff_comp, x='Supplier', y=plot_col, color='black', alpha=0.3, size=3, jitter=True, ax=ax_comp1)
                     ax_comp1.axhline(0, color='green', ls='--', lw=2, label='Target Standard (0)')
                 else:
+                    # Chế độ "1 Mã cụ thể": Ít dữ liệu -> Dùng Boxplot xám mờ làm nền, chấm to rực rỡ để đếm cuộn
+                    b_width = 0.3 if num_sups > 1 else 0.15 # Bóp nhỏ bề ngang hộp lại
+                    
+                    # Boxplot xám mờ tinh tế
+                    sns.boxplot(data=dff_comp, x='Supplier', y=plot_col, color='#ecf0f1', ax=ax_comp1, showfliers=False, width=b_width, linewidth=1.5)
+                    # Chấm dữ liệu to, nổi bật, phân màu theo hãng
+                    sns.stripplot(data=dff_comp, x='Supplier', y=plot_col, hue='Supplier', palette='Set1', alpha=0.85, size=7, jitter=0.15, ax=ax_comp1, legend=False)
+                    
                     lsl_val = dff_comp['Gloss_LSL'].iloc[0]
                     usl_val = dff_comp['Gloss_USL'].iloc[0]
                     ax_comp1.axhline(lsl_val, color='red', ls='--', lw=2, label=f'LSL ({lsl_val:.0f})')
@@ -596,35 +610,51 @@ elif view_mode == "🤝 Supplier Comparison":
             # --- BATCH TO BATCH ---
             st.markdown("---")
             st.subheader("📉 Batch-to-Batch Gloss Variation")
-            st.caption("Max-Min gap between batch averages. A larger gap indicates poorer batching control by the Vendor.")
+            st.caption("Detailed view of the specific batches with the highest and lowest average gloss. Exposes exact lot numbers for vendor accountability.")
             
             batch_means = dff_comp.groupby(['Supplier', 'Batch_Lot']).agg(
-                Mean_Line=('Online_Gloss_Top', 'mean')
+                Mean_Line=('Online_Gloss_Top', 'mean'),
+                LSL=('Gloss_LSL', 'first'),
+                USL=('Gloss_USL', 'first')
             ).reset_index()
             
-            b2b_table = batch_means.groupby('Supplier').agg(
-                So_Lo=('Batch_Lot', 'count'),
-                Min_Batch_Mean=('Mean_Line', 'min'),
-                Max_Batch_Mean=('Mean_Line', 'max')
-            ).reset_index()
+            b2b_records = []
+            for sup, group in batch_means.groupby('Supplier'):
+                if len(group) >= 2:
+                    idx_min = group['Mean_Line'].idxmin()
+                    idx_max = group['Mean_Line'].idxmax()
+                    
+                    min_row = group.loc[idx_min]
+                    max_row = group.loc[idx_max]
+                    
+                    b2b_records.append({
+                        'Supplier': sup,
+                        'Batches': len(group),
+                        'LSL': min_row['LSL'],
+                        'USL': min_row['USL'],
+                        'Min Batch': min_row['Batch_Lot'],
+                        'Min Avg': min_row['Mean_Line'],
+                        'Max Batch': max_row['Batch_Lot'],
+                        'Max Avg': max_row['Mean_Line'],
+                        'Gap': max_row['Mean_Line'] - min_row['Mean_Line']
+                    })
             
-            b2b_table['Chenh_Lech'] = b2b_table['Max_Batch_Mean'] - b2b_table['Min_Batch_Mean']
-            b2b_table = b2b_table[b2b_table['So_Lo'] >= 2]
+            b2b_table = pd.DataFrame(b2b_records)
             
             if not b2b_table.empty:
-                b2b_table = b2b_table.sort_values('Chenh_Lech', ascending=False)
-                b2b_table.columns = ['Supplier', 'Batches', 'Min Batch Avg', 'Max Batch Avg', 'Gap']
+                b2b_table = b2b_table.sort_values('Gap', ascending=False)
                 
                 st.dataframe(
                     b2b_table.style.format({
-                        'Min Batch Avg': '{:.1f}', 'Max Batch Avg': '{:.1f}', 'Gap': '{:.1f}'
+                        'LSL': '{:.0f}', 'USL': '{:.0f}', 
+                        'Min Avg': '{:.1f}', 'Max Avg': '{:.1f}', 'Gap': '{:.1f}'
                     }).background_gradient(cmap='Oranges', subset=['Gap']), 
                     use_container_width=True, hide_index=True
                 )
             else:
                 st.info("Not enough multi-batch data to compare Batch-to-Batch gloss variation.")
 
-           # --- COLOR DRIFT ---
+            # --- COLOR DRIFT ---
             st.markdown("---")
             st.subheader("🎨 Batch Color Drift Detailed Analysis")
             st.caption("Table displays AVERAGE values of color components (ΔL, Δa, Δb) per batch. The **Full Paint Code** column helps Vendors trace exact formulas.")
@@ -643,7 +673,6 @@ elif view_mode == "🤝 Supplier Comparison":
             color_drift = color_drift.sort_values(by=['Supplier', 'Ngay_SX'])
             color_drift.columns = ['Supplier', 'Batch Lot', 'Full Paint Code', 'Production Date', 'ΔL (Avg)', 'Δa (Avg)', 'Δb (Avg)', 'Max ΔE']
             
-            # --- 🚀 DOUBLE FILTERS: SUPPLIER & PAINT CODE ---
             c_drift1, c_drift2 = st.columns(2)
             
             with c_drift1:
@@ -654,14 +683,12 @@ elif view_mode == "🤝 Supplier Comparison":
                 color_drift = color_drift[color_drift['Supplier'] == sel_drift_sup]
                 
             with c_drift2:
-                # Danh sách mã sơn tự động cập nhật theo nhà cung cấp đã chọn
                 drift_codes = ['All Paint Codes'] + sorted(color_drift['Full Paint Code'].unique().tolist())
                 sel_drift_code = st.selectbox("🎯 Select Full Paint Code:", drift_codes, key="drift_code_filter")
                 
             if sel_drift_code != 'All Paint Codes':
                 color_drift = color_drift[color_drift['Full Paint Code'] == sel_drift_code]
             
-            # --- HIỂN THỊ BẢNG SAU KHI LỌC ---
             st.dataframe(
                 color_drift.style.format({
                     'ΔL (Avg)': '{:+.2f}', 'Δa (Avg)': '{:+.2f}', 'Δb (Avg)': '{:+.2f}', 'Max ΔE': '{:.2f}'
