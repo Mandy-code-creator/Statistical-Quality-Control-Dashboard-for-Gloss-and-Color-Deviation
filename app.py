@@ -30,7 +30,20 @@ def load_and_prep_data():
         df = df.rename(columns=col_map)
         df['Ma_Son_Str'] = df['Ma_Son'].astype(str).str.upper()
 
-        v_map = {'S':'Yungchi','T':'AKZO NOBEL','B':'Beckers','C':'Nan Pao','U':'Quali Poly','N':'Nippon','K':'Kansai','V':'Valspar','J':'Valspar (SW)','L':'KCC','R':'Noroo','Q':'Paoqun'}
+        v_map = {'S':'Yungchi', 
+            'T':'AKZO NOBEL', 
+            'A':'AKZO NOBEL',  # <--- Đã thêm mã A cho Akzo Nobel
+            'B':'Beckers', 
+            'C':'Nan Pao', 
+            'U':'Quali Poly', 
+            'N':'Nippon', 
+            'K':'Kansai', 
+            'V':'Valspar', 
+            'J':'Valspar (SW)', 
+            'L':'KCC', 
+            'R':'Noroo', 
+            'Q':'Paoqun'
+        }
         r_map = {'1':'PU','2':'PE','3':'EPOXY','4':'PVC','5':'PVDF','6':'SMP','7':'AC','8':'WB','9':'IP','A':'PVB','B':'PVF'}
         c_map = {'0':'Clear','1':'Red','R':'Red','O':'Orange','2':'Orange','Y':'Yellow','3':'Yellow','4':'Green','G':'Green','5':'Blue','L':'Blue','V':'Violet','6':'Violet','N':'Brown','7':'Brown','T':'White','H':'White','W':'White','8':'White','A':'Gray','C':'Gray','9':'Gray','B':'Black','S':'Silver','M':'Metallic'}
         
