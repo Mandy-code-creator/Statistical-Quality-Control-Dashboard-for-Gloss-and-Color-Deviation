@@ -6,7 +6,7 @@ import seaborn as sns
 
 # --- 1. THIẾT LẬP GIAO DIỆN ---
 st.set_page_config(page_title="Steel QA Master Dashboard", layout="wide", page_icon="🏭")
-sns.set_theme(style="whitegrid") # Giao diện biểu đồ sạch sẽ
+sns.set_theme(style="whitegrid")
 
 # --- 2. DATA HIERARCHY & LOAD DATA ---
 @st.cache_data(ttl=10)
@@ -39,18 +39,28 @@ def load_and_prep_data():
         df['Supplier'] = df['Ma_Son_Str'].str[1].map(v_map).fillna('Unknown')
         df['Coating_Type'] = df['Ma_Son_Str'].str[2].map(r_map).fillna('Unknown')
         df['Color_Group'] = df['Ma_Son_Str'].str[6].map(c_map).fillna('Other')
-        df['Color_Code'] = df['Ma_Son_Str'].str[-4:] # Mã màu 4 số cuối (Batch analysis)
+        df['Color_Code'] = df['Ma_Son_Str'].str[-4:] 
 
         # 2.3 Ép kiểu số
         num_cols = ['Gloss_Lab', 'G_Top_N', 'G_Top_S', 'G_Back_N', 'G_Back_S', 'dE_N', 'dE_S', 'dL_N', 'da_N', 'db_N', 'Gloss_LSL', 'Gloss_USL']
         for c in num_cols:
             if c in df.columns: df[c] = pd.to_numeric(df[c], errors='coerce')
 
+        # --- 🚀 BƯỚC LÀM SẠCH DỮ LIỆU (CLEANING) ---
+        # Loại bỏ các dòng bị rỗng (NaN) ở cột Gloss_Lab
+        df = df.dropna(subset=['Gloss_Lab'])
+        # Loại bỏ các cuộn thép có Gloss_Lab bằng 0 hoặc giá trị âm vô lý
+        df = df[df['Gloss_Lab'] > 0]
+        
+        # (Tùy chọn) Loại bỏ thêm các dòng Online Gloss bằng 0 nếu cảm biến bị lỗi
+        if 'G_Top_N' in df.columns and 'G_Top_S' in df.columns:
+            df = df[(df['G_Top_N'] > 0) & (df['G_Top_S'] > 0)]
+
         # 2.4 Tính toán Core Metrics
         df['Ngay_SX'] = pd.to_datetime(df['Ngay_SX'], errors='coerce').dt.date
         df['Online_Gloss_Top'] = df[['G_Top_N', 'G_Top_S']].mean(axis=1)
         df['ΔE'] = df[['dE_N', 'dE_S']].mean(axis=1)
-        df['Gap_Gloss'] = df['Online_Gloss_Top'] - df['Gloss_Lab'] # Lab vs Production
+        df['Gap_Gloss'] = df['Online_Gloss_Top'] - df['Gloss_Lab']
         
         # Pass/Fail Logic
         df['Gloss_Pass'] = (df['Gloss_Lab'] >= df['Gloss_LSL']) & (df['Gloss_Lab'] <= df['Gloss_USL'])
@@ -65,7 +75,7 @@ def load_and_prep_data():
 df = load_and_prep_data()
 if df.empty: st.stop()
 
-# --- 3. BỘ LỌC SIDEBAR (FILTERS) ---
+# --- 3. BỘ LỌC SIDEBAR ---
 with st.sidebar:
     st.title("⚙️ QC Filters")
     st.markdown("---")
@@ -73,13 +83,12 @@ with st.sidebar:
     sel_resin = st.multiselect("🧪 Coating Type (Nhựa):", sorted(df['Coating_Type'].unique()), default=sorted(df['Coating_Type'].unique()))
     sel_color = st.multiselect("🎨 Color Group:", sorted(df['Color_Group'].unique()), default=sorted(df['Color_Group'].unique()))
     
-    # Lọc dữ liệu chính
     dff = df[(df['Supplier'].isin(sel_supplier)) & 
              (df['Coating_Type'].isin(sel_resin)) & 
              (df['Color_Group'].isin(sel_color))]
     
     st.markdown("---")
-    st.caption(f"📦 Dữ liệu hiển thị: {len(dff)} cuộn (Coils)")
+    st.caption(f"📦 Dữ liệu sạch (Gloss > 0): {len(dff)} cuộn")
 
 # --- 4. DASHBOARD TABS ---
 st.title("🚀 Steel QA Master Dashboard")
@@ -88,26 +97,23 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 ])
 
 # ==========================================
-# TAB 1: OVERVIEW (KPIs & High-level Status)
+# TAB 1: OVERVIEW
 # ==========================================
 with tab1:
     st.header("Executive Summary")
     
-    # KPI Cards
     k1, k2, k3, k4, k5 = st.columns(5)
     k1.metric("Avg Gloss (Lab)", f"{dff['Gloss_Lab'].mean():.1f}", f"Std: {dff['Gloss_Lab'].std():.2f}")
     k2.metric("Avg Gloss (Online)", f"{dff['Online_Gloss_Top'].mean():.1f}")
     k3.metric("Avg ΔE", f"{dff['ΔE'].mean():.2f}")
     
-    yield_rate = (dff['Final_Status'] == '✅ PASS').mean() * 100
+    yield_rate = (dff['Final_Status'] == '✅ PASS').mean() * 100 if len(dff) > 0 else 0
     k4.metric("Yield Rate (Pass %)", f"{yield_rate:.1f}%")
     
     ng_count = (dff['Final_Status'] == '❌ FAIL/NG').sum()
     k5.metric("NG Coils", f"{ng_count} cuộn", delta_color="inverse")
 
     st.markdown("---")
-    
-    # Trend Chart
     st.subheader("Gloss Process Stability (Lab vs Target)")
     fig_ov, ax_ov = plt.subplots(figsize=(15, 4))
     sns.lineplot(data=dff, x='Batch_Lot', y='Gloss_Lab', marker='o', label='Lab Gloss', color='#2E86C1')
@@ -116,7 +122,6 @@ with tab1:
         ax_ov.axhline(dff['Gloss_USL'].mean(), color='red', ls='--', label='Avg USL')
     plt.xticks(rotation=45); plt.legend(); st.pyplot(fig_ov)
 
-    # Top NG List
     if ng_count > 0:
         st.error(f"🚨 Top Coil/Batch bị NG (Lỗi)")
         st.dataframe(dff[dff['Final_Status'] == '❌ FAIL/NG'][['Ngay_SX', 'Batch_Lot', 'Ma_Son', 'Gloss_Lab', 'ΔE', 'Final_Status']], use_container_width=True)
@@ -214,7 +219,10 @@ with tab4:
         st.subheader("Online Uniformity: North vs South (Top)")
         fig_u1, ax_u1 = plt.subplots(figsize=(8, 5))
         sns.scatterplot(data=dff, x='G_Top_N', y='G_Top_S', color='purple', alpha=0.6, ax=ax_u1)
-        ax_u1.plot([dff['G_Top_N'].min(), dff['G_Top_N'].max()], [dff['G_Top_N'].min(), dff['G_Top_N'].max()], 'r--', lw=2)
+        if not dff.empty:
+            min_val = min(dff['G_Top_N'].min(), dff['G_Top_S'].min())
+            max_val = max(dff['G_Top_N'].max(), dff['G_Top_S'].max())
+            ax_u1.plot([min_val, max_val], [min_val, max_val], 'r--', lw=2)
         ax_u1.set_xlabel("Gloss North"); ax_u1.set_ylabel("Gloss South")
         st.pyplot(fig_u1)
         
@@ -231,9 +239,8 @@ with tab4:
 # ==========================================
 with tab5:
     st.header("🏢 Batch, Supplier & Summary Data")
-    st.info("Bảng dữ liệu cốt lõi tổng hợp năng lực từng lô và nhà cung cấp (Grouped by Resin & Color).")
+    st.info("Bảng dữ liệu đã loại bỏ hoàn toàn các cuộn lỗi đo lường (Gloss = 0).")
     
-    # Khôi phục Bảng Summary Data Kỹ thuật
     summary_table = dff.groupby(['Coating_Type', 'Color_Code', 'Supplier']).agg({
         'Batch_Lot': 'count',
         'Gloss_Lab': ['mean', 'std', 'min', 'max'],
@@ -244,19 +251,6 @@ with tab5:
         'Final_Status': lambda x: (x == '✅ PASS').mean() * 100
     }).reset_index()
 
-    # Format Tên cột
     summary_table.columns = [
         'Hệ Nhựa', 'Mã Màu', 'Nhà Cung Cấp', 'Số Cuộn', 
-        'Gloss(Lab) TB', 'Std(Gloss)', 'Min Gloss', 'Max Gloss', 
-        'Online(Top) TB', 'LSL', 'USL', 'ΔE TB', 'Yield(%)'
-    ]
-
-    st.dataframe(
-        summary_table.style.format({
-            'Gloss(Lab) TB': '{:.1f}', 'Std(Gloss)': '{:.2f}', 'Min Gloss': '{:.1f}', 'Max Gloss': '{:.1f}',
-            'Online(Top) TB': '{:.1f}', 'LSL': '{:.0f}', 'USL': '{:.0f}', 
-            'ΔE TB': '{:.2f}', 'Yield(%)': '{:.1f}%'
-        }).background_gradient(cmap='RdYlGn_r', subset=['Std(Gloss)']) # Std thấp là xanh
-          .background_gradient(cmap='RdYlGn', subset=['Yield(%)'], low=0, high=100), # Yield cao là xanh
-        use_container_width=True, hide_index=True
-    )
+        'Gloss(
