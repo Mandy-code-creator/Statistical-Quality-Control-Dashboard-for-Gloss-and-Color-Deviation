@@ -15,7 +15,6 @@ def load_and_prep_data():
     try:
         df = pd.read_csv(sheet_url)
         
-        # 2.1 Mapping Cột
         col_map = {
             '生產日期': 'Ngay_SX', '製造批號': 'Batch_Lot', '塗料編號': 'Ma_Son',
             '光澤': 'Gloss_Lab',
@@ -31,7 +30,6 @@ def load_and_prep_data():
         df = df.rename(columns=col_map)
         df['Ma_Son_Str'] = df['Ma_Son'].astype(str).str.upper()
 
-        # 2.2 Giải mã Mã Sơn (Supplier, Coating Type, Color)
         v_map = {'S':'Yungchi','T':'AKZO NOBEL','B':'Beckers','C':'Nan Pao','U':'Quali Poly','N':'Nippon','K':'Kansai','V':'Valspar','J':'Valspar (SW)','L':'KCC','R':'Noroo','Q':'Paoqun'}
         r_map = {'1':'PU','2':'PE','3':'EPOXY','4':'PVC','5':'PVDF','6':'SMP','7':'AC','8':'WB','9':'IP','A':'PVB','B':'PVF'}
         c_map = {'0':'Clear','1':'Red','R':'Red','O':'Orange','2':'Orange','Y':'Yellow','3':'Yellow','4':'Green','G':'Green','5':'Blue','L':'Blue','V':'Violet','6':'Violet','N':'Brown','7':'Brown','T':'White','H':'White','W':'White','8':'White','A':'Gray','C':'Gray','9':'Gray','B':'Black','S':'Silver','M':'Metallic'}
@@ -41,27 +39,24 @@ def load_and_prep_data():
         df['Color_Group'] = df['Ma_Son_Str'].str[6].map(c_map).fillna('Other')
         df['Color_Code'] = df['Ma_Son_Str'].str[-4:] 
 
-        # 2.3 Ép kiểu số
         num_cols = ['Gloss_Lab', 'G_Top_N', 'G_Top_S', 'G_Back_N', 'G_Back_S', 'dE_N', 'dE_S', 'dL_N', 'da_N', 'db_N', 'Gloss_LSL', 'Gloss_USL']
         for c in num_cols:
             if c in df.columns: df[c] = pd.to_numeric(df[c], errors='coerce')
 
-        # --- LÀM SẠCH DỮ LIỆU ---
+        # Làm sạch dữ liệu (Bỏ Gloss = 0)
         df = df.dropna(subset=['Gloss_Lab'])
-        df = df[df['Gloss_Lab'] > 0] # Loại bỏ lỗi Gloss = 0
+        df = df[df['Gloss_Lab'] > 0] 
 
-        # 2.4 Tính toán Core Metrics
         df['Ngay_SX'] = pd.to_datetime(df['Ngay_SX'], errors='coerce').dt.date
         df['Online_Gloss_Top'] = df[['G_Top_N', 'G_Top_S']].mean(axis=1)
         df['ΔE'] = df[['dE_N', 'dE_S']].mean(axis=1)
         df['Gap_Gloss'] = df['Online_Gloss_Top'] - df['Gloss_Lab']
         
-        # Pass/Fail Logic
         df['Gloss_Pass'] = (df['Gloss_Lab'] >= df['Gloss_LSL']) & (df['Gloss_Lab'] <= df['Gloss_USL'])
         df['Color_Pass'] = df['ΔE'] <= 1.0
         df['Final_Status'] = np.where(df['Gloss_Pass'] & df['Color_Pass'], '✅ PASS', '❌ FAIL/NG')
 
-        return df.dropna(subset=['Supplier'])
+        return df.dropna(subset=['Supplier', 'Ngay_SX']).sort_values('Ngay_SX')
     except Exception as e:
         st.error(f"⚠️ System Error: {e}")
         return pd.DataFrame()
@@ -69,72 +64,105 @@ def load_and_prep_data():
 df = load_and_prep_data()
 if df.empty: st.stop()
 
-# --- 3. BỘ LỌC SIDEBAR ---
+# --- 3. SIDEBAR: NAVIGATION & SMART FILTERS ---
 with st.sidebar:
-    st.title("⚙️ QC Filters")
-    st.markdown("---")
-    sel_supplier = st.multiselect("🏭 Supplier:", sorted(df['Supplier'].unique()), default=sorted(df['Supplier'].unique()))
-    sel_resin = st.multiselect("🧪 Coating Type (Nhựa):", sorted(df['Coating_Type'].unique()), default=sorted(df['Coating_Type'].unique()))
-    sel_color = st.multiselect("🎨 Color Group:", sorted(df['Color_Group'].unique()), default=sorted(df['Color_Group'].unique()))
+    # 3.1 MENU ĐIỀU HƯỚNG CHÍNH (Theo đúng ảnh Mandy gửi)
+    st.markdown("### 📊 View Mode")
+    view_mode = st.radio(
+        "Chọn màn hình phân tích:",
+        [
+            "🚀 Executive Overview",
+            "✨ Gloss Analysis (SPC)",
+            "🎨 Color & ΔE Analysis",
+            "⚖️ Process Uniformity",
+            "📋 Summary Data Report"
+        ],
+        label_visibility="collapsed"
+    )
     
-    dff = df[(df['Supplier'].isin(sel_supplier)) & 
-             (df['Coating_Type'].isin(sel_resin)) & 
-             (df['Color_Group'].isin(sel_color))]
+    st.markdown("---")
+    st.markdown("### 🔍 Bộ Lọc Dữ Liệu (Filters)")
+    
+    # 3.2 LỌC THỜI GIAN (Date Range)
+    min_date, max_date = df['Ngay_SX'].min(), df['Ngay_SX'].max()
+    date_range = st.date_input("📅 Chọn khoảng thời gian:", [min_date, max_date], min_value=min_date, max_value=max_date)
+    
+    # 3.3 LỌC GỌN GÀNG (1 là Tất cả, 2 là Chọn từng cái)
+    list_sup = ['Tất cả'] + sorted(df['Supplier'].unique().tolist())
+    sel_sup = st.selectbox("🏭 Supplier (Nhà cung cấp):", list_sup)
+    
+    list_res = ['Tất cả'] + sorted(df['Coating_Type'].unique().tolist())
+    sel_res = st.selectbox("🧪 Coating Type (Nhựa):", list_res)
+    
+    list_col = ['Tất cả'] + sorted(df['Color_Group'].unique().tolist())
+    sel_col = st.selectbox("🎨 Color Group (Nhóm màu):", list_col)
+    
+    # ÁP DỤNG LỌC
+    dff = df.copy()
+    if len(date_range) == 2:
+        dff = dff[(dff['Ngay_SX'] >= date_range[0]) & (dff['Ngay_SX'] <= date_range[1])]
+    if sel_sup != 'Tất cả': dff = dff[dff['Supplier'] == sel_sup]
+    if sel_res != 'Tất cả': dff = dff[dff['Coating_Type'] == sel_res]
+    if sel_col != 'Tất cả': dff = dff[dff['Color_Group'] == sel_col]
     
     st.markdown("---")
-    st.caption(f"📦 Dữ liệu sạch (Gloss > 0): {len(dff)} cuộn")
+    st.caption(f"📦 Đang hiển thị: {len(dff)} cuộn thép")
 
-# --- 4. DASHBOARD TABS ---
-st.title("🚀 Steel QA Master Dashboard")
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "📊 Overview", "✨ Gloss Analysis", "🎨 Color & ΔE", "⚖️ Process & Uniformity", "🏢 Batch & Supplier"
-])
+# --- 4. XỬ LÝ HIỂN THỊ THEO VIEW MODE ---
+
+st.title(view_mode)
+st.markdown("---")
 
 # ==========================================
-# TAB 1: OVERVIEW
+# VIEW 1: OVERVIEW
 # ==========================================
-with tab1:
-    st.header("Executive Summary")
-    
+if view_mode == "🚀 Executive Overview":
     k1, k2, k3, k4, k5 = st.columns(5)
-    k1.metric("Avg Gloss (Lab)", f"{dff['Gloss_Lab'].mean():.1f}", f"Std: {dff['Gloss_Lab'].std():.2f}")
+    k1.metric("Avg Gloss (Lab)", f"{dff['Gloss_Lab'].mean():.1f}")
     k2.metric("Avg Gloss (Online)", f"{dff['Online_Gloss_Top'].mean():.1f}")
     k3.metric("Avg ΔE", f"{dff['ΔE'].mean():.2f}")
-    
     yield_rate = (dff['Final_Status'] == '✅ PASS').mean() * 100 if len(dff) > 0 else 0
     k4.metric("Yield Rate (Pass %)", f"{yield_rate:.1f}%")
-    
     ng_count = (dff['Final_Status'] == '❌ FAIL/NG').sum()
     k5.metric("NG Coils", f"{ng_count} cuộn", delta_color="inverse")
 
     st.markdown("---")
-    st.subheader("Gloss Process Stability (Lab vs Target)")
+    st.subheader("Gloss Process Stability (Theo Thời gian)")
+    
+    # FIX LỖI ĐEN XÌ TRỤC X: Chuyển sang dùng Ngày Sản Xuất (Ngay_SX)
     fig_ov, ax_ov = plt.subplots(figsize=(15, 4))
-    sns.lineplot(data=dff, x='Batch_Lot', y='Gloss_Lab', marker='o', label='Lab Gloss', color='#2E86C1')
+    sns.scatterplot(data=dff, x='Ngay_SX', y='Gloss_Lab', color='#2E86C1', alpha=0.7, ax=ax_ov, label='Lab Gloss')
+    sns.lineplot(data=dff, x='Ngay_SX', y='Gloss_Lab', color='#2E86C1', alpha=0.3, ax=ax_ov) # Đường mờ nối xu hướng
+    
     if not dff.empty:
         ax_ov.axhline(dff['Gloss_LSL'].mean(), color='red', ls='--', label='Avg LSL')
         ax_ov.axhline(dff['Gloss_USL'].mean(), color='red', ls='--', label='Avg USL')
-    plt.xticks(rotation=45); plt.legend(); st.pyplot(fig_ov)
+    
+    plt.xticks(rotation=45)
+    ax_ov.set_xlabel("Ngày Sản Xuất")
+    ax_ov.set_ylabel("Độ bóng (Gloss)")
+    plt.legend()
+    st.pyplot(fig_ov)
 
     if ng_count > 0:
-        st.error(f"🚨 Top Coil/Batch bị NG (Lỗi)")
+        st.error(f"🚨 Top Lô hàng bị NG (Ngoại vi tiêu chuẩn)")
         st.dataframe(dff[dff['Final_Status'] == '❌ FAIL/NG'][['Ngay_SX', 'Batch_Lot', 'Ma_Son', 'Gloss_Lab', 'ΔE', 'Final_Status']], use_container_width=True)
 
 # ==========================================
-# TAB 2: GLOSS ANALYSIS (Phân tích theo từng mã màu)
+# VIEW 2: GLOSS ANALYSIS (SPC)
 # ==========================================
-with tab2:
-    st.header("Gloss Process Conformance")
-    list_color_codes = sorted(dff['Color_Code'].dropna().unique().tolist())
+elif view_mode == "✨ Gloss Analysis (SPC)":
+    st.info("💡 SPC Analysis yêu cầu chọn một Mã sơn cụ thể để đánh giá chính xác LSL/USL.")
+    list_ma_son_tab2 = sorted(dff['Ma_Son'].dropna().unique().tolist())
     
-    if list_color_codes:
-        sel_color_tab2 = st.selectbox("🎯 Chọn Mã màu gốc (4 số cuối) để phân tích SPC:", list_color_codes, key="tab2_color")
-        dff_g = dff[dff['Color_Code'] == sel_color_tab2].copy()
+    if list_ma_son_tab2:
+        sel_ma_son_tab2 = st.selectbox("🎯 Chọn Mã sơn đầy đủ:", list_ma_son_tab2)
+        dff_g = dff[dff['Ma_Son'] == sel_ma_son_tab2].copy()
         
         if not dff_g.empty:
             c1, c2 = st.columns([2, 1])
             with c1:
-                st.subheader(f"Phân phối Độ bóng (Histogram) - Mã: {sel_color_tab2}")
+                st.subheader(f"Phân phối Độ bóng (Histogram) - {sel_ma_son_tab2}")
                 fig_g1, ax_g1 = plt.subplots(figsize=(10, 5))
                 sns.histplot(dff_g['Gloss_Lab'], kde=True, color='skyblue', ax=ax_g1)
                 
@@ -149,18 +177,18 @@ with tab2:
                 plt.legend(); st.pyplot(fig_g1)
                 
             with c2:
-                st.subheader("Đối soát năng lực Supplier")
+                st.subheader("Độ phân tán Gloss (Boxplot)")
                 fig_g2, ax_g2 = plt.subplots(figsize=(5, 5))
                 sns.boxplot(data=dff_g, x='Supplier', y='Gloss_Lab', palette='Set2', ax=ax_g2)
                 ax_g2.axhline(lsl_val, color='red', ls='--', alpha=0.5)
                 ax_g2.axhline(usl_val, color='red', ls='--', alpha=0.5)
-                plt.xticks(rotation=45); st.pyplot(fig_g2)
+                plt.xticks(rotation=0)
+                st.pyplot(fig_g2)
 
 # ==========================================
-# TAB 3: COLOR / ΔE ANALYSIS
+# VIEW 3: COLOR DEVIATION
 # ==========================================
-with tab3:
-    st.header("Color Deviation Analysis")
+elif view_mode == "🎨 Color & ΔE Analysis":
     c3, c4 = st.columns(2)
     with c3:
         st.subheader("ΔE Uniformity theo Supplier")
@@ -177,10 +205,9 @@ with tab3:
         st.pyplot(fig_c2)
 
 # ==========================================
-# TAB 4: PROCESS UNIFORMITY & LAB VS PRODUCTION
+# VIEW 4: PROCESS UNIFORMITY
 # ==========================================
-with tab4:
-    st.header("Lab vs Production Gap & Uniformity")
+elif view_mode == "⚖️ Process Uniformity":
     c5, c6 = st.columns(2)
     with c5:
         st.subheader("Online Uniformity: North vs South (Top)")
@@ -198,15 +225,14 @@ with tab4:
         fig_u2, ax_u2 = plt.subplots(figsize=(8, 5))
         sns.histplot(dff['Gap_Gloss'], kde=True, color='orange', ax=ax_u2)
         ax_u2.axvline(0, color='black', ls='--')
-        ax_u2.set_xlabel("Độ chênh lệch (Gap)")
+        ax_u2.set_xlabel("Độ chênh lệch (Online - Lab)")
         st.pyplot(fig_u2)
 
 # ==========================================
-# TAB 5: BATCH & SUPPLIER ANALYSIS (SUMMARY DATA)
+# VIEW 5: SUMMARY DATA REPORT
 # ==========================================
-with tab5:
-    st.header("🏢 Batch, Supplier & Summary Data")
-    st.info("Bảng dữ liệu đã khôi phục nguyên bản và loại bỏ lỗi Gloss = 0.")
+elif view_mode == "📋 Summary Data Report":
+    st.info("Bảng dữ liệu Master Data, đã nhóm theo Loại nhựa, Mã màu và Nhà cung cấp.")
     
     summary_table = dff.groupby(['Coating_Type', 'Color_Code', 'Supplier']).agg({
         'Batch_Lot': 'count',
@@ -224,18 +250,10 @@ with tab5:
         'Online(Top) TB', 'LSL', 'USL', 'ΔE TB', 'Yield(%)'
     ]
 
-    # Đảm bảo format đầy đủ để không bị lỗi SyntaxError nữa
     st.dataframe(
         summary_table.style.format({
-            'Gloss(Lab) TB': '{:.1f}', 
-            'Std(Gloss)': '{:.2f}', 
-            'Min Gloss': '{:.1f}', 
-            'Max Gloss': '{:.1f}',
-            'Online(Top) TB': '{:.1f}', 
-            'LSL': '{:.0f}', 
-            'USL': '{:.0f}', 
-            'ΔE TB': '{:.2f}', 
-            'Yield(%)': '{:.1f}%'
+            'Gloss(Lab) TB': '{:.1f}', 'Std(Gloss)': '{:.2f}', 'Min Gloss': '{:.1f}', 'Max Gloss': '{:.1f}',
+            'Online(Top) TB': '{:.1f}', 'LSL': '{:.0f}', 'USL': '{:.0f}', 'ΔE TB': '{:.2f}', 'Yield(%)': '{:.1f}%'
         }).background_gradient(cmap='RdYlGn_r', subset=['Std(Gloss)'])
           .background_gradient(cmap='RdYlGn', subset=['Yield(%)'], low=0, high=100),
         use_container_width=True, hide_index=True
