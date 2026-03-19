@@ -294,23 +294,112 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
         else:
             st.warning("⚠️ Mã sơn này hiện chưa đủ dữ liệu (cần ít nhất 2 cuộn hợp lệ) để tiến hành phân tích SPC.")
 # ==========================================
-# VIEW 3: COLOR DEVIATION
+# ==========================================
+# VIEW 3: COLOR DEVIATION (Phân tích Màu sắc Chuyên sâu)
 # ==========================================
 elif view_mode == "🎨 Color & ΔE Analysis":
-    c3, c4 = st.columns(2)
-    with c3:
-        st.subheader("ΔE Uniformity theo Supplier")
-        fig_c1, ax_c1 = plt.subplots(figsize=(8, 5))
-        sns.boxplot(data=dff, x='Supplier', y='ΔE', palette='Reds', ax=ax_c1)
-        ax_c1.axhline(1.0, color='red', ls='--', label='Spec Limit (1.0)')
-        plt.legend(); plt.xticks(rotation=45); st.pyplot(fig_c1)
+    st.info("💡 Phân tích Xu hướng (Trend) của Tổng sai lệch màu (ΔE) và Phân phối của từng yếu tố màu sắc (ΔL, Δa, Δb) để phát hiện xu hướng trôi màu.")
+    
+    list_ma_son_tab3 = sorted(dff['Ma_Son'].dropna().unique().tolist())
+    
+    if list_ma_son_tab3:
+        sel_ma_son_tab3 = st.selectbox("🎯 Chọn Mã sơn đầy đủ để phân tích Color:", list_ma_son_tab3, key="tab3_mason")
+        dff_c = dff[dff['Ma_Son'] == sel_ma_son_tab3].copy()
         
-    with c4:
-        st.subheader("Tọa độ lệch màu (Δa vs Δb)")
-        fig_c2, ax_c2 = plt.subplots(figsize=(6, 5))
-        sns.scatterplot(data=dff, x='da_N', y='db_N', hue='ΔE', size='ΔE', palette='coolwarm', ax=ax_c2)
-        ax_c2.axhline(0, color='black', lw=1); ax_c2.axvline(0, color='black', lw=1)
-        st.pyplot(fig_c2)
+        if not dff_c.empty:
+            # --- 1. BIỂU ĐỒ XU HƯỚNG ΔE (TRUNG BÌNH THEO BATCH) ---
+            # Tính trung bình Batch cho Trend Line
+            dff_c_batch = dff_c.groupby('Batch_Lot', as_index=False).agg({
+                'Ngay_SX': 'min',
+                'ΔE': 'mean'
+            }).sort_values('Ngay_SX')
+            
+            dff_c_batch['Batch_Lot'] = dff_c_batch['Batch_Lot'].astype(str)
+
+            st.markdown("---")
+            st.subheader(f"📈 Xu hướng Tổng sai lệch màu (Avg ΔE Trend) - {sel_ma_son_tab3}")
+            fig_c1, ax_c1 = plt.subplots(figsize=(12, 4))
+            
+            ax_c1.plot(dff_c_batch['Batch_Lot'], dff_c_batch['ΔE'], marker='o', color='#e74c3c', lw=2, label='Avg ΔE')
+            
+            # Đường giới hạn màu đỏ (Spec 1.0)
+            ax_c1.axhline(1.0, color='red', ls='--', lw=2, label='Spec Limit (ΔE = 1.0)')
+            # Thêm đường cảnh báo sớm ở 0.8
+            ax_c1.axhline(0.8, color='orange', ls=':', lw=1.5, label='Warning Limit (ΔE = 0.8)') 
+            
+            ax_c1.set_xlabel("Lô Sản Xuất (Batch Lot)")
+            ax_c1.set_ylabel("Sai lệch màu (ΔE)")
+            plt.xticks(rotation=45, ha='right')
+            
+            # Tự động ẩn bớt nhãn nếu có quá nhiều lô
+            locs, labels = plt.xticks()
+            if len(locs) > 40:
+                for i, label in enumerate(labels):
+                    if i % 3 != 0: label.set_visible(False)
+                    
+            plt.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
+            st.pyplot(fig_c1)
+            
+            # --- 2. BIỂU ĐỒ PHÂN PHỐI TỪNG YẾU TỐ (ΔL, Δa, Δb) ---
+            st.markdown("---")
+            st.subheader("📊 Phân phối các yếu tố màu sắc cơ bản (ΔL, Δa, Δb)")
+            st.caption("Nếu đỉnh của biểu đồ lệch khỏi mốc 0, chứng tỏ màu đang có xu hướng bị lệch theo một hướng cố định (Sáng/Tối, Đỏ/Lục, Vàng/Lam).")
+            
+            col_L, col_a, col_b = st.columns(3)
+            
+            with col_L:
+                fig_L, ax_L = plt.subplots(figsize=(5, 4))
+                sns.histplot(dff_c['dL_N'], kde=True, color='#95a5a6', ax=ax_L) # Màu xám cho Sáng/Tối
+                ax_L.axvline(0, color='black', ls='--', lw=1.5)
+                ax_L.set_title("Độ Sáng/Tối (ΔL)")
+                ax_L.set_xlabel("ΔL (+ Sáng hơn / - Tối hơn)")
+                ax_L.set_ylabel("Số lượng")
+                st.pyplot(fig_L)
+                
+            with col_a:
+                fig_a, ax_a = plt.subplots(figsize=(5, 4))
+                sns.histplot(dff_c['da_N'], kde=True, color='#e74c3c', ax=ax_a) # Màu đỏ cho a*
+                ax_a.axvline(0, color='black', ls='--', lw=1.5)
+                ax_a.set_title("Độ Đỏ/Lục (Δa)")
+                ax_a.set_xlabel("Δa (+ Đỏ hơn / - Lục hơn)")
+                ax_a.set_ylabel("")
+                st.pyplot(fig_a)
+                
+            with col_b:
+                fig_b, ax_b = plt.subplots(figsize=(5, 4))
+                sns.histplot(dff_c['db_N'], kde=True, color='#f1c40f', ax=ax_b) # Màu vàng cho b*
+                ax_b.axvline(0, color='black', ls='--', lw=1.5)
+                ax_b.set_title("Độ Vàng/Lam (Δb)")
+                ax_b.set_xlabel("Δb (+ Vàng hơn / - Lam hơn)")
+                ax_b.set_ylabel("")
+                st.pyplot(fig_b)
+
+            # --- 3. TỌA ĐỘ LỆCH MÀU VÀ BOXPLOT ---
+            st.markdown("---")
+            col_s1, col_s2 = st.columns(2)
+            with col_s1:
+                st.subheader("Tọa độ lệch màu (Δa vs Δb)")
+                fig_s1, ax_s1 = plt.subplots(figsize=(6, 5))
+                # Điểm nào ΔE càng lớn thì chấm tròn càng to và màu càng đậm
+                sns.scatterplot(data=dff_c, x='da_N', y='db_N', hue='ΔE', size='ΔE', palette='coolwarm', ax=ax_s1)
+                ax_s1.axhline(0, color='black', lw=1, ls='--')
+                ax_s1.axvline(0, color='black', lw=1, ls='--')
+                ax_s1.set_xlabel("Δa (Trục Đỏ/Lục)")
+                ax_s1.set_ylabel("Δb (Trục Vàng/Lam)")
+                plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+                st.pyplot(fig_s1)
+                
+            with col_s2:
+                st.subheader("Độ phân tán Tổng lệch màu (Boxplot ΔE)")
+                fig_s2, ax_s2 = plt.subplots(figsize=(6, 5))
+                sns.boxplot(data=dff_c, x='Supplier', y='ΔE', palette='Reds', ax=ax_s2)
+                ax_s2.axhline(1.0, color='red', ls='--', lw=2, label='Spec Limit (1.0)')
+                ax_s2.set_xlabel("Nhà cung cấp")
+                ax_s2.set_ylabel("Tổng sai lệch màu (ΔE)")
+                plt.legend()
+                st.pyplot(fig_s2)
+        else:
+            st.warning("⚠️ Mã sơn này không có đủ dữ liệu để phân tích màu sắc.")
 
 # ==========================================
 # VIEW 4: PROCESS UNIFORMITY
