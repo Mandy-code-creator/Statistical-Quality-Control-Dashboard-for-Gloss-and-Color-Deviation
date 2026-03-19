@@ -192,7 +192,7 @@ if view_mode == "🚀 Executive Overview":
 # VIEW 2: GLOSS ANALYSIS (SPC)
 # ==========================================
 elif view_mode == "✨ Gloss Analysis (SPC)":
-    st.info("💡 Phân tích SPC toàn diện: Bao gồm Biểu đồ xu hướng (Control Chart) theo Lô sản xuất và Biểu đồ phân phối (Histogram) để đánh giá năng lực.")
+    st.info("💡 SPC Analysis: Trend Line thể hiện giá trị TRUNG BÌNH theo từng Lô (Batch Lot). Histogram/Boxplot giữ nguyên từng cuộn để đánh giá đúng độ phân tán thực tế.")
     import scipy.stats as stats 
     
     list_ma_son_tab2 = sorted(dff['Ma_Son'].dropna().unique().tolist())
@@ -208,35 +208,41 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
         dff_g = dff_g[dff_g['Online_Gloss_Top'] > 0]
         
         if len(dff_g) > 1:
-            # Ép kiểu Batch_Lot sang dạng chuỗi (String) để vẽ trục X
-            dff_g['Batch_Lot'] = dff_g['Batch_Lot'].astype(str)
-            
             lsl_val = dff_g['Gloss_LSL'].iloc[0]
             usl_val = dff_g['Gloss_USL'].iloc[0]
             mean_lab, std_lab = dff_g['Gloss_Lab'].mean(), dff_g['Gloss_Lab'].std()
             mean_line, std_line = dff_g['Online_Gloss_Top'].mean(), dff_g['Online_Gloss_Top'].std()
 
-            # --- 1. BIỂU ĐỒ XU HƯỚNG (CONTROL CHART / TREND LINE) ---
+            # --- 1. BIỂU ĐỒ XU HƯỚNG THEO TRUNG BÌNH BATCH LOT ---
             st.markdown("---")
-            st.subheader(f"📈 Biểu đồ Xu hướng Kiểm soát (Trend Line) - {sel_ma_son_tab2}")
+            st.subheader(f"📈 Biểu đồ Xu hướng (Avg Trend by Batch Lot) - {sel_ma_son_tab2}")
+            
+            # Tính trung bình (Mean) của Lab và Line cho từng Batch Lot
+            dff_batch = dff_g.groupby('Batch_Lot', as_index=False).agg({
+                'Ngay_SX': 'min', # Lấy ngày sản xuất đầu tiên của lô để sắp xếp
+                'Gloss_Lab': 'mean',
+                'Online_Gloss_Top': 'mean'
+            }).sort_values('Ngay_SX')
+            
+            dff_batch['Batch_Lot'] = dff_batch['Batch_Lot'].astype(str)
+            
             fig_trend, ax_trend = plt.subplots(figsize=(12, 4))
             
-            # Vẽ đường xu hướng trực tiếp theo Batch Lot
-            ax_trend.plot(dff_g['Batch_Lot'], dff_g['Gloss_Lab'], marker='o', color='#2980b9', lw=2, label='Lab Gloss')
-            ax_trend.plot(dff_g['Batch_Lot'], dff_g['Online_Gloss_Top'], marker='s', color='#d35400', lw=2, alpha=0.7, label='Line Gloss')
+            # Vẽ đường xu hướng bằng dữ liệu Trung bình
+            ax_trend.plot(dff_batch['Batch_Lot'], dff_batch['Gloss_Lab'], marker='o', color='#2980b9', lw=2, label='Avg Lab Gloss')
+            ax_trend.plot(dff_batch['Batch_Lot'], dff_batch['Online_Gloss_Top'], marker='s', color='#d35400', lw=2, alpha=0.7, label='Avg Line Gloss')
             
             # Vẽ các đường giới hạn đỏ
             ax_trend.axhline(lsl_val, color='red', ls='--', lw=2, label=f'LSL ({lsl_val:.1f})')
             ax_trend.axhline(usl_val, color='red', ls='--', lw=2, label=f'USL ({usl_val:.1f})')
-            ax_trend.axhline(mean_lab, color='#3498db', ls=':', lw=1.5, label=f'Mean Lab ({mean_lab:.1f})')
+            ax_trend.axhline(mean_lab, color='#3498db', ls=':', lw=1.5, label=f'Total Mean ({mean_lab:.1f})')
             
             ax_trend.set_xlabel("Lô Sản Xuất (Batch Lot)")
-            ax_trend.set_ylabel("Độ bóng (Gloss)")
+            ax_trend.set_ylabel("Độ bóng Trung bình (Avg Gloss)")
             
-            # Xoay nhãn trục X 45 độ để không bị đè lên nhau (Hết đen xì)
             plt.xticks(rotation=45, ha='right')
             
-            # Tự động ẩn bớt nhãn nếu có quá nhiều Batch Lot (Ví dụ > 40 mốc)
+            # Tự động ẩn nhãn trục X nếu quá nhiều lô
             locs, labels = plt.xticks()
             if len(locs) > 40:
                 for i, label in enumerate(labels):
@@ -247,14 +253,14 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
             
             st.markdown("---")
 
-            # --- 2. BIỂU ĐỒ PHÂN PHỐI VÀ ĐỘ PHÂN TÁN ---
+            # --- 2. BIỂU ĐỒ PHÂN PHỐI VÀ ĐỘ PHÂN TÁN (Giữ nguyên từng cuộn) ---
             c1, c2 = st.columns([2, 1])
             with c1:
-                st.subheader("Phân phối Độ bóng (Histogram)")
+                st.subheader("Phân phối Độ bóng (Histogram: Từng cuộn)")
                 fig_g1, ax_g1 = plt.subplots(figsize=(10, 5))
                 
-                sns.histplot(dff_g['Gloss_Lab'], stat="density", bins=8, color='#3498db', alpha=0.5, label='Lab Gloss (Bar)', ax=ax_g1)
-                sns.histplot(dff_g['Online_Gloss_Top'], stat="density", bins=8, color='#e67e22', alpha=0.5, label='Line Gloss (Bar)', ax=ax_g1)
+                sns.histplot(dff_g['Gloss_Lab'], stat="density", bins=8, color='#3498db', alpha=0.5, label='Lab Gloss', ax=ax_g1)
+                sns.histplot(dff_g['Online_Gloss_Top'], stat="density", bins=8, color='#e67e22', alpha=0.5, label='Line Gloss', ax=ax_g1)
                 
                 xmin, xmax = ax_g1.get_xlim()
                 x_axis = np.linspace(xmin, xmax, 100)
@@ -267,7 +273,7 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
                 ax_g1.axvline(lsl_val, color='red', ls='--', linewidth=2, label=f'LSL ({lsl_val:.1f})')
                 ax_g1.axvline(usl_val, color='red', ls='--', linewidth=2, label=f'USL ({usl_val:.1f})')
                 
-                ax_g1.set_xlabel("Độ bóng (Gloss)")
+                ax_g1.set_xlabel("Độ bóng từng cuộn (Gloss)")
                 ax_g1.set_ylabel("Mật độ phân phối (Density)")
                 plt.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
                 st.pyplot(fig_g1)
@@ -283,7 +289,7 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
                 ax_g2.axhline(usl_val, color='red', ls='--', alpha=0.5)
                 ax_g2.set_xticklabels(['Lab Gloss', 'Line Gloss'])
                 ax_g2.set_xlabel("")
-                ax_g2.set_ylabel("Độ bóng (Gloss)")
+                ax_g2.set_ylabel("Độ bóng từng cuộn (Gloss)")
                 st.pyplot(fig_g2)
         else:
             st.warning("⚠️ Mã sơn này hiện chưa đủ dữ liệu (cần ít nhất 2 cuộn hợp lệ) để tiến hành phân tích SPC.")
