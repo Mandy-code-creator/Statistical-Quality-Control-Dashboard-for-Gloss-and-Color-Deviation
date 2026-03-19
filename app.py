@@ -524,12 +524,56 @@ elif view_mode == "📋 Summary Data Report":
     )
 # ==========================================
 # ==========================================
-# ==========================================
 # VIEW 5: SUPPLIER COMPARISON (SO SÁNH NHÀ CUNG CẤP)
 # ==========================================
 elif view_mode == "🤝 Supplier Comparison":
     st.info("💡 Chế độ linh hoạt: Chọn 1 mã cụ thể để so sánh năng lực (Cpk). Chọn 'Tất cả' để đánh giá độ ổn định tổng thể của cả nhóm màu dựa trên Độ lệch tâm (ΔGloss).")
     
+    # --- 🚀 RADAR CẢNH BÁO ĐÀM PHÁN (NEGOTIATION RADAR) ---
+    st.markdown("---")
+    st.subheader("🚨 Radar Cảnh báo Đàm phán (Blacklist Nhà Cung Cấp)")
+    st.caption("Các mã sơn có **Cpk < 1.0** (Độ bóng thiếu ổn định) hoặc **ΔE Max > 1.0** (Lệch màu) sẽ bị đưa vào danh sách này.")
+    
+    dff_radar = dff.dropna(subset=['Online_Gloss_Top', 'Supplier', 'Gloss_LSL', 'Gloss_USL', 'Color_Group', 'Color_Code'])
+    dff_radar = dff_radar[(dff_radar['Gloss_LSL'] > 0) & (dff_radar['Gloss_USL'] > 0) & (dff_radar['Online_Gloss_Top'] > 0)]
+    
+    if not dff_radar.empty:
+        radar_summary = dff_radar.groupby(['Color_Group', 'Color_Code', 'Supplier']).agg(
+            So_Cuon=('Online_Gloss_Top', 'count'),
+            LSL=('Gloss_LSL', 'first'),
+            USL=('Gloss_USL', 'first'),
+            Mean_Line=('Online_Gloss_Top', 'mean'),
+            Std_Line=('Online_Gloss_Top', 'std'),
+            dE_Max=('ΔE', 'max')
+        ).reset_index()
+        
+        radar_summary = radar_summary[radar_summary['So_Cuon'] >= 3]
+        
+        def calc_cpk_radar(row):
+            if pd.isna(row['Std_Line']) or row['Std_Line'] == 0: return np.nan
+            return min((row['USL'] - row['Mean_Line']) / (3 * row['Std_Line']), (row['Mean_Line'] - row['LSL']) / (3 * row['Std_Line']))
+            
+        radar_summary['Cpk (Line)'] = radar_summary.apply(calc_cpk_radar, axis=1)
+        radar_alert = radar_summary[(radar_summary['Cpk (Line)'] < 1.0) | (radar_summary['dE_Max'] > 1.0)].copy()
+        
+        if not radar_alert.empty:
+            radar_alert = radar_alert.sort_values(by=['Cpk (Line)'], ascending=True)
+            radar_alert.columns = ['Nhóm Màu', 'Mã Màu (4 số)', 'Nhà Cung Cấp', 'Số Cuộn', 'LSL', 'USL', 'Mean (Line)', 'Std (Line)', 'ΔE Max', 'Cpk (Line)']
+            st.dataframe(
+                radar_alert.style.format({
+                    'LSL': '{:.0f}', 'USL': '{:.0f}', 'Mean (Line)': '{:.1f}',
+                    'Std (Line)': '{:.2f}', 'ΔE Max': '{:.2f}', 'Cpk (Line)': '{:.2f}'
+                }).background_gradient(cmap='Reds_r', subset=['Cpk (Line)'])
+                  .background_gradient(cmap='Reds', subset=['ΔE Max']),
+                use_container_width=True, hide_index=True
+            )
+        else:
+            st.success("🎉 Tuyệt vời! Hiện tại không có mã sơn nào vi phạm nghiêm trọng giới hạn kiểm soát Cpk hoặc Lệch màu.")
+    
+    st.markdown("---")
+    st.write("### 🔍 Phân tích Chuyên sâu (Drill-down Analysis)")
+
+    # --- BỘ LỌC TÌM KIẾM CHI TIẾT ---
     col_f1, col_f2 = st.columns(2)
     with col_f1:
         list_nhom_mau = sorted(dff['Color_Group'].dropna().unique().tolist())
@@ -542,14 +586,12 @@ elif view_mode == "🤝 Supplier Comparison":
     with col_f2:
         if sel_nhom_mau:
             dff_nhom = dff[dff['Color_Group'] == sel_nhom_mau].copy()
-            # THÊM LẠI LỰA CHỌN "TẤT CẢ" LÊN ĐẦU DANH SÁCH
             list_ma_4so = ['Tất cả'] + sorted(dff_nhom['Color_Code'].dropna().unique().tolist())
             sel_ma_4so = st.selectbox("🔢 B2: Chọn Mã màu cụ thể (4 ký tự cuối):", list_ma_4so)
         else:
             sel_ma_4so = None
             
     if sel_ma_4so:
-        # LOGIC TỰ ĐỘNG CHUYỂN ĐỔI CHẾ ĐỘ PHÂN TÍCH
         if sel_ma_4so == 'Tất cả':
             dff_comp = dff_nhom.copy()
             title_suffix = f"Nhóm: {sel_nhom_mau} (Tất cả mã)"
@@ -559,11 +601,9 @@ elif view_mode == "🤝 Supplier Comparison":
             title_suffix = f"Mã màu: {sel_ma_4so}"
             is_mixed = False
         
-        # Bắt buộc phải có Online Gloss và Tiêu chuẩn
         dff_comp = dff_comp.dropna(subset=['Online_Gloss_Top', 'Supplier', 'Gloss_LSL', 'Gloss_USL'])
         dff_comp = dff_comp[(dff_comp['Gloss_LSL'] > 0) & (dff_comp['Gloss_USL'] > 0) & (dff_comp['Online_Gloss_Top'] > 0)]
         
-        # Tính Độ Lệch Tâm cho chế độ "Tất cả"
         dff_comp['Gloss_Target'] = (dff_comp['Gloss_LSL'] + dff_comp['Gloss_USL']) / 2
         dff_comp['Gloss_Dev'] = dff_comp['Online_Gloss_Top'] - dff_comp['Gloss_Target']
         
@@ -574,19 +614,15 @@ elif view_mode == "🤝 Supplier Comparison":
         if len(dff_comp['Supplier'].unique()) >= 1:
             st.markdown("---")
             
-            # --- PHẦN 1: TỔNG QUAN THEO NHÀ CUNG CẤP ---
+            # --- PHẦN 1: TỔNG QUAN ---
             c1, c2 = st.columns([2, 2.2]) 
-            
-            # Xác định trục Y theo chế độ
             plot_col = 'Gloss_Dev' if is_mixed else 'Online_Gloss_Top'
             plot_ylabel = "Độ lệch so với Tâm (ΔGloss)" if is_mixed else "Độ bóng Online (Line Gloss)"
             
             with c1:
                 st.subheader(f"📊 Phân tán Độ bóng Dây chuyền ({title_suffix})")
                 fig_comp1, ax_comp1 = plt.subplots(figsize=(10, 5))
-                
                 sns.boxplot(data=dff_comp, x='Supplier', y=plot_col, palette='Set2', ax=ax_comp1, showfliers=False)
-                # Làm mờ và thu nhỏ chấm đen để tránh rối mắt khi chọn Tất cả
                 sns.stripplot(data=dff_comp, x='Supplier', y=plot_col, color='black', alpha=0.3, size=3, jitter=True, ax=ax_comp1)
                 
                 if is_mixed:
@@ -607,16 +643,12 @@ elif view_mode == "🤝 Supplier Comparison":
             with c2:
                 if is_mixed:
                     st.subheader("Bảng Chỉ số Ổn định (Gộp)")
-                    st.caption("🔍 Chế độ Gộp: Độ phân tán (Std) càng nhỏ, hãng pha sơn càng đều tay trên toàn bộ dải màu.")
                     comp_table = dff_comp.groupby('Supplier').agg(
-                        So_Cuon=('Batch_Lot', 'count'),
-                        Mean_Dev=('Gloss_Dev', 'mean'),
-                        Std_Dev=('Gloss_Dev', 'std'),   
-                        Avg_dE=('ΔE', 'mean')
+                        So_Cuon=('Batch_Lot', 'count'), Mean_Dev=('Gloss_Dev', 'mean'),
+                        Std_Dev=('Gloss_Dev', 'std'), Avg_dE=('ΔE', 'mean')
                     ).reset_index()
                     comp_table = comp_table.sort_values('Std_Dev', ascending=True)
                     comp_table.columns = ['Supplier', 'Cuộn', 'Lệch Tâm TB', 'Độ phân tán (Std)', 'ΔE TB']
-                    
                     st.dataframe(
                         comp_table.style.format({
                             'Lệch Tâm TB': '{:+.2f}', 'Độ phân tán (Std)': '{:.2f}', 'ΔE TB': '{:.2f}'
@@ -625,22 +657,16 @@ elif view_mode == "🤝 Supplier Comparison":
                     )
                 else:
                     st.subheader("Bảng Chỉ số Thực chiến (Online Cpk)")
-                    st.caption("🔍 Chế độ Đơn: Đánh giá năng lực thực tế. Cpk > 1.33 là cực kỳ ổn định.")
                     comp_table = dff_comp.groupby('Supplier').agg(
-                        So_Cuon=('Batch_Lot', 'count'),
-                        LSL=('Gloss_LSL', 'mean'), USL=('Gloss_USL', 'mean'), 
-                        Mean_Gloss=('Online_Gloss_Top', 'mean'), Std_Gloss=('Online_Gloss_Top', 'std'),   
-                        Avg_dE=('ΔE', 'mean')
+                        So_Cuon=('Batch_Lot', 'count'), LSL=('Gloss_LSL', 'mean'), USL=('Gloss_USL', 'mean'), 
+                        Mean_Gloss=('Online_Gloss_Top', 'mean'), Std_Gloss=('Online_Gloss_Top', 'std'), Avg_dE=('ΔE', 'mean')
                     ).reset_index()
-                    
                     def calc_cpk(row):
                         if pd.isna(row['Std_Gloss']) or row['Std_Gloss'] == 0: return np.nan
                         return min((row['USL'] - row['Mean_Gloss']) / (3 * row['Std_Gloss']), (row['Mean_Gloss'] - row['LSL']) / (3 * row['Std_Gloss']))
-                        
                     comp_table['Cpk (Line)'] = comp_table.apply(calc_cpk, axis=1)
                     comp_table = comp_table.sort_values('Cpk (Line)', ascending=False)
                     comp_table.columns = ['Supplier', 'Cuộn', 'LSL', 'USL', 'Mean (Line)', 'Std (Line)', 'ΔE TB', 'Cpk (Line)']
-                    
                     st.dataframe(
                         comp_table.style.format({
                             'LSL': '{:.0f}', 'USL': '{:.0f}', 'Mean (Line)': '{:.1f}',
@@ -649,10 +675,47 @@ elif view_mode == "🤝 Supplier Comparison":
                         use_container_width=True, hide_index=True
                     )
 
-            # --- PHẦN 2: TRUY VẾT LÔ SẢN XUẤT (BATCH DRILL-DOWN) ---
+            # --- PHẦN 2: BẢNG BIẾN ĐỘNG GIỮA CÁC LÔ (BATCH-TO-BATCH VARIATION) ---
             st.markdown("---")
-            st.subheader("🔎 Truy vết Lô sơn thiếu ổn định (Batch Drill-down)")
-            st.caption("Danh sách các lô sơn sắp xếp theo độ dao động (Độ lệch chuẩn - Std) giảm dần. Lô bị bôi đỏ là lô kéo chất lượng đi xuống.")
+            st.subheader("📉 Biến động Giữa Các Lô (Batch-to-Batch Variation)")
+            st.caption("Bảng này đo lường sự thiếu đồng nhất **giữa các mẻ sơn khác nhau** của cùng một nhà cung cấp. Mức chênh lệch (Max - Min) càng lớn, chứng tỏ khâu pha sơn (Batching) của Vendor càng kém ổn định.")
+            
+            # Tính trung bình của từng lô
+            batch_means = dff_comp.groupby(['Supplier', 'Batch_Lot']).agg(
+                Mean_Line=('Online_Gloss_Top', 'mean')
+            ).reset_index()
+            
+            # Tổng hợp khoảng cách giữa các lô của từng hãng
+            b2b_table = batch_means.groupby('Supplier').agg(
+                So_Lo=('Batch_Lot', 'count'),
+                Min_Batch_Mean=('Mean_Line', 'min'),
+                Max_Batch_Mean=('Mean_Line', 'max')
+            ).reset_index()
+            
+            # Tính độ chênh lệch giữa Lô trung bình cao nhất và Lô trung bình thấp nhất
+            b2b_table['Chenh_Lech'] = b2b_table['Max_Batch_Mean'] - b2b_table['Min_Batch_Mean']
+            
+            # Chỉ hiển thị các hãng có từ 2 lô trở lên để thấy sự chênh lệch
+            b2b_table = b2b_table[b2b_table['So_Lo'] >= 2]
+            
+            if not b2b_table.empty:
+                b2b_table = b2b_table.sort_values('Chenh_Lech', ascending=False)
+                b2b_table.columns = ['Supplier', 'Số Lô (Batches)', 'Lô TB Thấp Nhất', 'Lô TB Cao Nhất', 'Chênh Lệch Giữa Các Lô (Gap)']
+                
+                st.dataframe(
+                    b2b_table.style.format({
+                        'Lô TB Thấp Nhất': '{:.1f}',
+                        'Lô TB Cao Nhất': '{:.1f}',
+                        'Chênh Lệch Giữa Các Lô (Gap)': '{:.1f}'
+                    }).background_gradient(cmap='Oranges', subset=['Chênh Lệch Giữa Các Lô (Gap)']), # Cam đậm = chênh lệch lớn
+                    use_container_width=True, hide_index=True
+                )
+            else:
+                st.info("Chưa đủ dữ liệu nhiều lô để so sánh sự biến động Batch-to-Batch.")
+
+            # --- PHẦN 3: TRUY VẾT CHI TIẾT TỪNG LÔ ---
+            st.markdown("---")
+            st.subheader("🔎 Chi tiết Từng Lô (Batch Drill-down)")
             
             batch_table = dff_comp.groupby(['Supplier', 'Batch_Lot']).agg(
                 Ma_Son_Full=('Ma_Son', 'first'), 
