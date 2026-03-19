@@ -46,15 +46,9 @@ def load_and_prep_data():
         for c in num_cols:
             if c in df.columns: df[c] = pd.to_numeric(df[c], errors='coerce')
 
-        # --- 🚀 BƯỚC LÀM SẠCH DỮ LIỆU (CLEANING) ---
-        # Loại bỏ các dòng bị rỗng (NaN) ở cột Gloss_Lab
+        # --- LÀM SẠCH DỮ LIỆU ---
         df = df.dropna(subset=['Gloss_Lab'])
-        # Loại bỏ các cuộn thép có Gloss_Lab bằng 0 hoặc giá trị âm vô lý
-        df = df[df['Gloss_Lab'] > 0]
-        
-        # (Tùy chọn) Loại bỏ thêm các dòng Online Gloss bằng 0 nếu cảm biến bị lỗi
-        if 'G_Top_N' in df.columns and 'G_Top_S' in df.columns:
-            df = df[(df['G_Top_N'] > 0) & (df['G_Top_S'] > 0)]
+        df = df[df['Gloss_Lab'] > 0] # Loại bỏ lỗi Gloss = 0
 
         # 2.4 Tính toán Core Metrics
         df['Ngay_SX'] = pd.to_datetime(df['Ngay_SX'], errors='coerce').dt.date
@@ -127,65 +121,40 @@ with tab1:
         st.dataframe(dff[dff['Final_Status'] == '❌ FAIL/NG'][['Ngay_SX', 'Batch_Lot', 'Ma_Son', 'Gloss_Lab', 'ΔE', 'Final_Status']], use_container_width=True)
 
 # ==========================================
-# ==========================================
-# TAB 2: GLOSS ANALYSIS (SPC & Spec)
+# TAB 2: GLOSS ANALYSIS (Phân tích theo từng mã màu)
 # ==========================================
 with tab2:
     st.header("Gloss Process Conformance")
-    st.info("💡 Phân tích phân phối độ bóng và năng lực kiểm soát bắt buộc phải tách riêng theo từng mã màu để đảm bảo LSL/USL đồng nhất.")
-    
-    # Thêm bộ lọc riêng cho Tab 2 để soi từng mã màu
     list_color_codes = sorted(dff['Color_Code'].dropna().unique().tolist())
     
-    if not list_color_codes:
-        st.warning("⚠️ Không có dữ liệu. Vui lòng kiểm tra lại bộ lọc bên Sidebar.")
-    else:
-        # Chọn mã màu 4 số cuối
+    if list_color_codes:
         sel_color_tab2 = st.selectbox("🎯 Chọn Mã màu gốc (4 số cuối) để phân tích SPC:", list_color_codes, key="tab2_color")
-        
-        # Lọc dữ liệu chỉ lấy mã màu đã chọn
         dff_g = dff[dff['Color_Code'] == sel_color_tab2].copy()
         
         if not dff_g.empty:
             c1, c2 = st.columns([2, 1])
-            
             with c1:
                 st.subheader(f"Phân phối Độ bóng (Histogram) - Mã: {sel_color_tab2}")
                 fig_g1, ax_g1 = plt.subplots(figsize=(10, 5))
-                
-                # Vẽ biểu đồ phân phối
                 sns.histplot(dff_g['Gloss_Lab'], kde=True, color='skyblue', ax=ax_g1)
                 
-                # Vẽ LSL / USL chuẩn của mã màu này
                 lsl_val = dff_g['Gloss_LSL'].iloc[0]
                 usl_val = dff_g['Gloss_USL'].iloc[0]
+                mean_val = dff_g['Gloss_Lab'].mean()
                 
                 ax_g1.axvline(lsl_val, color='red', ls='--', linewidth=2, label=f'LSL ({lsl_val})')
                 ax_g1.axvline(usl_val, color='red', ls='--', linewidth=2, label=f'USL ({usl_val})')
+                ax_g1.axvline(mean_val, color='green', ls='-.', linewidth=2, label=f'Mean ({mean_val:.1f})')
                 
-                # Thêm đường trung bình thực tế
-                mean_val = dff_g['Gloss_Lab'].mean()
-                ax_g1.axvline(mean_val, color='green', ls='-.', linewidth=2, label=f'Mean Thực tế ({mean_val:.1f})')
-                
-                ax_g1.set_xlabel("Độ bóng (Gloss Lab)")
-                ax_g1.set_ylabel("Số lượng cuộn (Count)")
-                plt.legend()
-                st.pyplot(fig_g1)
+                plt.legend(); st.pyplot(fig_g1)
                 
             with c2:
                 st.subheader("Đối soát năng lực Supplier")
                 fig_g2, ax_g2 = plt.subplots(figsize=(5, 5))
-                
-                # Vẽ Boxplot so sánh trực diện các Supplier đang cấp mã màu này
                 sns.boxplot(data=dff_g, x='Supplier', y='Gloss_Lab', palette='Set2', ax=ax_g2)
-                
-                # Kẻ thêm vạch đỏ LSL/USL sang Boxplot để dễ nhìn
                 ax_g2.axhline(lsl_val, color='red', ls='--', alpha=0.5)
                 ax_g2.axhline(usl_val, color='red', ls='--', alpha=0.5)
-                
-                plt.xticks(rotation=45)
-                ax_g2.set_ylabel("Gloss Lab")
-                st.pyplot(fig_g2)
+                plt.xticks(rotation=45); st.pyplot(fig_g2)
 
 # ==========================================
 # TAB 3: COLOR / ΔE ANALYSIS
@@ -193,7 +162,6 @@ with tab2:
 with tab3:
     st.header("Color Deviation Analysis")
     c3, c4 = st.columns(2)
-    
     with c3:
         st.subheader("ΔE Uniformity theo Supplier")
         fig_c1, ax_c1 = plt.subplots(figsize=(8, 5))
@@ -213,13 +181,12 @@ with tab3:
 # ==========================================
 with tab4:
     st.header("Lab vs Production Gap & Uniformity")
-    
     c5, c6 = st.columns(2)
     with c5:
         st.subheader("Online Uniformity: North vs South (Top)")
         fig_u1, ax_u1 = plt.subplots(figsize=(8, 5))
         sns.scatterplot(data=dff, x='G_Top_N', y='G_Top_S', color='purple', alpha=0.6, ax=ax_u1)
-        if not dff.empty:
+        if not dff.empty and pd.notna(dff['G_Top_N'].min()):
             min_val = min(dff['G_Top_N'].min(), dff['G_Top_S'].min())
             max_val = max(dff['G_Top_N'].max(), dff['G_Top_S'].max())
             ax_u1.plot([min_val, max_val], [min_val, max_val], 'r--', lw=2)
@@ -239,7 +206,7 @@ with tab4:
 # ==========================================
 with tab5:
     st.header("🏢 Batch, Supplier & Summary Data")
-    st.info("Bảng dữ liệu đã loại bỏ hoàn toàn các cuộn lỗi đo lường (Gloss = 0).")
+    st.info("Bảng dữ liệu đã khôi phục nguyên bản và loại bỏ lỗi Gloss = 0.")
     
     summary_table = dff.groupby(['Coating_Type', 'Color_Code', 'Supplier']).agg({
         'Batch_Lot': 'count',
@@ -253,4 +220,23 @@ with tab5:
 
     summary_table.columns = [
         'Hệ Nhựa', 'Mã Màu', 'Nhà Cung Cấp', 'Số Cuộn', 
-        'Gloss(
+        'Gloss(Lab) TB', 'Std(Gloss)', 'Min Gloss', 'Max Gloss', 
+        'Online(Top) TB', 'LSL', 'USL', 'ΔE TB', 'Yield(%)'
+    ]
+
+    # Đảm bảo format đầy đủ để không bị lỗi SyntaxError nữa
+    st.dataframe(
+        summary_table.style.format({
+            'Gloss(Lab) TB': '{:.1f}', 
+            'Std(Gloss)': '{:.2f}', 
+            'Min Gloss': '{:.1f}', 
+            'Max Gloss': '{:.1f}',
+            'Online(Top) TB': '{:.1f}', 
+            'LSL': '{:.0f}', 
+            'USL': '{:.0f}', 
+            'ΔE TB': '{:.2f}', 
+            'Yield(%)': '{:.1f}%'
+        }).background_gradient(cmap='RdYlGn_r', subset=['Std(Gloss)'])
+          .background_gradient(cmap='RdYlGn', subset=['Yield(%)'], low=0, high=100),
+        use_container_width=True, hide_index=True
+    )
