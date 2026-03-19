@@ -618,18 +618,20 @@ elif view_mode == "🤝 Supplier Comparison":
             # --- PHẦN 2: TRUY VẾT LÔ SẢN XUẤT (BATCH DRILL-DOWN) ---
             st.markdown("---")
             st.subheader("🔎 Truy vết Lô sơn thiếu ổn định (Batch Drill-down)")
-            st.caption("Danh sách các lô sơn (Batch) được sắp xếp theo mức độ dao động (Độ lệch chuẩn - Std) giảm dần. Lô nào bị bôi **màu đỏ sậm** là lô pha sơn cực kỳ thiếu ổn định, kéo chất lượng của cả nhà cung cấp đi xuống!")
+            st.caption("Danh sách các lô sơn sắp xếp theo độ dao động (Độ lệch chuẩn - Std) giảm dần. Cột **Mã Sơn (Full)** giúp bạn gửi khiếu nại chính xác đến nhà cung cấp.")
             
-            # Nhóm dữ liệu theo Nhà cung cấp và Lô sản xuất
+            # Nhóm dữ liệu theo Nhà cung cấp và Lô sản xuất, THÊM MÃ SƠN ĐẦY ĐỦ VÀ dE Max
             batch_table = dff_comp.groupby(['Supplier', 'Batch_Lot']).agg(
+                Ma_Son_Full=('Ma_Son', 'first'), # Lấy mã sơn đầy đủ
                 Ngay_SX=('Ngay_SX', 'min'),
                 So_Cuon=('Online_Gloss_Top', 'count'),
-                LSL=('Gloss_LSL', 'mean'),
-                USL=('Gloss_USL', 'mean'),
+                LSL=('Gloss_LSL', 'first'),
+                USL=('Gloss_USL', 'first'),
                 Mean_Line=('Online_Gloss_Top', 'mean'),
                 Std_Line=('Online_Gloss_Top', 'std'),
                 Min_Line=('Online_Gloss_Top', 'min'),
-                Max_Line=('Online_Gloss_Top', 'max')
+                Max_Line=('Online_Gloss_Top', 'max'),
+                dE_Max=('ΔE', 'max') # Lấy ΔE lớn nhất của lô đó
             ).reset_index()
             
             # Xử lý các lô chỉ có 1 cuộn (Std sẽ bằng NaN) -> Đổi thành 0
@@ -638,13 +640,15 @@ elif view_mode == "🤝 Supplier Comparison":
             # Sắp xếp những lô dao động mạnh nhất (Std cao) lên đầu
             batch_table = batch_table.sort_values(by=['Std_Line'], ascending=False)
             
-            batch_table.columns = ['Supplier', 'Lô Sản Xuất', 'Ngày SX', 'Số Cuộn', 'LSL', 'USL', 'Mean (Line)', 'Std (Line)', 'Min (Line)', 'Max (Line)']
+            # Cập nhật tên cột hiển thị
+            batch_table.columns = ['Supplier', 'Lô Sản Xuất', 'Mã Sơn (Full)', 'Ngày SX', 'Số Cuộn', 'LSL', 'USL', 'Mean (Line)', 'Std (Line)', 'Min (Line)', 'Max (Line)', 'ΔE Max']
             
             st.dataframe(
                 batch_table.style.format({
                     'LSL': '{:.0f}', 'USL': '{:.0f}', 'Mean (Line)': '{:.1f}',
-                    'Std (Line)': '{:.2f}', 'Min (Line)': '{:.1f}', 'Max (Line)': '{:.1f}'
-                }).background_gradient(cmap='Reds', subset=['Std (Line)']), # Bôi đỏ đậm các lô có Std cao
+                    'Std (Line)': '{:.2f}', 'Min (Line)': '{:.1f}', 'Max (Line)': '{:.1f}',
+                    'ΔE Max': '{:.2f}'
+                }).background_gradient(cmap='Reds', subset=['Std (Line)', 'ΔE Max']), # Bôi đỏ đậm các lô có Std hoặc dE cao
                 use_container_width=True, hide_index=True
             )
 
