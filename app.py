@@ -122,25 +122,65 @@ with tab1:
         st.dataframe(dff[dff['Final_Status'] == '❌ FAIL/NG'][['Ngay_SX', 'Batch_Lot', 'Ma_Son', 'Gloss_Lab', 'ΔE', 'Final_Status']], use_container_width=True)
 
 # ==========================================
+# ==========================================
 # TAB 2: GLOSS ANALYSIS (SPC & Spec)
 # ==========================================
 with tab2:
     st.header("Gloss Process Conformance")
-    c1, c2 = st.columns([2, 1])
+    st.info("💡 Phân tích phân phối độ bóng và năng lực kiểm soát bắt buộc phải tách riêng theo từng mã màu để đảm bảo LSL/USL đồng nhất.")
     
-    with c1:
-        st.subheader("I-MR Chart (Phân phối Độ bóng)")
-        fig_g1, ax_g1 = plt.subplots(figsize=(10, 5))
-        sns.histplot(dff['Gloss_Lab'], kde=True, color='skyblue', ax=ax_g1)
-        ax_g1.axvline(dff['Gloss_LSL'].mean(), color='red', ls='--', label='LSL')
-        ax_g1.axvline(dff['Gloss_USL'].mean(), color='red', ls='--', label='USL')
-        plt.legend(); st.pyplot(fig_g1)
+    # Thêm bộ lọc riêng cho Tab 2 để soi từng mã màu
+    list_color_codes = sorted(dff['Color_Code'].dropna().unique().tolist())
+    
+    if not list_color_codes:
+        st.warning("⚠️ Không có dữ liệu. Vui lòng kiểm tra lại bộ lọc bên Sidebar.")
+    else:
+        # Chọn mã màu 4 số cuối
+        sel_color_tab2 = st.selectbox("🎯 Chọn Mã màu gốc (4 số cuối) để phân tích SPC:", list_color_codes, key="tab2_color")
         
-    with c2:
-        st.subheader("Gloss Boxplot by Supplier")
-        fig_g2, ax_g2 = plt.subplots(figsize=(5, 5))
-        sns.boxplot(data=dff, x='Supplier', y='Gloss_Lab', palette='Set2', ax=ax_g2)
-        plt.xticks(rotation=45); st.pyplot(fig_g2)
+        # Lọc dữ liệu chỉ lấy mã màu đã chọn
+        dff_g = dff[dff['Color_Code'] == sel_color_tab2].copy()
+        
+        if not dff_g.empty:
+            c1, c2 = st.columns([2, 1])
+            
+            with c1:
+                st.subheader(f"Phân phối Độ bóng (Histogram) - Mã: {sel_color_tab2}")
+                fig_g1, ax_g1 = plt.subplots(figsize=(10, 5))
+                
+                # Vẽ biểu đồ phân phối
+                sns.histplot(dff_g['Gloss_Lab'], kde=True, color='skyblue', ax=ax_g1)
+                
+                # Vẽ LSL / USL chuẩn của mã màu này
+                lsl_val = dff_g['Gloss_LSL'].iloc[0]
+                usl_val = dff_g['Gloss_USL'].iloc[0]
+                
+                ax_g1.axvline(lsl_val, color='red', ls='--', linewidth=2, label=f'LSL ({lsl_val})')
+                ax_g1.axvline(usl_val, color='red', ls='--', linewidth=2, label=f'USL ({usl_val})')
+                
+                # Thêm đường trung bình thực tế
+                mean_val = dff_g['Gloss_Lab'].mean()
+                ax_g1.axvline(mean_val, color='green', ls='-.', linewidth=2, label=f'Mean Thực tế ({mean_val:.1f})')
+                
+                ax_g1.set_xlabel("Độ bóng (Gloss Lab)")
+                ax_g1.set_ylabel("Số lượng cuộn (Count)")
+                plt.legend()
+                st.pyplot(fig_g1)
+                
+            with c2:
+                st.subheader("Đối soát năng lực Supplier")
+                fig_g2, ax_g2 = plt.subplots(figsize=(5, 5))
+                
+                # Vẽ Boxplot so sánh trực diện các Supplier đang cấp mã màu này
+                sns.boxplot(data=dff_g, x='Supplier', y='Gloss_Lab', palette='Set2', ax=ax_g2)
+                
+                # Kẻ thêm vạch đỏ LSL/USL sang Boxplot để dễ nhìn
+                ax_g2.axhline(lsl_val, color='red', ls='--', alpha=0.5)
+                ax_g2.axhline(usl_val, color='red', ls='--', alpha=0.5)
+                
+                plt.xticks(rotation=45)
+                ax_g2.set_ylabel("Gloss Lab")
+                st.pyplot(fig_g2)
 
 # ==========================================
 # TAB 3: COLOR / ΔE ANALYSIS
