@@ -249,7 +249,7 @@ if view_mode == "🚀 Executive Overview":
 # VIEW 2: GLOSS ANALYSIS (SPC)
 # ==========================================
 elif view_mode == "✨ Gloss Analysis (SPC)":
-    st.info("💡 SPC Analysis: Trend Line thể hiện giá trị TRUNG BÌNH theo từng Lô (Batch Lot). Histogram/Boxplot giữ nguyên từng cuộn để đánh giá đúng độ phân tán thực tế.")
+    st.info("💡 SPC Analysis: Đánh giá độ ổn định của quá trình theo từng Lô (kèm thời gian sản xuất) và năng lực tổng thể.")
     import scipy.stats as stats 
     
     list_ma_son_tab2 = sorted(dff['Ma_Son'].dropna().unique().tolist())
@@ -270,31 +270,40 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
             mean_lab, std_lab = dff_g['Gloss_Lab'].mean(), dff_g['Gloss_Lab'].std()
             mean_line, std_line = dff_g['Online_Gloss_Top'].mean(), dff_g['Online_Gloss_Top'].std()
 
-            # --- 1. BIỂU ĐỒ XU HƯỚNG THEO TRUNG BÌNH BATCH LOT ---
+            # --- 1. HIỂN THỊ THÔNG TIN THỜI GIAN TỔNG QUAN ---
+            min_date = dff_g['Ngay_SX'].min()
+            max_date = dff_g['Ngay_SX'].max()
+            so_lo = dff_g['Batch_Lot'].nunique()
+            so_cuon = len(dff_g)
+            
+            st.success(f"📅 **Khung thời gian:** Từ `{min_date}` đến `{max_date}` | **Khối lượng:** `{so_lo}` Lô sản xuất (`{so_cuon}` cuộn thép).")
+
+            # --- 2. BIỂU ĐỒ XU HƯỚNG THEO TRUNG BÌNH BATCH LOT + NGÀY SẢN XUẤT ---
             st.markdown("---")
-            st.subheader(f"📈 Biểu đồ Xu hướng (Avg Trend by Batch Lot) - {sel_ma_son_tab2}")
+            st.subheader(f"📈 Biểu đồ Xu hướng (Trend Line) - {sel_ma_son_tab2}")
             
             # Tính trung bình (Mean) của Lab và Line cho từng Batch Lot
             dff_batch = dff_g.groupby('Batch_Lot', as_index=False).agg({
-                'Ngay_SX': 'min', # Lấy ngày sản xuất đầu tiên của lô để sắp xếp
+                'Ngay_SX': 'min', # Lấy ngày sản xuất đầu tiên của lô
                 'Gloss_Lab': 'mean',
                 'Online_Gloss_Top': 'mean'
             }).sort_values('Ngay_SX')
             
-            dff_batch['Batch_Lot'] = dff_batch['Batch_Lot'].astype(str)
+            # TẠO NHÃN TRỤC X GỒM: MÃ LÔ + (NGÀY/THÁNG)
+            dff_batch['Label_X'] = dff_batch['Batch_Lot'].astype(str) + "\n(" + pd.to_datetime(dff_batch['Ngay_SX']).dt.strftime('%d/%m') + ")"
             
-            fig_trend, ax_trend = plt.subplots(figsize=(12, 4))
+            fig_trend, ax_trend = plt.subplots(figsize=(14, 5)) # Mở rộng bề ngang biểu đồ để chứa chữ
             
             # Vẽ đường xu hướng bằng dữ liệu Trung bình
-            ax_trend.plot(dff_batch['Batch_Lot'], dff_batch['Gloss_Lab'], marker='o', color='#2980b9', lw=2, label='Avg Lab Gloss')
-            ax_trend.plot(dff_batch['Batch_Lot'], dff_batch['Online_Gloss_Top'], marker='s', color='#d35400', lw=2, alpha=0.7, label='Avg Line Gloss')
+            ax_trend.plot(dff_batch['Label_X'], dff_batch['Gloss_Lab'], marker='o', color='#2980b9', lw=2, label='Avg Lab Gloss')
+            ax_trend.plot(dff_batch['Label_X'], dff_batch['Online_Gloss_Top'], marker='s', color='#d35400', lw=2, alpha=0.7, label='Avg Line Gloss')
             
             # Vẽ các đường giới hạn đỏ
             ax_trend.axhline(lsl_val, color='red', ls='--', lw=2, label=f'LSL ({lsl_val:.1f})')
             ax_trend.axhline(usl_val, color='red', ls='--', lw=2, label=f'USL ({usl_val:.1f})')
             ax_trend.axhline(mean_lab, color='#3498db', ls=':', lw=1.5, label=f'Total Mean ({mean_lab:.1f})')
             
-            ax_trend.set_xlabel("Lô Sản Xuất (Batch Lot)")
+            ax_trend.set_xlabel("Lô Sản Xuất & Ngày (Batch Lot & Date)")
             ax_trend.set_ylabel("Độ bóng Trung bình (Avg Gloss)")
             
             plt.xticks(rotation=45, ha='right')
@@ -310,7 +319,7 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
             
             st.markdown("---")
 
-            # --- 2. BIỂU ĐỒ PHÂN PHỐI VÀ ĐỘ PHÂN TÁN (Giữ nguyên từng cuộn) ---
+            # --- 3. BIỂU ĐỒ PHÂN PHỐI VÀ ĐỘ PHÂN TÁN (Giữ nguyên) ---
             c1, c2 = st.columns([2, 1])
             with c1:
                 st.subheader("Phân phối Độ bóng (Histogram: Từng cuộn)")
