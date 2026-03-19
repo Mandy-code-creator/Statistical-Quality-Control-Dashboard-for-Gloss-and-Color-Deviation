@@ -187,6 +187,63 @@ if view_mode == "🚀 Executive Overview":
             ], 
             use_container_width=True
         )
+     # ==========================================
+    # BỔ SUNG: BẢNG CẢNH BÁO THÔNG MINH (SMART FOCUS)
+    # ==========================================
+    st.markdown("---")
+    st.subheader("🎯 Smart Focus: Các mã sơn cần ưu tiên phân tích (Đã chạy ≥ 5 Lô)")
+    st.caption("Hệ thống tự động quét các mã sơn có đủ lượng dữ liệu thống kê, phát hiện xu hướng lệch màu hoặc độ bóng áp sát giới hạn để QC chủ động kiểm soát.")
+
+    if not dff.empty:
+        # 1. Nhóm dữ liệu theo Mã Sơn
+        focus_df = dff.groupby(['Ma_Son', 'Supplier']).agg(
+            So_Lo=('Batch_Lot', 'nunique'),
+            So_Cuon=('Batch_Lot', 'count'),
+            Gloss_TB=('Gloss_Lab', 'mean'),
+            LSL=('Gloss_LSL', 'first'),
+            USL=('Gloss_USL', 'first'),
+            dE_TB=('ΔE', 'mean'),
+            dE_Max=('ΔE', 'max'),
+            Yield=('Final_Status', lambda x: (x == '✅ PASS').mean() * 100)
+        ).reset_index()
+
+        # 2. Chỉ lấy những mã sơn có từ 5 lô trở lên
+        focus_df = focus_df[focus_df['So_Lo'] >= 5]
+
+        if not focus_df.empty:
+            # 3. Thuật toán phân loại mức độ rủi ro
+            def assess_risk(row):
+                if row['Yield'] < 100 or row['dE_Max'] > 1.0:
+                    return '🔴 Nguy hiểm (Có NG)'
+                # Cảnh báo nếu dE_TB sát mốc 1.0, hoặc Gloss sát LSL/USL trong vòng 2 độ
+                elif row['dE_TB'] >= 0.8 or abs(row['Gloss_TB'] - row['LSL']) <= 2.0 or abs(row['USL'] - row['Gloss_TB']) <= 2.0:
+                    return '🟠 Cảnh báo (Sát mốc)'
+                else:
+                    return '🟢 An toàn'
+
+            focus_df['Mức độ rủi ro'] = focus_df.apply(assess_risk, axis=1)
+
+            # 4. Sắp xếp: Ưu tiên xử lý những thằng Yield thấp nhất và dE cao nhất lên đầu
+            focus_df = focus_df.sort_values(by=['Yield', 'dE_TB'], ascending=[True, False])
+
+            # Đổi tên cột cho đẹp
+            focus_df_display = focus_df[['Ma_Son', 'Supplier', 'So_Lo', 'So_Cuon', 'Yield', 'dE_TB', 'dE_Max', 'Mức độ rủi ro']]
+            focus_df_display.columns = ['Mã Sơn (Paint Code)', 'Nhà Cung Cấp', 'Số Lô', 'Số Cuộn', 'Tỷ lệ Đạt', 'ΔE TB', 'ΔE Max', 'Trạng Thái']
+
+            # 5. Hiển thị bảng với màu sắc trực quan
+            st.dataframe(
+                focus_df_display.style.format({
+                    'Tỷ lệ Đạt': '{:.1f}%', 
+                    'ΔE TB': '{:.2f}', 
+                    'ΔE Max': '{:.2f}'
+                }).background_gradient(cmap='Reds', subset=['ΔE TB', 'ΔE Max']),
+                use_container_width=True, 
+                hide_index=True
+            )
+            
+            st.info("💡 **Gợi ý tác nghiệp:** Bôi đen copy `Mã Sơn` ở trạng thái 🔴 hoặc 🟠 trong bảng trên, sau đó chuyển sang tab **Gloss Analysis (SPC)** hoặc **Color Analysis** để soi trực tiếp biểu đồ Histogram và Trend Line xem lô nào đang kéo chất lượng đi xuống!")
+        else:
+            st.success("🎉 Tuyệt vời! Hiện tại xưởng không có mã sơn nào (từ 5 lô trở lên) đang hoạt động.")   
 # ==========================================
 # ==========================================
 # VIEW 2: GLOSS ANALYSIS (SPC)
