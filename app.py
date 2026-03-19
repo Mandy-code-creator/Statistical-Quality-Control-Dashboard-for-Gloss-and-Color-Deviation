@@ -93,6 +93,7 @@ with st.sidebar:
             "✨ Gloss Analysis (SPC)",
             "🎨 Color & ΔE Analysis",
             "⚖️ Process Uniformity",
+            "🤝 Supplier Comparison",
             "📋 Summary Data Report"
         ],
         label_visibility="collapsed"
@@ -521,3 +522,87 @@ elif view_mode == "📋 Summary Data Report":
           .background_gradient(cmap='RdYlGn', subset=['Yield(%)'], low=0, high=100),
         use_container_width=True, hide_index=True
     )
+# ==========================================
+# VIEW 5: SUPPLIER COMPARISON (SO SÁNH NHÀ CUNG CẤP)
+# ==========================================
+elif view_mode == "🤝 Supplier Comparison":
+    st.info("💡 So sánh độ ổn định chất lượng giữa các nhà cung cấp trên cùng một gốc màu (4 ký tự cuối). Nhà cung cấp có hộp Boxplot ngắn hơn và Std nhỏ hơn là người có độ ổn định cao nhất.")
+    
+    # 1. Bộ lọc phân tầng: Nhóm màu -> 4 ký tự cuối
+    col_f1, col_f2 = st.columns(2)
+    with col_f1:
+        list_nhom_mau = sorted(dff['Color_Group'].dropna().unique().tolist())
+        sel_nhom_mau = st.selectbox("🎨 B1: Chọn Nhóm màu (Color Group):", list_nhom_mau)
+        
+    with col_f2:
+        # Lấy danh sách 4 số cuối dựa trên nhóm màu đã chọn
+        list_ma_4so = sorted(dff[dff['Color_Group'] == sel_nhom_mau]['Color_Code'].dropna().unique().tolist())
+        if list_ma_4so:
+            sel_ma_4so = st.selectbox("🔢 B2: Chọn Mã màu (4 ký tự cuối):", list_ma_4so)
+        else:
+            st.warning("Không có mã màu nào trong nhóm này.")
+            sel_ma_4so = None
+            
+    if sel_ma_4so:
+        # Lọc dữ liệu theo 4 số cuối
+        dff_comp = dff[dff['Color_Code'] == sel_ma_4so].copy()
+        
+        # Lọc bỏ các dòng thiếu dữ liệu Gloss
+        dff_comp = dff_comp.dropna(subset=['Gloss_Lab', 'Supplier'])
+        
+        # Chỉ lấy những nhà cung cấp có trên 2 cuộn để đảm bảo tính thống kê
+        counts = dff_comp['Supplier'].value_counts()
+        valid_suppliers = counts[counts >= 2].index
+        dff_comp = dff_comp[dff_comp['Supplier'].isin(valid_suppliers)]
+        
+        if len(dff_comp['Supplier'].unique()) >= 1: # Có ít nhất 1 (hoặc lý tưởng là 2) nhà cung cấp để xem
+            st.markdown("---")
+            
+            c1, c2 = st.columns([2, 1.5])
+            with c1:
+                st.subheader(f"📊 Độ phân tán Gloss theo Nhà cung cấp (Mã: {sel_ma_4so})")
+                fig_comp1, ax_comp1 = plt.subplots(figsize=(10, 5))
+                
+                # Biểu đồ Boxplot kết hợp Swarmplot để thấy cả hộp và từng điểm dữ liệu
+                sns.boxplot(data=dff_comp, x='Supplier', y='Gloss_Lab', palette='Set2', ax=ax_comp1, showfliers=False)
+                sns.stripplot(data=dff_comp, x='Supplier', y='Gloss_Lab', color='black', alpha=0.5, jitter=True, ax=ax_comp1)
+                
+                # Thêm đường trung bình chung của mã màu
+                tong_mean = dff_comp['Gloss_Lab'].mean()
+                ax_comp1.axhline(tong_mean, color='gray', ls='--', label=f'Avg Tổng ({tong_mean:.1f})')
+                
+                ax_comp1.set_xlabel("Nhà cung cấp (Supplier)")
+                ax_comp1.set_ylabel("Độ bóng Lab (Gloss)")
+                plt.legend()
+                st.pyplot(fig_comp1)
+                
+            with c2:
+                st.subheader("Bảng Chỉ số Ổn định (Stability Index)")
+                st.caption("🔍 Độ lệch chuẩn (Std) càng nhỏ, nhà cung cấp pha sơn càng đều tay.")
+                
+                # Bảng thống kê so sánh
+                comp_table = dff_comp.groupby('Supplier').agg(
+                    So_Cuon=('Batch_Lot', 'count'),
+                    Mean_Gloss=('Gloss_Lab', 'mean'),
+                    Std_Gloss=('Gloss_Lab', 'std'),
+                    Min_Gloss=('Gloss_Lab', 'min'),
+                    Max_Gloss=('Gloss_Lab', 'max'),
+                    Avg_dE=('ΔE', 'mean')
+                ).reset_index()
+                
+                # Sắp xếp nhà cung cấp ổn định nhất (Std nhỏ nhất) lên đầu
+                comp_table = comp_table.sort_values('Std_Gloss', ascending=True)
+                
+                st.dataframe(
+                    comp_table.style.format({
+                        'Mean_Gloss': '{:.1f}',
+                        'Std_Gloss': '{:.2f}',
+                        'Min_Gloss': '{:.1f}',
+                        'Max_Gloss': '{:.1f}',
+                        'Avg_dE': '{:.2f}'
+                    }).background_gradient(cmap='RdYlGn_r', subset=['Std_Gloss']), # Highlight Std, xanh là tốt, đỏ là dao động cao
+                    use_container_width=True,
+                    hide_index=True
+                )
+        else:
+            st.warning("⚠️ Không có đủ dữ liệu (ít nhất 2 cuộn/nhà cung cấp) để thực hiện so sánh cho mã màu này.")
