@@ -550,7 +550,7 @@ elif view_mode == "🤝 Supplier Comparison":
     if sel_ma_4so:
         dff_comp = dff_nhom[dff_nhom['Color_Code'] == sel_ma_4so].copy()
         
-        # 🚀 CHUYỂN TRỤC DỮ LIỆU: Bắt buộc phải có Online Gloss và LSL/USL
+        # CHUYỂN TRỤC DỮ LIỆU: Bắt buộc phải có Online Gloss và LSL/USL
         dff_comp = dff_comp.dropna(subset=['Online_Gloss_Top', 'Supplier', 'Gloss_LSL', 'Gloss_USL'])
         dff_comp = dff_comp[(dff_comp['Gloss_LSL'] > 0) & (dff_comp['Gloss_USL'] > 0) & (dff_comp['Online_Gloss_Top'] > 0)]
         
@@ -561,12 +561,12 @@ elif view_mode == "🤝 Supplier Comparison":
         if len(dff_comp['Supplier'].unique()) >= 1:
             st.markdown("---")
             
+            # --- PHẦN 1: TỔNG QUAN THEO NHÀ CUNG CẤP ---
             c1, c2 = st.columns([2, 2.2]) 
             with c1:
                 st.subheader(f"📊 Phân tán Độ bóng Dây chuyền (Mã: {sel_ma_4so})")
                 fig_comp1, ax_comp1 = plt.subplots(figsize=(10, 5))
                 
-                # Biểu đồ Boxplot vẽ độ bóng ONLINE thực tế
                 sns.boxplot(data=dff_comp, x='Supplier', y='Online_Gloss_Top', palette='Set2', ax=ax_comp1, showfliers=False)
                 sns.stripplot(data=dff_comp, x='Supplier', y='Online_Gloss_Top', color='black', alpha=0.5, size=4, jitter=True, ax=ax_comp1)
                 
@@ -585,15 +585,14 @@ elif view_mode == "🤝 Supplier Comparison":
                 
             with c2:
                 st.subheader("Bảng Chỉ số Thực chiến (Online Cpk)")
-                st.caption("🔍 Đánh giá năng lực thực tế trên chuyền. Cpk > 1.33 (Màu xanh) là quá trình rất ổn định.")
+                st.caption("🔍 Đánh giá năng lực thực tế. Cpk > 1.33 (Màu xanh) là quá trình rất ổn định.")
                 
-                # Tính toán dựa trên Online_Gloss_Top
                 comp_table = dff_comp.groupby('Supplier').agg(
                     So_Cuon=('Batch_Lot', 'count'),
                     LSL=('Gloss_LSL', 'mean'), 
                     USL=('Gloss_USL', 'mean'), 
-                    Mean_Gloss=('Online_Gloss_Top', 'mean'), # Chuyển sang Online
-                    Std_Gloss=('Online_Gloss_Top', 'std'),   # Chuyển sang Online
+                    Mean_Gloss=('Online_Gloss_Top', 'mean'), 
+                    Std_Gloss=('Online_Gloss_Top', 'std'),   
                     Avg_dE=('ΔE', 'mean')
                 ).reset_index()
                 
@@ -615,5 +614,39 @@ elif view_mode == "🤝 Supplier Comparison":
                     }).background_gradient(cmap='RdYlGn', subset=['Cpk (Line)']), 
                     use_container_width=True, hide_index=True
                 )
+
+            # --- PHẦN 2: TRUY VẾT LÔ SẢN XUẤT (BATCH DRILL-DOWN) ---
+            st.markdown("---")
+            st.subheader("🔎 Truy vết Lô sơn thiếu ổn định (Batch Drill-down)")
+            st.caption("Danh sách các lô sơn (Batch) được sắp xếp theo mức độ dao động (Độ lệch chuẩn - Std) giảm dần. Lô nào bị bôi **màu đỏ sậm** là lô pha sơn cực kỳ thiếu ổn định, kéo chất lượng của cả nhà cung cấp đi xuống!")
+            
+            # Nhóm dữ liệu theo Nhà cung cấp và Lô sản xuất
+            batch_table = dff_comp.groupby(['Supplier', 'Batch_Lot']).agg(
+                Ngay_SX=('Ngay_SX', 'min'),
+                So_Cuon=('Online_Gloss_Top', 'count'),
+                LSL=('Gloss_LSL', 'mean'),
+                USL=('Gloss_USL', 'mean'),
+                Mean_Line=('Online_Gloss_Top', 'mean'),
+                Std_Line=('Online_Gloss_Top', 'std'),
+                Min_Line=('Online_Gloss_Top', 'min'),
+                Max_Line=('Online_Gloss_Top', 'max')
+            ).reset_index()
+            
+            # Xử lý các lô chỉ có 1 cuộn (Std sẽ bằng NaN) -> Đổi thành 0
+            batch_table['Std_Line'] = batch_table['Std_Line'].fillna(0)
+            
+            # Sắp xếp những lô dao động mạnh nhất (Std cao) lên đầu
+            batch_table = batch_table.sort_values(by=['Std_Line'], ascending=False)
+            
+            batch_table.columns = ['Supplier', 'Lô Sản Xuất', 'Ngày SX', 'Số Cuộn', 'LSL', 'USL', 'Mean (Line)', 'Std (Line)', 'Min (Line)', 'Max (Line)']
+            
+            st.dataframe(
+                batch_table.style.format({
+                    'LSL': '{:.0f}', 'USL': '{:.0f}', 'Mean (Line)': '{:.1f}',
+                    'Std (Line)': '{:.2f}', 'Min (Line)': '{:.1f}', 'Max (Line)': '{:.1f}'
+                }).background_gradient(cmap='Reds', subset=['Std (Line)']), # Bôi đỏ đậm các lô có Std cao
+                use_container_width=True, hide_index=True
+            )
+
         else:
             st.warning("⚠️ Không có đủ dữ liệu (ít nhất 2 cuộn/nhà cung cấp có dữ liệu Line) để thực hiện so sánh.")
