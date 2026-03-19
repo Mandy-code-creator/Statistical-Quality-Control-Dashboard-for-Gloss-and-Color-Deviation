@@ -527,9 +527,9 @@ elif view_mode == "📋 Summary Data Report":
 # VIEW 5: SUPPLIER COMPARISON (SO SÁNH NHÀ CUNG CẤP)
 # ==========================================
 elif view_mode == "🤝 Supplier Comparison":
-    st.info("💡 So sánh độ ổn định chất lượng giữa các nhà cung cấp. Bảng dữ liệu nay đã tích hợp Giới hạn tiêu chuẩn (LSL/USL) và Chỉ số năng lực quá trình (Cpk).")
+    st.info("💡 Tuân thủ nguyên tắc QC (Apples-to-Apples): Hệ thống chỉ cho phép so sánh trực diện năng lực của các nhà cung cấp trên CÙNG MỘT mã màu cụ thể (cùng chung hệ tiêu chuẩn LSL/USL).")
     
-    # 1. Bộ lọc phân tầng: Nhóm màu -> 4 ký tự cuối (Có thêm 'Tất cả')
+    # 1. Bộ lọc phân tầng: Nhóm màu -> 4 ký tự cuối (ÉP CHỌN CỤ THỂ, BỎ TÙY CHỌN "TẤT CẢ")
     col_f1, col_f2 = st.columns(2)
     with col_f1:
         list_nhom_mau = sorted(dff['Color_Group'].dropna().unique().tolist())
@@ -541,26 +541,22 @@ elif view_mode == "🤝 Supplier Comparison":
             
     with col_f2:
         if sel_nhom_mau:
-            # Lấy danh sách 4 số cuối dựa trên nhóm màu đã chọn
+            # Lấy danh sách 4 số cuối (Chỉ lấy mã cụ thể)
             dff_nhom = dff[dff['Color_Group'] == sel_nhom_mau].copy()
-            list_ma_4so = ['Tất cả'] + sorted(dff_nhom['Color_Code'].dropna().unique().tolist())
-            sel_ma_4so = st.selectbox("🔢 B2: Chọn Mã màu (4 ký tự cuối):", list_ma_4so)
+            list_ma_4so = sorted(dff_nhom['Color_Code'].dropna().unique().tolist())
+            sel_ma_4so = st.selectbox("🔢 B2: Chọn Mã màu cụ thể (4 ký tự cuối):", list_ma_4so)
         else:
             sel_ma_4so = None
             
     if sel_ma_4so:
-        if sel_ma_4so == 'Tất cả':
-            dff_comp = dff_nhom.copy()
-            title_suffix = f"Nhóm màu: {sel_nhom_mau} (Tất cả mã)"
-        else:
-            dff_comp = dff_nhom[dff_nhom['Color_Code'] == sel_ma_4so].copy()
-            title_suffix = f"Mã màu: {sel_ma_4so}"
+        # Lọc dữ liệu chuẩn xác theo đúng 1 mã màu
+        dff_comp = dff_nhom[dff_nhom['Color_Code'] == sel_ma_4so].copy()
         
-        # Lọc bỏ các dòng thiếu dữ liệu Gloss và thiếu Tiêu chuẩn (LSL/USL)
+        # Lọc bỏ các dòng thiếu Tiêu chuẩn (LSL/USL)
         dff_comp = dff_comp.dropna(subset=['Gloss_Lab', 'Supplier', 'Gloss_LSL', 'Gloss_USL'])
         dff_comp = dff_comp[(dff_comp['Gloss_LSL'] > 0) & (dff_comp['Gloss_USL'] > 0)]
         
-        # Chỉ lấy những nhà cung cấp có trên 2 cuộn để đảm bảo tính thống kê
+        # Chỉ lấy những nhà cung cấp có trên 2 cuộn để đảm bảo tính thống kê Cpk
         counts = dff_comp['Supplier'].value_counts()
         valid_suppliers = counts[counts >= 2].index
         dff_comp = dff_comp[dff_comp['Supplier'].isin(valid_suppliers)]
@@ -568,40 +564,42 @@ elif view_mode == "🤝 Supplier Comparison":
         if len(dff_comp['Supplier'].unique()) >= 1:
             st.markdown("---")
             
-            # Chỉnh lại tỷ lệ cột để bảng dữ liệu bên phải có thêm không gian hiển thị
             c1, c2 = st.columns([2, 2.2]) 
             with c1:
-                st.subheader(f"📊 Độ phân tán Gloss ({title_suffix})")
+                st.subheader(f"📊 Phân tán Độ bóng tuyệt đối (Mã: {sel_ma_4so})")
                 fig_comp1, ax_comp1 = plt.subplots(figsize=(10, 5))
                 
-                # Biểu đồ Boxplot kết hợp Swarmplot
+                # Biểu đồ Boxplot vẽ độ bóng thực tế
                 sns.boxplot(data=dff_comp, x='Supplier', y='Gloss_Lab', palette='Set2', ax=ax_comp1, showfliers=False)
-                sns.stripplot(data=dff_comp, x='Supplier', y='Gloss_Lab', color='black', alpha=0.5, jitter=True, ax=ax_comp1)
+                sns.stripplot(data=dff_comp, x='Supplier', y='Gloss_Lab', color='black', alpha=0.5, size=4, jitter=True, ax=ax_comp1)
                 
-                # Thêm đường trung bình chung
+                # Vẽ tiêu chuẩn chung của đúng mã màu này
+                lsl_val = dff_comp['Gloss_LSL'].iloc[0]
+                usl_val = dff_comp['Gloss_USL'].iloc[0]
+                ax_comp1.axhline(lsl_val, color='red', ls='--', lw=2, label=f'LSL ({lsl_val:.0f})')
+                ax_comp1.axhline(usl_val, color='red', ls='--', lw=2, label=f'USL ({usl_val:.0f})')
+                
                 tong_mean = dff_comp['Gloss_Lab'].mean()
-                ax_comp1.axhline(tong_mean, color='gray', ls='--', label=f'Avg Tổng ({tong_mean:.1f})')
+                ax_comp1.axhline(tong_mean, color='gray', ls=':', lw=1.5, label=f'Avg Chung ({tong_mean:.1f})')
                 
                 ax_comp1.set_xlabel("Nhà cung cấp (Supplier)")
-                ax_comp1.set_ylabel("Độ bóng Lab (Gloss)")
+                ax_comp1.set_ylabel("Độ bóng Lab tuyệt đối (Gloss)")
                 plt.legend()
                 st.pyplot(fig_comp1)
                 
             with c2:
-                st.subheader("Bảng Chỉ số Ổn định & Năng lực (Cpk)")
-                st.caption("🔍 Xếp hạng theo Cpk. Cpk > 1.33 (Màu xanh) chứng tỏ nhà cung cấp kiểm soát chất lượng cực kỳ xuất sắc.")
+                st.subheader("Bảng Chỉ số Năng lực (Cpk)")
+                st.caption("🔍 Đánh giá năng lực của các nhà cung cấp trên cùng một hệ tiêu chuẩn. Cpk càng cao càng tốt.")
                 
-                # Bảng thống kê so sánh có kèm LSL / USL
                 comp_table = dff_comp.groupby('Supplier').agg(
                     So_Cuon=('Batch_Lot', 'count'),
-                    LSL=('Gloss_LSL', 'mean'), # Lấy chuẩn LSL
-                    USL=('Gloss_USL', 'mean'), # Lấy chuẩn USL
+                    LSL=('Gloss_LSL', 'mean'), 
+                    USL=('Gloss_USL', 'mean'), 
                     Mean_Gloss=('Gloss_Lab', 'mean'),
                     Std_Gloss=('Gloss_Lab', 'std'),
                     Avg_dE=('ΔE', 'mean')
                 ).reset_index()
                 
-                # Thuật toán tính Cpk cho từng nhà cung cấp
                 def calc_cpk(row):
                     if pd.isna(row['Std_Gloss']) or row['Std_Gloss'] == 0: 
                         return np.nan
@@ -610,24 +608,15 @@ elif view_mode == "🤝 Supplier Comparison":
                     return min(cpk_upper, cpk_lower)
                     
                 comp_table['Cpk'] = comp_table.apply(calc_cpk, axis=1)
-                
-                # Sắp xếp nhà cung cấp giỏi nhất (Cpk cao nhất) lên đầu
                 comp_table = comp_table.sort_values('Cpk', ascending=False)
-                
-                # Rút gọn tên cột để bảng không bị tràn màn hình
                 comp_table.columns = ['Supplier', 'Cuộn', 'LSL', 'USL', 'Mean', 'Std', 'ΔE TB', 'Cpk']
                 
                 st.dataframe(
                     comp_table.style.format({
-                        'LSL': '{:.0f}',
-                        'USL': '{:.0f}',
-                        'Mean': '{:.1f}',
-                        'Std': '{:.2f}',
-                        'ΔE TB': '{:.2f}',
-                        'Cpk': '{:.2f}'
-                    }).background_gradient(cmap='RdYlGn', subset=['Cpk']), # Cpk cao thì xanh, thấp thì đỏ
-                    use_container_width=True,
-                    hide_index=True
+                        'LSL': '{:.0f}', 'USL': '{:.0f}', 'Mean': '{:.1f}',
+                        'Std': '{:.2f}', 'ΔE TB': '{:.2f}', 'Cpk': '{:.2f}'
+                    }).background_gradient(cmap='RdYlGn', subset=['Cpk']), 
+                    use_container_width=True, hide_index=True
                 )
         else:
-            st.warning("⚠️ Không có đủ dữ liệu (ít nhất 2 cuộn/nhà cung cấp) để thực hiện so sánh.")
+            st.warning("⚠️ Không có đủ dữ liệu (ít nhất 2 cuộn/nhà cung cấp) để thực hiện so sánh cho mã màu này.")
