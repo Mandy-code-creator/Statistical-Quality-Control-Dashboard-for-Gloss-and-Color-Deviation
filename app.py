@@ -523,29 +523,39 @@ elif view_mode == "📋 Summary Data Report":
         use_container_width=True, hide_index=True
     )
 # ==========================================
+# ==========================================
 # VIEW 5: SUPPLIER COMPARISON (SO SÁNH NHÀ CUNG CẤP)
 # ==========================================
 elif view_mode == "🤝 Supplier Comparison":
-    st.info("💡 So sánh độ ổn định chất lượng giữa các nhà cung cấp trên cùng một gốc màu (4 ký tự cuối). Nhà cung cấp có hộp Boxplot ngắn hơn và Std nhỏ hơn là người có độ ổn định cao nhất.")
+    st.info("💡 So sánh độ ổn định chất lượng giữa các nhà cung cấp. Chọn 'Tất cả' ở B2 để đánh giá năng lực tổng thể trên cả một họ màu.")
     
-    # 1. Bộ lọc phân tầng: Nhóm màu -> 4 ký tự cuối
+    # 1. Bộ lọc phân tầng: Nhóm màu -> 4 ký tự cuối (Có thêm 'Tất cả')
     col_f1, col_f2 = st.columns(2)
     with col_f1:
         list_nhom_mau = sorted(dff['Color_Group'].dropna().unique().tolist())
-        sel_nhom_mau = st.selectbox("🎨 B1: Chọn Nhóm màu (Color Group):", list_nhom_mau)
-        
+        if list_nhom_mau:
+            sel_nhom_mau = st.selectbox("🎨 B1: Chọn Nhóm màu (Color Group):", list_nhom_mau)
+        else:
+            st.warning("Không có dữ liệu nhóm màu.")
+            sel_nhom_mau = None
+            
     with col_f2:
-        # Lấy danh sách 4 số cuối dựa trên nhóm màu đã chọn
-        list_ma_4so = sorted(dff[dff['Color_Group'] == sel_nhom_mau]['Color_Code'].dropna().unique().tolist())
-        if list_ma_4so:
+        if sel_nhom_mau:
+            # Lấy danh sách 4 số cuối dựa trên nhóm màu đã chọn và thêm tùy chọn 'Tất cả' lên đầu
+            dff_nhom = dff[dff['Color_Group'] == sel_nhom_mau].copy()
+            list_ma_4so = ['Tất cả'] + sorted(dff_nhom['Color_Code'].dropna().unique().tolist())
             sel_ma_4so = st.selectbox("🔢 B2: Chọn Mã màu (4 ký tự cuối):", list_ma_4so)
         else:
-            st.warning("Không có mã màu nào trong nhóm này.")
             sel_ma_4so = None
             
     if sel_ma_4so:
-        # Lọc dữ liệu theo 4 số cuối
-        dff_comp = dff[dff['Color_Code'] == sel_ma_4so].copy()
+        # Lọc dữ liệu theo lựa chọn ở B2
+        if sel_ma_4so == 'Tất cả':
+            dff_comp = dff_nhom.copy()
+            title_suffix = f"Nhóm màu: {sel_nhom_mau} (Tất cả mã)"
+        else:
+            dff_comp = dff_nhom[dff_nhom['Color_Code'] == sel_ma_4so].copy()
+            title_suffix = f"Mã màu: {sel_ma_4so}"
         
         # Lọc bỏ các dòng thiếu dữ liệu Gloss
         dff_comp = dff_comp.dropna(subset=['Gloss_Lab', 'Supplier'])
@@ -555,19 +565,19 @@ elif view_mode == "🤝 Supplier Comparison":
         valid_suppliers = counts[counts >= 2].index
         dff_comp = dff_comp[dff_comp['Supplier'].isin(valid_suppliers)]
         
-        if len(dff_comp['Supplier'].unique()) >= 1: # Có ít nhất 1 (hoặc lý tưởng là 2) nhà cung cấp để xem
+        if len(dff_comp['Supplier'].unique()) >= 1:
             st.markdown("---")
             
             c1, c2 = st.columns([2, 1.5])
             with c1:
-                st.subheader(f"📊 Độ phân tán Gloss theo Nhà cung cấp (Mã: {sel_ma_4so})")
+                st.subheader(f"📊 Độ phân tán Gloss theo Nhà cung cấp ({title_suffix})")
                 fig_comp1, ax_comp1 = plt.subplots(figsize=(10, 5))
                 
-                # Biểu đồ Boxplot kết hợp Swarmplot để thấy cả hộp và từng điểm dữ liệu
+                # Biểu đồ Boxplot kết hợp Swarmplot
                 sns.boxplot(data=dff_comp, x='Supplier', y='Gloss_Lab', palette='Set2', ax=ax_comp1, showfliers=False)
                 sns.stripplot(data=dff_comp, x='Supplier', y='Gloss_Lab', color='black', alpha=0.5, jitter=True, ax=ax_comp1)
                 
-                # Thêm đường trung bình chung của mã màu
+                # Thêm đường trung bình chung
                 tong_mean = dff_comp['Gloss_Lab'].mean()
                 ax_comp1.axhline(tong_mean, color='gray', ls='--', label=f'Avg Tổng ({tong_mean:.1f})')
                 
@@ -600,9 +610,9 @@ elif view_mode == "🤝 Supplier Comparison":
                         'Min_Gloss': '{:.1f}',
                         'Max_Gloss': '{:.1f}',
                         'Avg_dE': '{:.2f}'
-                    }).background_gradient(cmap='RdYlGn_r', subset=['Std_Gloss']), # Highlight Std, xanh là tốt, đỏ là dao động cao
+                    }).background_gradient(cmap='RdYlGn_r', subset=['Std_Gloss']), 
                     use_container_width=True,
                     hide_index=True
                 )
         else:
-            st.warning("⚠️ Không có đủ dữ liệu (ít nhất 2 cuộn/nhà cung cấp) để thực hiện so sánh cho mã màu này.")
+            st.warning("⚠️ Không có đủ dữ liệu (ít nhất 2 cuộn/nhà cung cấp) để thực hiện so sánh.")
