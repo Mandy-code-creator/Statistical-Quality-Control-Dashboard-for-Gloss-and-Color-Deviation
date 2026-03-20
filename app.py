@@ -216,10 +216,11 @@ if view_mode == "🚀 Executive Overview":
             st.success("🎉 Excellent! No paint codes (with ≥ 5 batches) are currently triggering warnings.")   
 
 # ==========================================
+# ==========================================
 # VIEW 2: GLOSS ANALYSIS (SPC)
 # ==========================================
 elif view_mode == "✨ Gloss Analysis (SPC)":
-    st.info("💡 SPC Analysis: Evaluate process stability by Batch (with production dates) and overall process capability.")
+    st.info("💡 SPC Analysis: Monitor the variation (Gap) between Lab validation and actual Line production. Automatically detects out-of-control statistical points.")
     
     list_ma_son_tab2 = sorted(dff['Ma_Son'].dropna().unique().tolist())
     
@@ -227,16 +228,19 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
         sel_ma_son_tab2 = st.selectbox("🎯 Select Full Paint Code:", list_ma_son_tab2)
         dff_g = dff[dff['Ma_Son'] == sel_ma_son_tab2].copy()
         
-        dff_g = dff_g.dropna(subset=['Gloss_LSL', 'Gloss_USL'])
-        dff_g = dff_g[(dff_g['Gloss_LSL'] > 0) & (dff_g['Gloss_USL'] > 0)]
-        dff_g = dff_g.dropna(subset=['Online_Gloss_Top'])
-        dff_g = dff_g[dff_g['Online_Gloss_Top'] > 0]
+        # Bắt buộc phải có cả Lab và Line để tính Gap
+        dff_g = dff_g.dropna(subset=['Gloss_Lab', 'Online_Gloss_Top', 'Gloss_LSL', 'Gloss_USL'])
+        dff_g = dff_g[(dff_g['Gloss_LSL'] > 0) & (dff_g['Gloss_USL'] > 0) & (dff_g['Online_Gloss_Top'] > 0)]
+        dff_g = dff_g.sort_values(by=['Ngay_SX', 'Batch_Lot']) # Sắp xếp theo trình tự thời gian
         
-        if len(dff_g) > 1:
-            lsl_val = dff_g['Gloss_LSL'].iloc[0]
-            usl_val = dff_g['Gloss_USL'].iloc[0]
-            mean_lab, std_lab = dff_g['Gloss_Lab'].mean(), dff_g['Gloss_Lab'].std()
-            mean_line, std_line = dff_g['Online_Gloss_Top'].mean(), dff_g['Online_Gloss_Top'].std()
+        if len(dff_g) > 2: # Cần ít nhất 3 điểm để tính toán Std và vẽ SPC
+            # Tính toán các thông số SPC cho Gap (Line - Lab)
+            dff_g['Gap_Gloss'] = dff_g['Online_Gloss_Top'] - dff_g['Gloss_Lab']
+            
+            mean_gap = dff_g['Gap_Gloss'].mean()
+            std_gap = dff_g['Gap_Gloss'].std()
+            ucl_gap = mean_gap + (3 * std_gap) # Upper Control Limit (+3 Sigma)
+            lcl_gap = mean_gap - (3 * std_gap) # Lower Control Limit (-3 Sigma)
 
             min_date = dff_g['Ngay_SX'].min()
             max_date = dff_g['Ngay_SX'].max()
@@ -245,80 +249,99 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
             
             st.success(f"📅 **Timeframe:** `{min_date}` to `{max_date}` | **Volume:** `{so_lo}` Batches (`{so_cuon}` Coils).")
 
+            # --- 🚀 BIỂU ĐỒ KIỂM SOÁT SPC CHO ĐỘ LỆCH (GAP CONTROL CHART) ---
             st.markdown("---")
-            st.subheader(f"📈 Trend Line (Avg by Batch) - {sel_ma_son_tab2}")
+            st.subheader(f"📈 Lab vs Line Gap Control Chart (I-Chart) - {sel_ma_son_tab2}")
+            st.caption("Monitors the difference between Line Gloss and Lab Gloss. Points falling outside the red dashed lines (±3σ) are statistically **Out of Control**.")
             
-            dff_batch = dff_g.groupby('Batch_Lot', as_index=False).agg({
-                'Ngay_SX': 'min', 
-                'Gloss_Lab': 'mean',
-                'Online_Gloss_Top': 'mean'
-            }).sort_values('Ngay_SX')
+            fig_spc, ax_spc = plt.subplots(figsize=(14, 5))
             
-            dff_batch['Label_X'] = dff_batch['Batch_Lot'].astype(str) + "\n(" + pd.to_datetime(dff_batch['Ngay_SX']).dt.strftime('%d/%m') + ")"
+            # Tạo trục X theo sequence để vẽ I-Chart chuẩn
+            x_seq = np.arange(len(dff_g))
             
-            fig_trend, ax_trend = plt.subplots(figsize=(14, 5)) 
+            # Vẽ đường Gap của từng cuộn
+            ax_spc.plot(x_seq, dff_g['Gap_Gloss'], color='#34495e', lw=1.5, alpha=0.6, zorder=1)
+            ax_spc.scatter(x_seq, dff_g['Gap_Gloss'], color='#2980b9', s=30, zorder=2, label='Coil Gap')
             
-            ax_trend.plot(dff_batch['Label_X'], dff_batch['Gloss_Lab'], marker='o', color='#2980b9', lw=2, label='Avg Lab Gloss')
-            ax_trend.plot(dff_batch['Label_X'], dff_batch['Online_Gloss_Top'], marker='s', color='#d35400', lw=2, alpha=0.7, label='Avg Line Gloss')
+            # Highlight các điểm Out of Control (Vượt giới hạn)
+            outliers = dff_g[(dff_g['Gap_Gloss'] > ucl_gap) | (dff_g['Gap_Gloss'] < lcl_gap)]
+            outlier_indices = np.where((dff_g['Gap_Gloss'] > ucl_gap) | (dff_g['Gap_Gloss'] < lcl_gap))[0]
+            if len(outliers) > 0:
+                ax_spc.scatter(outlier_indices, outliers['Gap_Gloss'], color='red', s=80, edgecolors='black', zorder=3, label=f'Out of Control ({len(outliers)})')
             
-            ax_trend.axhline(lsl_val, color='red', ls='--', lw=2, label=f'LSL ({lsl_val:.1f})')
-            ax_trend.axhline(usl_val, color='red', ls='--', lw=2, label=f'USL ({usl_val:.1f})')
-            ax_trend.axhline(mean_lab, color='#3498db', ls=':', lw=1.5, label=f'Total Mean ({mean_lab:.1f})')
+            # Vẽ các đường kiểm soát (Control Limits)
+            ax_spc.axhline(mean_gap, color='green', ls='-', lw=2, label=f'Center Line / Mean ({mean_gap:.1f})')
+            ax_spc.axhline(ucl_gap, color='red', ls='--', lw=2, label=f'UCL (+3σ): {ucl_gap:.1f}')
+            ax_spc.axhline(lcl_gap, color='red', ls='--', lw=2, label=f'LCL (-3σ): {lcl_gap:.1f}')
+            ax_spc.axhline(0, color='gray', ls=':', lw=1, alpha=0.5) # Đường Base 0 (Lab = Line)
             
-            ax_trend.set_xlabel("Batch Lot & Date")
-            ax_trend.set_ylabel("Average Gloss")
+            ax_spc.set_xlabel("Production Sequence (Coils)")
+            ax_spc.set_ylabel("Gloss Gap (Line - Lab)")
             
-            plt.xticks(rotation=45, ha='right')
-            
-            locs, labels = plt.xticks()
-            if len(locs) > 40:
-                for i, label in enumerate(labels):
-                    if i % 3 != 0: label.set_visible(False)
+            # Tối ưu nhãn trục X (Hiển thị Mã Lô)
+            step = max(1, len(dff_g) // 15) # Chỉ hiện tối đa 15 nhãn để tránh rối
+            ax_spc.set_xticks(x_seq[::step])
+            ax_spc.set_xticklabels(dff_g['Batch_Lot'].iloc[::step], rotation=45, ha='right')
             
             plt.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
-            st.pyplot(fig_trend)
+            st.pyplot(fig_spc)
             
-            st.markdown("---")
+            if len(outliers) > 0:
+                st.error(f"🚨 **Warning:** Detected {len(outliers)} coils with abnormal Lab-Line deviation exceeding statistical control limits (±3σ).")
+                st.dataframe(
+                    outliers[['Ngay_SX', 'Batch_Lot', 'Gloss_Lab', 'Online_Gloss_Top', 'Gap_Gloss']].style.format({
+                        'Gloss_Lab': '{:.1f}', 'Online_Gloss_Top': '{:.1f}', 'Gap_Gloss': '{:+.1f}'
+                    }).background_gradient(cmap='Reds', subset=['Gap_Gloss']),
+                    use_container_width=True, hide_index=True
+                )
+            else:
+                st.success("✅ **Process Stable:** All coils are well within statistical control limits for Lab-Line variation.")
 
-            c1, c2 = st.columns([2, 1])
+            # --- PHẦN 2: PHÂN PHỐI ĐỘ LỆCH VÀ SO SÁNH TUYỆT ĐỐI ---
+            st.markdown("---")
+            c1, c2 = st.columns([1.5, 2])
+            
             with c1:
-                st.subheader("Gloss Distribution (Histogram: Per Coil)")
-                fig_g1, ax_g1 = plt.subplots(figsize=(10, 5))
+                st.subheader("Gap Distribution (Histogram)")
+                st.caption("Ideal gap should be normally distributed around 0.")
+                fig_g1, ax_g1 = plt.subplots(figsize=(6, 4.5))
                 
-                sns.histplot(dff_g['Gloss_Lab'], stat="density", bins=8, color='#3498db', alpha=0.5, label='Lab Gloss', ax=ax_g1)
-                sns.histplot(dff_g['Online_Gloss_Top'], stat="density", bins=8, color='#e67e22', alpha=0.5, label='Line Gloss', ax=ax_g1)
+                sns.histplot(dff_g['Gap_Gloss'], stat="density", bins=10, color='#9b59b6', alpha=0.6, ax=ax_g1)
                 
                 xmin, xmax = ax_g1.get_xlim()
                 x_axis = np.linspace(xmin, xmax, 100)
+                ax_g1.plot(x_axis, stats.norm.pdf(x_axis, mean_gap, std_gap), color='#8e44ad', lw=2.5)
                 
-                if pd.notna(std_lab) and std_lab > 0:
-                    ax_g1.plot(x_axis, stats.norm.pdf(x_axis, mean_lab, std_lab), color='#2980b9', lw=2.5, label=f'Normal Lab (σ={std_lab:.1f})')
-                if pd.notna(std_line) and std_line > 0:
-                    ax_g1.plot(x_axis, stats.norm.pdf(x_axis, mean_line, std_line), color='#d35400', lw=2.5, label=f'Normal Line (σ={std_line:.1f})')
+                ax_g1.axvline(0, color='black', ls='--', linewidth=1.5, label='Perfect Match (0)')
+                ax_g1.axvline(mean_gap, color='green', ls='-', linewidth=2, label=f'Mean Gap ({mean_gap:.1f})')
                 
-                ax_g1.axvline(lsl_val, color='red', ls='--', linewidth=2, label=f'LSL ({lsl_val:.1f})')
-                ax_g1.axvline(usl_val, color='red', ls='--', linewidth=2, label=f'USL ({usl_val:.1f})')
-                
-                ax_g1.set_xlabel("Gloss (Per Coil)")
+                ax_g1.set_xlabel("Gloss Gap (Line - Lab)")
                 ax_g1.set_ylabel("Density")
-                plt.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
+                plt.legend()
                 st.pyplot(fig_g1)
                 
             with c2:
-                st.subheader("Dispersion (Boxplot)")
-                fig_g2, ax_g2 = plt.subplots(figsize=(5, 5))
+                st.subheader("Lab vs Line Absolute Comparison")
+                st.caption("Visualizing the spread of actual Gloss measurements against Spec Limits.")
+                fig_g2, ax_g2 = plt.subplots(figsize=(8, 4.5))
                 
-                df_melt = dff_g.melt(value_vars=['Gloss_Lab', 'Online_Gloss_Top'], var_name='Measurement Source', value_name='Gloss')
-                sns.boxplot(data=df_melt, x='Measurement Source', y='Gloss', palette=['#3498db', '#e67e22'], ax=ax_g2)
+                df_melt = dff_g.melt(value_vars=['Gloss_Lab', 'Online_Gloss_Top'], var_name='Measurement', value_name='Gloss')
+                sns.boxplot(data=df_melt, x='Measurement', y='Gloss', palette=['#3498db', '#e67e22'], width=0.4, showfliers=False, ax=ax_g2)
+                sns.stripplot(data=df_melt, x='Measurement', y='Gloss', color='black', alpha=0.4, size=4, jitter=True, ax=ax_g2)
                 
-                ax_g2.axhline(lsl_val, color='red', ls='--', alpha=0.5)
-                ax_g2.axhline(usl_val, color='red', ls='--', alpha=0.5)
+                lsl_val = dff_g['Gloss_LSL'].iloc[0]
+                usl_val = dff_g['Gloss_USL'].iloc[0]
+                ax_g2.axhline(lsl_val, color='red', ls='--', lw=2, label=f'LSL ({lsl_val:.0f})')
+                ax_g2.axhline(usl_val, color='red', ls='--', lw=2, label=f'USL ({usl_val:.0f})')
+                
                 ax_g2.set_xticklabels(['Lab Gloss', 'Line Gloss'])
                 ax_g2.set_xlabel("")
-                ax_g2.set_ylabel("Gloss (Per Coil)")
+                ax_g2.set_ylabel("Gloss (GU)")
+                plt.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
                 st.pyplot(fig_g2)
+                
         else:
-            st.warning("⚠️ Insufficient data for this paint code (needs at least 2 valid coils) for SPC analysis.")
+            st.warning("⚠️ Insufficient data (needs at least 3 valid coils with both Lab and Line data) to compute SPC Control Limits.")
 
 # ==========================================
 # VIEW 3: COLOR DEVIATION (Phân tích Màu sắc Chuyên sâu)
