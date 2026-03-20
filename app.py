@@ -251,10 +251,10 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
             
             st.success(f"📅 **Timeframe:** `{min_date}` to `{max_date}` | **Volume:** `{so_lo}` Batches (`{so_cuon}` Coils).")
 
-            # --- 🚀 TREND LINE (LAB VS LINE PER BATCH) ---
+# --- 🚀 TREND LINE (LAB VS LINE PER BATCH) ---
             st.markdown("---")
             st.subheader(f"📈 Gloss Trend Line (Lab vs Line by Batch) - {sel_ma_son_tab2}")
-            st.caption("Tracks the Lab Gloss and average Line Gloss for each production batch. The green shaded area represents the acceptable specification range (LSL to USL).")
+            st.caption("Tracks the Lab Gloss and average Line Gloss for each production batch against the specification limits (LSL to USL).")
             
             # 🛡️ CHỐT CHẶN AN TOÀN: Tự động tạo cột 'Line' nếu file gốc chưa có
             if 'Line' not in dff_g.columns:
@@ -266,8 +266,8 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
                 'Line': 'first',
                 'Gloss_LSL': 'first',
                 'Gloss_USL': 'first',
-                'Gloss_Lab': 'first', # Lab đo 1 lần -> lấy giá trị đầu tiên
-                'Online_Gloss_Top': 'mean' # Line đo nhiều -> tính trung bình
+                'Gloss_Lab': 'first', 
+                'Online_Gloss_Top': 'mean' 
             }).sort_values('Ngay_SX')
             
             # Tạo nhãn trục X: Tên lô + Ngày/Tháng
@@ -279,10 +279,9 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
             ax_trend.plot(dff_batch['Label_X'], dff_batch['Gloss_Lab'], marker='o', color='#3498db', lw=2, label='Lab Gloss')
             ax_trend.plot(dff_batch['Label_X'], dff_batch['Online_Gloss_Top'], marker='s', color='#e67e22', lw=2, label='Avg Line Gloss')
             
-            # Vẽ Giới hạn tiêu chuẩn LSL/USL và Vùng an toàn
+            # Vẽ Giới hạn tiêu chuẩn LSL/USL (ĐÃ BỎ TARGET ZONE XANH LÁ)
             ax_trend.axhline(lsl_val, color='red', ls='--', lw=2, label=f'LSL ({lsl_val:.1f})')
             ax_trend.axhline(usl_val, color='red', ls='--', lw=2, label=f'USL ({usl_val:.1f})')
-            ax_trend.fill_between(dff_batch['Label_X'], lsl_val, usl_val, color='green', alpha=0.05, label='Target Zone')
             
             ax_trend.set_xlabel("Batch Lot & Date")
             ax_trend.set_ylabel("Gloss (GU)")
@@ -294,9 +293,9 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
                 for i, label in enumerate(labels):
                     if i % int(len(locs)/20) != 0: label.set_visible(False)
             
+            # Đưa chú giải ra ngoài biểu đồ cho gọn gàng giống với ảnh của bạn
             plt.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
             st.pyplot(fig_trend)
-            
             # --- BẢNG DỮ LIỆU CHI TIẾT TỪNG LÔ ---
             st.markdown("---")
             st.write("### 🔍 Batch Details")
