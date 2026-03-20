@@ -122,10 +122,15 @@ st.title(view_mode)
 st.markdown("---")
 
 # ==========================================
+# ==========================================
 # VIEW 1: OVERVIEW (EXECUTIVE SUMMARY)
 # ==========================================
 if view_mode == "🚀 Executive Overview":
     st.info("💡 Factory-wide performance overview. To analyze Gloss for specific color codes, navigate to the 'Gloss Analysis (SPC)' tab.")
+    
+    # 🛡️ LỌC DỮ LIỆU RÁC CHO CHỈ SỐ GAP (Loại bỏ NA và giá trị <= 0)
+    dff_valid_gap = dff.dropna(subset=['Online_Gloss_Top', 'Gloss_Lab'])
+    dff_valid_gap = dff_valid_gap[(dff_valid_gap['Online_Gloss_Top'] > 0) & (dff_valid_gap['Gloss_Lab'] > 0)]
     
     k1, k2, k3, k4 = st.columns(4)
     total_coils = len(dff)
@@ -137,7 +142,7 @@ if view_mode == "🚀 Executive Overview":
     ng_count = (dff['Final_Status'] == '❌ FAIL/NG').sum()
     k3.metric("🚨 Total NG Coils", f"{ng_count} coils", delta_color="inverse")
     
-    avg_gap = dff['Gap_Gloss'].mean() if total_coils > 0 else 0
+    avg_gap = dff_valid_gap['Gap_Gloss'].mean() if not dff_valid_gap.empty else 0
     k4.metric("⚖️ Lab vs Line Gap (Avg)", f"{avg_gap:.1f} GU")
 
     st.markdown("---")
@@ -175,8 +180,12 @@ if view_mode == "🚀 Executive Overview":
     st.subheader("🎯 Smart Focus: Priority Paint Codes (Run ≥ 5 Batches)")
     st.caption("The system automatically scans paint codes with sufficient statistical data, detecting color drift or gloss values approaching control limits for proactive QC.")
 
-    if not dff.empty:
-        focus_df = dff.groupby(['Ma_Son', 'Supplier']).agg(
+    # 🛡️ LỌC DỮ LIỆU RÁC CHO BẢNG SMART FOCUS (Bảo vệ tuyệt đối)
+    dff_focus = dff.dropna(subset=['Gloss_LSL', 'Gloss_USL', 'Gloss_Lab', 'Online_Gloss_Top'])
+    dff_focus = dff_focus[(dff_focus['Gloss_LSL'] > 0) & (dff_focus['Gloss_USL'] > 0) & (dff_focus['Gloss_Lab'] > 0) & (dff_focus['Online_Gloss_Top'] > 0)]
+
+    if not dff_focus.empty:
+        focus_df = dff_focus.groupby(['Ma_Son', 'Supplier']).agg(
             So_Lo=('Batch_Lot', 'nunique'),
             So_Cuon=('Batch_Lot', 'count'),
             Gloss_TB=('Gloss_Lab', 'mean'),
@@ -187,6 +196,7 @@ if view_mode == "🚀 Executive Overview":
             Yield=('Final_Status', lambda x: (x == '✅ PASS').mean() * 100)
         ).reset_index()
 
+        # Chỉ đưa vào trạm theo dõi nếu hãng đã chạy trên 5 lô
         focus_df = focus_df[focus_df['So_Lo'] >= 5]
 
         if not focus_df.empty:
@@ -217,8 +227,8 @@ if view_mode == "🚀 Executive Overview":
             st.info("💡 **Actionable Insight:** Copy a `Paint Code` marked as 🔴 or 🟠, then switch to the **Gloss Analysis (SPC)** or **Color & ΔE Analysis** tab to investigate histograms and trend lines to identify the root cause batch!")
         else:
             st.success("🎉 Excellent! No paint codes (with ≥ 5 batches) are currently triggering warnings.")   
-
-# ==========================================
+    else:
+        st.success("No valid data available for Smart Focus analysis.")
 # ==========================================
 # ==========================================
 # VIEW 2: GLOSS ANALYSIS (SPC)
