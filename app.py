@@ -303,7 +303,7 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
                 }).background_gradient(cmap='RdYlGn_r', subset=['Gap (Line - Lab)']), 
                 use_container_width=True, hide_index=True
             )
-            
+           
             # --- PHÂN PHỐI DỮ LIỆU ---
             st.markdown("---")
             c1, c2 = st.columns([1.5, 2])
@@ -311,13 +311,23 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
                 st.subheader("Gloss Distribution (Histogram & Normal Curve)")
                 fig_g1, ax_g1 = plt.subplots(figsize=(6, 4))
                 
-                # 1. Vẽ Histogram với tỷ lệ Density (thay vì Count) để khớp trục với Normal Curve
-                sns.histplot(dff_g['Gloss_Lab'], stat="density", bins=10, color='#3498db', alpha=0.5, label='Lab Gloss (Bins)', ax=ax_g1)
-                sns.histplot(dff_g['Online_Gloss_Top'], stat="density", bins=10, color='#e67e22', alpha=0.5, label='Line Gloss (Bins)', ax=ax_g1)
+                # 1. ÉP KÍCH THƯỚC CỘT (BINS) BẰNG NHAU:
+                min_val = min(dff_g['Gloss_Lab'].min(), dff_g['Online_Gloss_Top'].min())
+                max_val = max(dff_g['Gloss_Lab'].max(), dff_g['Online_Gloss_Top'].max())
+                if min_val == max_val: 
+                    min_val -= 1
+                    max_val += 1
+                    
+                # Chia làm 12 cột đều nhau từ Min đến Max
+                bins_arr = np.linspace(min_val, max_val, 12) 
                 
-                # 2. Vẽ đường Normal Curve chuẩn toán học
-                xmin, xmax = ax_g1.get_xlim()
-                x_axis = np.linspace(xmin, xmax, 100)
+                sns.histplot(dff_g['Gloss_Lab'], stat="density", bins=bins_arr, color='#3498db', alpha=0.5, label='Lab Gloss (Bins)', ax=ax_g1)
+                sns.histplot(dff_g['Online_Gloss_Top'], stat="density", bins=bins_arr, color='#e67e22', alpha=0.5, label='Line Gloss (Bins)', ax=ax_g1)
+                
+                # 2. MỞ RỘNG TRỤC X ĐỂ ĐƯỜNG CONG (CURVE) UỐN ĐẸP:
+                plot_min = min(lsl_val, min_val) - 2
+                plot_max = max(usl_val, max_val) + 2
+                x_axis = np.linspace(plot_min, plot_max, 200)
                 
                 if pd.notna(std_lab) and std_lab > 0:
                     ax_g1.plot(x_axis, stats.norm.pdf(x_axis, mean_lab, std_lab), color='#2980b9', lw=2.5, label='Lab Normal Curve')
@@ -326,10 +336,13 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
 
                 ax_g1.axvline(lsl_val, color='red', ls='--', lw=1.5)
                 ax_g1.axvline(usl_val, color='red', ls='--', lw=1.5)
+                
+                # Cố định khung nhìn trục X để không bị lệch
+                ax_g1.set_xlim(plot_min, plot_max)
+                
                 ax_g1.set_xlabel("Gloss (GU)")
                 ax_g1.set_ylabel("Density")
                 
-                # Gom Legend lại cho gọn
                 handles, labels = ax_g1.get_legend_handles_labels()
                 ax_g1.legend(handles, labels, fontsize=8)
                 st.pyplot(fig_g1)
@@ -346,9 +359,6 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
                 ax_g2.set_xlabel("")
                 ax_g2.set_ylabel("Gloss (GU)")
                 st.pyplot(fig_g2)
-                
-        else:
-            st.warning("⚠️ Insufficient data for this paint code (needs at least 2 valid coils) for SPC analysis.")
 # ==========================================
 # VIEW 3: COLOR DEVIATION (Phân tích Màu sắc Chuyên sâu)
 # ==========================================
