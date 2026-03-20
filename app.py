@@ -18,8 +18,8 @@ def load_and_prep_data():
         
         # BỘ TỪ ĐIỂN DỊCH TÊN CỘT TỪ TIẾNG TRUNG SANG BIẾN HỆ THỐNG
         col_map = {
-            '線別': 'Line', # <--- CHÍNH LÀ TỪ KHÓA NÀY ĐÂY!
-            '產線': 'Line', '生產線': 'Line', '機台': 'Line', 
+            '訂單號碼': 'Order_No',  # <--- CHÍNH XÁC LÀ TỪ NÀY!
+            '線別': 'Line', '產線': 'Line', '生產線': 'Line', '機台': 'Line', 
             '生產日期': 'Ngay_SX', '製造批號': 'Batch_Lot', '塗料編號': 'Ma_Son',
             '光澤': 'Gloss_Lab',
             'NORTH_TOP_BLANCH': 'G_Top_N', 'SOUTH_TOP_BLANCH': 'G_Top_S',
