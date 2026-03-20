@@ -253,9 +253,11 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
             st.subheader(f"📈 Gloss Trend Line (Lab vs Line by Batch) - {sel_ma_son_tab2}")
             st.caption("Tracks the average Lab and Line Gloss for each production batch. The green shaded area represents the acceptable specification range (LSL to USL).")
             
-            # Tính trung bình Lab và Line cho từng Lô
+            # Tính trung bình Lab và Line cho từng Lô (CẬP NHẬT: Lấy thêm LSL và USL)
             dff_batch = dff_g.groupby('Batch_Lot', as_index=False).agg({
                 'Ngay_SX': 'min',
+                'Gloss_LSL': 'first',
+                'Gloss_USL': 'first',
                 'Gloss_Lab': 'mean',
                 'Online_Gloss_Top': 'mean'
             }).sort_values('Ngay_SX')
@@ -293,26 +295,26 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
             st.markdown("---")
             st.write("### 🔍 Batch Details")
             
-            batch_table = dff_batch[['Batch_Lot', 'Ngay_SX', 'Gloss_Lab', 'Online_Gloss_Top']].copy()
+            # CẬP NHẬT: Thêm LSL và USL vào bảng
+            batch_table = dff_batch[['Batch_Lot', 'Ngay_SX', 'Gloss_LSL', 'Gloss_USL', 'Gloss_Lab', 'Online_Gloss_Top']].copy()
             batch_table['Gap (Line - Lab)'] = batch_table['Online_Gloss_Top'] - batch_table['Gloss_Lab']
-            batch_table.columns = ['Batch Lot', 'Production Date', 'Avg Lab Gloss', 'Avg Line Gloss', 'Gap (Line - Lab)']
+            batch_table.columns = ['Batch Lot', 'Production Date', 'LSL', 'USL', 'Avg Lab Gloss', 'Avg Line Gloss', 'Gap (Line - Lab)']
             
             st.dataframe(
                 batch_table.style.format({
+                    'LSL': '{:.0f}', 'USL': '{:.0f}', 
                     'Avg Lab Gloss': '{:.1f}', 'Avg Line Gloss': '{:.1f}', 'Gap (Line - Lab)': '{:+.1f}'
                 }).background_gradient(cmap='RdYlGn_r', subset=['Gap (Line - Lab)']), 
                 use_container_width=True, hide_index=True
             )
-           
-# --- PHÂN PHỐI DỮ LIỆU ---
+            
+            # --- PHÂN PHỐI DỮ LIỆU ---
             st.markdown("---")
             c1, c2 = st.columns([1.5, 2])
             with c1:
                 st.subheader("Gloss Distribution (Histogram & Normal Curve)")
-                # Tăng nhẹ chiều cao biểu đồ để có chỗ trống chứa Legend bên dưới
                 fig_g1, ax_g1 = plt.subplots(figsize=(6, 5.5)) 
                 
-                # 1. ÉP KÍCH THƯỚC CỘT (BINS) BẰNG NHAU:
                 min_val = min(dff_g['Gloss_Lab'].min(), dff_g['Online_Gloss_Top'].min())
                 max_val = max(dff_g['Gloss_Lab'].max(), dff_g['Online_Gloss_Top'].max())
                 if min_val == max_val: 
@@ -324,12 +326,10 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
                 sns.histplot(dff_g['Gloss_Lab'], stat="density", bins=bins_arr, color='#3498db', alpha=0.4, label='Lab Bins', ax=ax_g1)
                 sns.histplot(dff_g['Online_Gloss_Top'], stat="density", bins=bins_arr, color='#e67e22', alpha=0.4, label='Line Bins', ax=ax_g1)
                 
-                # 2. MỞ RỘNG TRỤC X ĐỂ ĐƯỜNG CONG (CURVE) UỐN ĐẸP:
                 plot_min = min(lsl_val, min_val) - 2
                 plot_max = max(usl_val, max_val) + 2
                 x_axis = np.linspace(plot_min, plot_max, 200)
                 
-                # THÊM THÔNG SỐ MEAN (μ) VÀ STD (σ) VÀO NHÃN LEGEND
                 if pd.notna(std_lab) and std_lab > 0:
                     ax_g1.plot(x_axis, stats.norm.pdf(x_axis, mean_lab, std_lab), color='#2980b9', lw=2.5, 
                                label=f'Lab Curve (μ={mean_lab:.1f}, σ={std_lab:.2f})')
@@ -344,16 +344,15 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
                 ax_g1.set_xlabel("Gloss (GU)")
                 ax_g1.set_ylabel("Density")
                 
-                # 3. ĐƯA LEGEND RA NGOÀI BIỂU ĐỒ (Xuống phía dưới)
                 handles, labels = ax_g1.get_legend_handles_labels()
                 ax_g1.legend(handles, labels, bbox_to_anchor=(0.5, -0.15), loc='upper center', ncol=2, fontsize=9, frameon=True)
                 
-                plt.tight_layout() # Lệnh này giúp Legend không bị cắt mất viền khi hiển thị trên Streamlit
+                plt.tight_layout() 
                 st.pyplot(fig_g1)
                 
             with c2:
                 st.subheader("Data Dispersion (Boxplot)")
-                fig_g2, ax_g2 = plt.subplots(figsize=(8, 5.5)) # Cân bằng chiều cao với biểu đồ bên trái
+                fig_g2, ax_g2 = plt.subplots(figsize=(8, 5.5)) 
                 df_melt = dff_g.melt(value_vars=['Gloss_Lab', 'Online_Gloss_Top'], var_name='Measurement', value_name='Gloss')
                 sns.boxplot(data=df_melt, x='Measurement', y='Gloss', palette=['#3498db', '#e67e22'], width=0.4, showfliers=False, ax=ax_g2)
                 sns.stripplot(data=df_melt, x='Measurement', y='Gloss', color='black', alpha=0.4, size=4, jitter=True, ax=ax_g2)
@@ -363,6 +362,9 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
                 ax_g2.set_xlabel("")
                 ax_g2.set_ylabel("Gloss (GU)")
                 st.pyplot(fig_g2)
+                
+        else:
+            st.warning("⚠️ Insufficient data for this paint code (needs at least 2 valid coils) for SPC analysis.")
 # ==========================================
 # VIEW 3: COLOR DEVIATION (Phân tích Màu sắc Chuyên sâu)
 # ==========================================
