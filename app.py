@@ -248,29 +248,35 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
             
             st.success(f"📅 **Timeframe:** `{min_date}` to `{max_date}` | **Volume:** `{so_lo}` Batches (`{so_cuon}` Coils).")
 
-           # --- 🚀 TREND LINE (LAB VS LINE PER BATCH) ---
+            # --- 🚀 TREND LINE (LAB VS LINE PER BATCH) ---
             st.markdown("---")
             st.subheader(f"📈 Gloss Trend Line (Lab vs Line by Batch) - {sel_ma_son_tab2}")
             st.caption("Tracks the Lab Gloss and average Line Gloss for each production batch. The green shaded area represents the acceptable specification range (LSL to USL).")
             
-            # CẬP NHẬT: Lab lấy 'first' (vì chỉ test 1 lần), Line lấy 'mean' (vì đo nhiều lần trên chuyền)
+            # 🛡️ CHỐT CHẶN AN TOÀN: Tự động tạo cột 'Line' nếu file gốc chưa có
+            if 'Line' not in dff_g.columns:
+                dff_g['Line'] = 'Unknown Line'
+                
+            # Tính dữ liệu gộp theo Lô
             dff_batch = dff_g.groupby('Batch_Lot', as_index=False).agg({
                 'Ngay_SX': 'min',
-                'Line': 'first', 
+                'Line': 'first',
                 'Gloss_LSL': 'first',
                 'Gloss_USL': 'first',
-                'Gloss_Lab': 'first', # <--- Lấy giá trị tuyệt đối duy nhất của Lab
-                'Online_Gloss_Top': 'mean' # Line vẫn tính trung bình
+                'Gloss_Lab': 'first', # Lab đo 1 lần -> lấy giá trị đầu tiên
+                'Online_Gloss_Top': 'mean' # Line đo nhiều -> tính trung bình
             }).sort_values('Ngay_SX')
             
+            # Tạo nhãn trục X: Tên lô + Ngày/Tháng
             dff_batch['Label_X'] = dff_batch['Batch_Lot'].astype(str) + "\n(" + pd.to_datetime(dff_batch['Ngay_SX']).dt.strftime('%m/%d') + ")"
             
             fig_trend, ax_trend = plt.subplots(figsize=(14, 5))
             
-            # CẬP NHẬT: Đổi tên nhãn 'Avg Lab Gloss' thành 'Lab Gloss'
+            # Vẽ đường xu hướng Lab và Line
             ax_trend.plot(dff_batch['Label_X'], dff_batch['Gloss_Lab'], marker='o', color='#3498db', lw=2, label='Lab Gloss')
             ax_trend.plot(dff_batch['Label_X'], dff_batch['Online_Gloss_Top'], marker='s', color='#e67e22', lw=2, label='Avg Line Gloss')
             
+            # Vẽ Giới hạn tiêu chuẩn LSL/USL và Vùng an toàn
             ax_trend.axhline(lsl_val, color='red', ls='--', lw=2, label=f'LSL ({lsl_val:.1f})')
             ax_trend.axhline(usl_val, color='red', ls='--', lw=2, label=f'USL ({usl_val:.1f})')
             ax_trend.fill_between(dff_batch['Label_X'], lsl_val, usl_val, color='green', alpha=0.05, label='Target Zone')
@@ -278,6 +284,7 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
             ax_trend.set_xlabel("Batch Lot & Date")
             ax_trend.set_ylabel("Gloss (GU)")
             
+            # Tự động ẩn bớt nhãn trục X nếu có quá nhiều Lô
             plt.xticks(rotation=45, ha='right')
             locs, labels = plt.xticks()
             if len(locs) > 30:
@@ -294,7 +301,6 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
             batch_table = dff_batch[['Batch_Lot', 'Line', 'Ngay_SX', 'Gloss_LSL', 'Gloss_USL', 'Gloss_Lab', 'Online_Gloss_Top']].copy()
             batch_table['Gap (Line - Lab)'] = batch_table['Online_Gloss_Top'] - batch_table['Gloss_Lab']
             
-            # CẬP NHẬT TÊN CỘT: Xóa chữ 'Avg' ở cột Lab
             batch_table.columns = ['Batch Lot', 'Production Line', 'Production Date', 'LSL', 'USL', 'Lab Gloss', 'Avg Line Gloss', 'Gap (Line - Lab)']
             
             st.dataframe(
@@ -304,6 +310,7 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
                 }).background_gradient(cmap='RdYlGn_r', subset=['Gap (Line - Lab)']), 
                 use_container_width=True, hide_index=True
             )
+            
             # --- PHÂN PHỐI DỮ LIỆU ---
             st.markdown("---")
             c1, c2 = st.columns([1.5, 2])
@@ -311,6 +318,7 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
                 st.subheader("Gloss Distribution (Histogram & Normal Curve)")
                 fig_g1, ax_g1 = plt.subplots(figsize=(6, 5.5)) 
                 
+                # ÉP KÍCH THƯỚC CỘT (BINS) BẰNG NHAU:
                 min_val = min(dff_g['Gloss_Lab'].min(), dff_g['Online_Gloss_Top'].min())
                 max_val = max(dff_g['Gloss_Lab'].max(), dff_g['Online_Gloss_Top'].max())
                 if min_val == max_val: 
@@ -322,6 +330,7 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
                 sns.histplot(dff_g['Gloss_Lab'], stat="density", bins=bins_arr, color='#3498db', alpha=0.4, label='Lab Bins', ax=ax_g1)
                 sns.histplot(dff_g['Online_Gloss_Top'], stat="density", bins=bins_arr, color='#e67e22', alpha=0.4, label='Line Bins', ax=ax_g1)
                 
+                # MỞ RỘNG TRỤC X ĐỂ ĐƯỜNG CONG (CURVE) UỐN ĐẸP:
                 plot_min = min(lsl_val, min_val) - 2
                 plot_max = max(usl_val, max_val) + 2
                 x_axis = np.linspace(plot_min, plot_max, 200)
@@ -340,6 +349,7 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
                 ax_g1.set_xlabel("Gloss (GU)")
                 ax_g1.set_ylabel("Density")
                 
+                # ĐƯA LEGEND RA NGOÀI BIỂU ĐỒ
                 handles, labels = ax_g1.get_legend_handles_labels()
                 ax_g1.legend(handles, labels, bbox_to_anchor=(0.5, -0.15), loc='upper center', ncol=2, fontsize=9, frameon=True)
                 
