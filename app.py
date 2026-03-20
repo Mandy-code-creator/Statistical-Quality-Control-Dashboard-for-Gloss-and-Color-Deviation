@@ -217,6 +217,7 @@ if view_mode == "🚀 Executive Overview":
 
 # ==========================================
 # ==========================================
+# ==========================================
 # VIEW 2: GLOSS ANALYSIS (SPC)
 # ==========================================
 elif view_mode == "✨ Gloss Analysis (SPC)":
@@ -235,6 +236,10 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
         if len(dff_g) > 1:
             lsl_val = dff_g['Gloss_LSL'].iloc[0]
             usl_val = dff_g['Gloss_USL'].iloc[0]
+            
+            # Tính toán Mean và Std để vẽ đường Normal Curve
+            mean_lab, std_lab = dff_g['Gloss_Lab'].mean(), dff_g['Gloss_Lab'].std()
+            mean_line, std_line = dff_g['Online_Gloss_Top'].mean(), dff_g['Online_Gloss_Top'].std()
 
             min_date = dff_g['Ngay_SX'].min()
             max_date = dff_g['Ngay_SX'].max()
@@ -295,23 +300,38 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
             st.dataframe(
                 batch_table.style.format({
                     'Avg Lab Gloss': '{:.1f}', 'Avg Line Gloss': '{:.1f}', 'Gap (Line - Lab)': '{:+.1f}'
-                }).background_gradient(cmap='RdYlGn_r', subset=['Gap (Line - Lab)']), # Gap càng lớn càng chuyển sang màu đỏ
+                }).background_gradient(cmap='RdYlGn_r', subset=['Gap (Line - Lab)']), 
                 use_container_width=True, hide_index=True
             )
             
-            # --- PHÂN PHỐI & BOXPLOT (NHƯ CŨ) ---
+            # --- PHÂN PHỐI DỮ LIỆU ---
             st.markdown("---")
             c1, c2 = st.columns([1.5, 2])
             with c1:
-                st.subheader("Gloss Distribution (Histogram)")
+                st.subheader("Gloss Distribution (Histogram & Normal Curve)")
                 fig_g1, ax_g1 = plt.subplots(figsize=(6, 4))
-                sns.histplot(dff_g['Gloss_Lab'], kde=True, color='#3498db', alpha=0.5, label='Lab Gloss', ax=ax_g1)
-                sns.histplot(dff_g['Online_Gloss_Top'], kde=True, color='#e67e22', alpha=0.5, label='Line Gloss', ax=ax_g1)
+                
+                # 1. Vẽ Histogram với tỷ lệ Density (thay vì Count) để khớp trục với Normal Curve
+                sns.histplot(dff_g['Gloss_Lab'], stat="density", bins=10, color='#3498db', alpha=0.5, label='Lab Gloss (Bins)', ax=ax_g1)
+                sns.histplot(dff_g['Online_Gloss_Top'], stat="density", bins=10, color='#e67e22', alpha=0.5, label='Line Gloss (Bins)', ax=ax_g1)
+                
+                # 2. Vẽ đường Normal Curve chuẩn toán học
+                xmin, xmax = ax_g1.get_xlim()
+                x_axis = np.linspace(xmin, xmax, 100)
+                
+                if pd.notna(std_lab) and std_lab > 0:
+                    ax_g1.plot(x_axis, stats.norm.pdf(x_axis, mean_lab, std_lab), color='#2980b9', lw=2.5, label='Lab Normal Curve')
+                if pd.notna(std_line) and std_line > 0:
+                    ax_g1.plot(x_axis, stats.norm.pdf(x_axis, mean_line, std_line), color='#d35400', lw=2.5, label='Line Normal Curve')
+
                 ax_g1.axvline(lsl_val, color='red', ls='--', lw=1.5)
                 ax_g1.axvline(usl_val, color='red', ls='--', lw=1.5)
                 ax_g1.set_xlabel("Gloss (GU)")
-                ax_g1.set_ylabel("Count")
-                plt.legend()
+                ax_g1.set_ylabel("Density")
+                
+                # Gom Legend lại cho gọn
+                handles, labels = ax_g1.get_legend_handles_labels()
+                ax_g1.legend(handles, labels, fontsize=8)
                 st.pyplot(fig_g1)
                 
             with c2:
