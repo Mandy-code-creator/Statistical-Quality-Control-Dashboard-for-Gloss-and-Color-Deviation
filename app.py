@@ -248,40 +248,36 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
             
             st.success(f"📅 **Timeframe:** `{min_date}` to `{max_date}` | **Volume:** `{so_lo}` Batches (`{so_cuon}` Coils).")
 
-            # --- 🚀 TREND LINE (LAB VS LINE PER BATCH) ---
+           # --- 🚀 TREND LINE (LAB VS LINE PER BATCH) ---
             st.markdown("---")
             st.subheader(f"📈 Gloss Trend Line (Lab vs Line by Batch) - {sel_ma_son_tab2}")
-            st.caption("Tracks the average Lab and Line Gloss for each production batch. The green shaded area represents the acceptable specification range (LSL to USL).")
+            st.caption("Tracks the Lab Gloss and average Line Gloss for each production batch. The green shaded area represents the acceptable specification range (LSL to USL).")
             
-            # Tính trung bình Lab và Line cho từng Lô (CẬP NHẬT: Lấy thêm LSL và USL)
+            # CẬP NHẬT: Lab lấy 'first' (vì chỉ test 1 lần), Line lấy 'mean' (vì đo nhiều lần trên chuyền)
             dff_batch = dff_g.groupby('Batch_Lot', as_index=False).agg({
                 'Ngay_SX': 'min',
+                'Line': 'first', 
                 'Gloss_LSL': 'first',
                 'Gloss_USL': 'first',
-                'Gloss_Lab': 'mean',
-                'Online_Gloss_Top': 'mean'
+                'Gloss_Lab': 'first', # <--- Lấy giá trị tuyệt đối duy nhất của Lab
+                'Online_Gloss_Top': 'mean' # Line vẫn tính trung bình
             }).sort_values('Ngay_SX')
             
-            # Tạo nhãn trục X: Tên lô + Ngày/Tháng
             dff_batch['Label_X'] = dff_batch['Batch_Lot'].astype(str) + "\n(" + pd.to_datetime(dff_batch['Ngay_SX']).dt.strftime('%m/%d') + ")"
             
             fig_trend, ax_trend = plt.subplots(figsize=(14, 5))
             
-            # Vẽ đường xu hướng Lab và Line
-            ax_trend.plot(dff_batch['Label_X'], dff_batch['Gloss_Lab'], marker='o', color='#3498db', lw=2, label='Avg Lab Gloss')
+            # CẬP NHẬT: Đổi tên nhãn 'Avg Lab Gloss' thành 'Lab Gloss'
+            ax_trend.plot(dff_batch['Label_X'], dff_batch['Gloss_Lab'], marker='o', color='#3498db', lw=2, label='Lab Gloss')
             ax_trend.plot(dff_batch['Label_X'], dff_batch['Online_Gloss_Top'], marker='s', color='#e67e22', lw=2, label='Avg Line Gloss')
             
-            # Vẽ Giới hạn tiêu chuẩn LSL/USL
             ax_trend.axhline(lsl_val, color='red', ls='--', lw=2, label=f'LSL ({lsl_val:.1f})')
             ax_trend.axhline(usl_val, color='red', ls='--', lw=2, label=f'USL ({usl_val:.1f})')
-            
-            # Bôi màu xanh lá cây vùng "An toàn" (Target Zone)
             ax_trend.fill_between(dff_batch['Label_X'], lsl_val, usl_val, color='green', alpha=0.05, label='Target Zone')
             
             ax_trend.set_xlabel("Batch Lot & Date")
             ax_trend.set_ylabel("Gloss (GU)")
             
-            # Tự động ẩn bớt nhãn trục X nếu có quá nhiều Lô để tránh chữ đè lên nhau
             plt.xticks(rotation=45, ha='right')
             locs, labels = plt.xticks()
             if len(locs) > 30:
@@ -295,19 +291,19 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
             st.markdown("---")
             st.write("### 🔍 Batch Details")
             
-            # CẬP NHẬT: Thêm LSL và USL vào bảng
-            batch_table = dff_batch[['Batch_Lot', 'Ngay_SX', 'Gloss_LSL', 'Gloss_USL', 'Gloss_Lab', 'Online_Gloss_Top']].copy()
+            batch_table = dff_batch[['Batch_Lot', 'Line', 'Ngay_SX', 'Gloss_LSL', 'Gloss_USL', 'Gloss_Lab', 'Online_Gloss_Top']].copy()
             batch_table['Gap (Line - Lab)'] = batch_table['Online_Gloss_Top'] - batch_table['Gloss_Lab']
-            batch_table.columns = ['Batch Lot', 'Production Date', 'LSL', 'USL', 'Avg Lab Gloss', 'Avg Line Gloss', 'Gap (Line - Lab)']
+            
+            # CẬP NHẬT TÊN CỘT: Xóa chữ 'Avg' ở cột Lab
+            batch_table.columns = ['Batch Lot', 'Production Line', 'Production Date', 'LSL', 'USL', 'Lab Gloss', 'Avg Line Gloss', 'Gap (Line - Lab)']
             
             st.dataframe(
                 batch_table.style.format({
                     'LSL': '{:.0f}', 'USL': '{:.0f}', 
-                    'Avg Lab Gloss': '{:.1f}', 'Avg Line Gloss': '{:.1f}', 'Gap (Line - Lab)': '{:+.1f}'
+                    'Lab Gloss': '{:.1f}', 'Avg Line Gloss': '{:.1f}', 'Gap (Line - Lab)': '{:+.1f}'
                 }).background_gradient(cmap='RdYlGn_r', subset=['Gap (Line - Lab)']), 
                 use_container_width=True, hide_index=True
             )
-            
             # --- PHÂN PHỐI DỮ LIỆU ---
             st.markdown("---")
             c1, c2 = st.columns([1.5, 2])
