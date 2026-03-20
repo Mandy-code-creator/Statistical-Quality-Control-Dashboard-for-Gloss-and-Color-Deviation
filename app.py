@@ -304,12 +304,13 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
                 use_container_width=True, hide_index=True
             )
            
-            # --- PHÂN PHỐI DỮ LIỆU ---
+# --- PHÂN PHỐI DỮ LIỆU ---
             st.markdown("---")
             c1, c2 = st.columns([1.5, 2])
             with c1:
                 st.subheader("Gloss Distribution (Histogram & Normal Curve)")
-                fig_g1, ax_g1 = plt.subplots(figsize=(6, 4))
+                # Tăng nhẹ chiều cao biểu đồ để có chỗ trống chứa Legend bên dưới
+                fig_g1, ax_g1 = plt.subplots(figsize=(6, 5.5)) 
                 
                 # 1. ÉP KÍCH THƯỚC CỘT (BINS) BẰNG NHAU:
                 min_val = min(dff_g['Gloss_Lab'].min(), dff_g['Online_Gloss_Top'].min())
@@ -318,38 +319,41 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
                     min_val -= 1
                     max_val += 1
                     
-                # Chia làm 12 cột đều nhau từ Min đến Max
                 bins_arr = np.linspace(min_val, max_val, 12) 
                 
-                sns.histplot(dff_g['Gloss_Lab'], stat="density", bins=bins_arr, color='#3498db', alpha=0.5, label='Lab Gloss (Bins)', ax=ax_g1)
-                sns.histplot(dff_g['Online_Gloss_Top'], stat="density", bins=bins_arr, color='#e67e22', alpha=0.5, label='Line Gloss (Bins)', ax=ax_g1)
+                sns.histplot(dff_g['Gloss_Lab'], stat="density", bins=bins_arr, color='#3498db', alpha=0.4, label='Lab Bins', ax=ax_g1)
+                sns.histplot(dff_g['Online_Gloss_Top'], stat="density", bins=bins_arr, color='#e67e22', alpha=0.4, label='Line Bins', ax=ax_g1)
                 
                 # 2. MỞ RỘNG TRỤC X ĐỂ ĐƯỜNG CONG (CURVE) UỐN ĐẸP:
                 plot_min = min(lsl_val, min_val) - 2
                 plot_max = max(usl_val, max_val) + 2
                 x_axis = np.linspace(plot_min, plot_max, 200)
                 
+                # THÊM THÔNG SỐ MEAN (μ) VÀ STD (σ) VÀO NHÃN LEGEND
                 if pd.notna(std_lab) and std_lab > 0:
-                    ax_g1.plot(x_axis, stats.norm.pdf(x_axis, mean_lab, std_lab), color='#2980b9', lw=2.5, label='Lab Normal Curve')
+                    ax_g1.plot(x_axis, stats.norm.pdf(x_axis, mean_lab, std_lab), color='#2980b9', lw=2.5, 
+                               label=f'Lab Curve (μ={mean_lab:.1f}, σ={std_lab:.2f})')
                 if pd.notna(std_line) and std_line > 0:
-                    ax_g1.plot(x_axis, stats.norm.pdf(x_axis, mean_line, std_line), color='#d35400', lw=2.5, label='Line Normal Curve')
+                    ax_g1.plot(x_axis, stats.norm.pdf(x_axis, mean_line, std_line), color='#d35400', lw=2.5, 
+                               label=f'Line Curve (μ={mean_line:.1f}, σ={std_line:.2f})')
 
                 ax_g1.axvline(lsl_val, color='red', ls='--', lw=1.5)
                 ax_g1.axvline(usl_val, color='red', ls='--', lw=1.5)
                 
-                # Cố định khung nhìn trục X để không bị lệch
                 ax_g1.set_xlim(plot_min, plot_max)
-                
                 ax_g1.set_xlabel("Gloss (GU)")
                 ax_g1.set_ylabel("Density")
                 
+                # 3. ĐƯA LEGEND RA NGOÀI BIỂU ĐỒ (Xuống phía dưới)
                 handles, labels = ax_g1.get_legend_handles_labels()
-                ax_g1.legend(handles, labels, fontsize=8)
+                ax_g1.legend(handles, labels, bbox_to_anchor=(0.5, -0.15), loc='upper center', ncol=2, fontsize=9, frameon=True)
+                
+                plt.tight_layout() # Lệnh này giúp Legend không bị cắt mất viền khi hiển thị trên Streamlit
                 st.pyplot(fig_g1)
                 
             with c2:
                 st.subheader("Data Dispersion (Boxplot)")
-                fig_g2, ax_g2 = plt.subplots(figsize=(8, 4))
+                fig_g2, ax_g2 = plt.subplots(figsize=(8, 5.5)) # Cân bằng chiều cao với biểu đồ bên trái
                 df_melt = dff_g.melt(value_vars=['Gloss_Lab', 'Online_Gloss_Top'], var_name='Measurement', value_name='Gloss')
                 sns.boxplot(data=df_melt, x='Measurement', y='Gloss', palette=['#3498db', '#e67e22'], width=0.4, showfliers=False, ax=ax_g2)
                 sns.stripplot(data=df_melt, x='Measurement', y='Gloss', color='black', alpha=0.4, size=4, jitter=True, ax=ax_g2)
