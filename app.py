@@ -58,7 +58,7 @@ def load_and_prep_data():
         for c in num_cols:
             if c in df.columns: df[c] = pd.to_numeric(df[c], errors='coerce')
 
-        # DATA CLEANING
+        # --- DATA CLEANING & GLOBAL QC LOGIC ---
         df = df.dropna(subset=['Gloss_Lab', 'Ma_Son'])
         df = df[df['Gloss_Lab'] > 0] 
         invalid_codes = ['0', '00', '000', '0000', 'NA', 'N/A', 'NAN', 'NULL', 'NONE']
@@ -70,8 +70,19 @@ def load_and_prep_data():
         df['ΔE'] = df[['dE_N', 'dE_S']].mean(axis=1)
         df['Gap_Gloss'] = df['Online_Gloss_Top'] - df['Gloss_Lab']
         
-        df['Gloss_Pass'] = (df['Gloss_Lab'] >= df['Gloss_LSL']) & (df['Gloss_Lab'] <= df['Gloss_USL'])
+        # 1. ĐÁNH GIÁ LAB: Phải nằm nghiêm ngặt trong [LSL, USL]
+        df['Lab_Pass'] = (df['Gloss_Lab'] >= df['Gloss_LSL']) & (df['Gloss_Lab'] <= df['Gloss_USL'])
+        
+        # 2. ĐÁNH GIÁ LINE: Được phép nới rộng [LSL - 2, USL + 2] 
+        # (Dùng thêm fillna(True) để các cuộn không có dữ liệu Line không bị đánh rớt oan)
+        df['Line_Pass'] = ((df['Online_Gloss_Top'] >= (df['Gloss_LSL'] - 2.0)) & \
+                           (df['Online_Gloss_Top'] <= (df['Gloss_USL'] + 2.0))).fillna(True)
+        
+        # 3. GỘP LOGIC TOÀN APP
+        df['Gloss_Pass'] = df['Lab_Pass'] & df['Line_Pass']
         df['Color_Pass'] = df['ΔE'] <= 1.0
+        
+        # Chốt Pass/Fail cuối cùng cho toàn bộ biểu đồ và KPI
         df['Final_Status'] = np.where(df['Gloss_Pass'] & df['Color_Pass'], '✅ PASS', '❌ FAIL/NG')
 
         return df.dropna(subset=['Supplier', 'Ngay_SX']).sort_values('Ngay_SX')
