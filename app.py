@@ -214,17 +214,17 @@ if view_mode == "🚀 Executive Overview":
             use_container_width=True, hide_index=True
         )
 
-    # --- SMART FOCUS ---
+   # --- SMART FOCUS ---
     st.markdown("---")
     st.subheader("🎯 Smart Focus: High-Risk Gloss Codes (≥ 3 NG Batches)")
-    st.caption("Strictly isolates paint codes where at least 3 distinct batches have exceeded Gloss limits (Lab or Line).")
+    st.caption("Strictly isolates paint codes where at least 3 distinct batches have exceeded Gloss limits (Lab or Line). Color deviations (ΔE) are excluded.")
 
     # LỌC DỮ LIỆU RÁC CHO BẢNG SMART FOCUS
     dff_focus = dff.dropna(subset=['Gloss_LSL', 'Gloss_USL', 'Gloss_Lab', 'Online_Gloss_Top']).copy()
     dff_focus = dff_focus[(dff_focus['Gloss_LSL'] > 0) & (dff_focus['Gloss_USL'] > 0) & (dff_focus['Gloss_Lab'] > 0) & (dff_focus['Online_Gloss_Top'] > 0)]
 
     if not dff_focus.empty:
-        # BƯỚC 1: Đánh dấu NG CHỈ DÀNH CHO LỖI ĐỘ BÓNG
+        # BƯỚC 1: Đánh dấu NG CHỈ DÀNH CHO LỖI ĐỘ BÓNG (Tuyệt đối không dính dáng đến Màu dE)
         dff_focus['Gloss_NG'] = (dff_focus['Gloss_Lab'] < dff_focus['Gloss_LSL']) | \
                                 (dff_focus['Gloss_Lab'] > dff_focus['Gloss_USL']) | \
                                 (dff_focus['Online_Gloss_Top'] < dff_focus['Gloss_LSL']) | \
@@ -246,11 +246,11 @@ if view_mode == "🚀 Executive Overview":
                 Out_Of_Spec_Batches=('Batch_Lot', lambda x: ', '.join(x.dropna().astype(str).unique()))
             ).reset_index()
 
-            # ---> CHỐT CHẶN: CHỈ LẤY CÁC MÃ CÓ TỪ 3 BATCH NG TRỞ LÊN <---
+            # ---> CHỐT CHẶN SÁT THỦ: CHỈ LẤY CÁC MÃ CÓ TỪ 3 BATCH NG TRỞ LÊN <---
             ng_batches_info = ng_batches_info[ng_batches_info['NG_Batch_Count'] >= 3]
 
             if not ng_batches_info.empty:
-                # BƯỚC 4: Kết hợp dữ liệu
+                # BƯỚC 4: Kết hợp dữ liệu (Inner Join)
                 focus_df = pd.merge(focus_df, ng_batches_info, on=['Ma_Son', 'Supplier'], how='inner')
 
                 # Tạo cột hiển thị tỷ lệ
@@ -259,7 +259,7 @@ if view_mode == "🚀 Executive Overview":
                 # Sắp xếp: Mã nào có nhiều Lô hỏng nhất đưa lên đầu
                 focus_df = focus_df.sort_values(by=['NG_Batch_Count', 'So_Cuon'], ascending=[False, False])
 
-                # Dàn cột hiển thị
+                # Dàn cột hiển thị đúng như ý tưởng đã thảo luận
                 focus_df_display = focus_df[['Ma_Son', 'Supplier', 'Batch_Ratio', 'So_Cuon', 'Out_Of_Spec_Batches']]
                 focus_df_display.columns = ['Paint Code', 'Supplier', 'NG / Total Batches', 'Total Coils', 'Out of Spec Batches (Gloss)']
 
