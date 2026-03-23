@@ -18,7 +18,7 @@ def load_and_prep_data():
         
         # BỘ TỪ ĐIỂN DỊCH TÊN CỘT TỪ TIẾNG TRUNG SANG BIẾN HỆ THỐNG
         col_map = {
-            '鋼捲號碼': 'Coil_No', '鋼捲號': 'Coil_No', '卷号': 'Coil_No', 'Coil ID': 'Coil_No',
+            '產出鋼捲號碼': 'Coil_No', '鋼捲號碼': 'Coil_No', '鋼捲號': 'Coil_No', '卷号': 'Coil_No', 'Coil ID': 'Coil_No', # <--- ĐÃ THÊM CHÍNH XÁC TỪ CỦA BẠN
             '訂單號碼': 'Order_No', '訂單號': 'Order_No', '工單號': 'Order_No', '工單': 'Order_No', 
             '線別': 'Line', '產線': 'Line', '生產線': 'Line', '機台': 'Line', 
             '生產日期': 'Ngay_SX', '製造批號': 'Batch_Lot', '塗料編號': 'Ma_Son',
