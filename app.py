@@ -67,19 +67,23 @@ def load_and_prep_data():
 
         df['Ngay_SX'] = pd.to_datetime(df['Ngay_SX'], errors='coerce').dt.date
         df['Online_Gloss_Top'] = df[['G_Top_N', 'G_Top_S']].mean(axis=1)
+        
+        # ---> CHỐT CHẶN MỚI: XÓA SẠCH CÁC CUỘN CÓ GLOSS LINE = 0 HOẶC NA <---
+        df = df.dropna(subset=['Online_Gloss_Top'])
+        df = df[df['Online_Gloss_Top'] > 0]
+
         df['ΔE'] = df[['dE_N', 'dE_S']].mean(axis=1)
         df['Gap_Gloss'] = df['Online_Gloss_Top'] - df['Gloss_Lab']
         
-        # ---> TẠO CỘT GIỚI HẠN LINE (+/- 2 SO VỚI LAB) <---
+        # TẠO CỘT GIỚI HẠN LINE (+/- 2 SO VỚI LAB)
         df['Line_LSL'] = df['Gloss_LSL'] - 2.0
         df['Line_USL'] = df['Gloss_USL'] + 2.0
         
         # 1. ĐÁNH GIÁ LAB: Phải nằm nghiêm ngặt trong [LSL, USL]
         df['Lab_Pass'] = (df['Gloss_Lab'] >= df['Gloss_LSL']) & (df['Gloss_Lab'] <= df['Gloss_USL'])
         
-        # 2. ĐÁNH GIÁ LINE: Được phép nới rộng theo giới hạn mới
-        df['Line_Pass'] = ((df['Online_Gloss_Top'] >= df['Line_LSL']) & \
-                           (df['Online_Gloss_Top'] <= df['Line_USL'])).fillna(True)
+        # 2. ĐÁNH GIÁ LINE: Nằm trong giới hạn Line (Đã bỏ fillna vì không còn NA nữa)
+        df['Line_Pass'] = (df['Online_Gloss_Top'] >= df['Line_LSL']) & (df['Online_Gloss_Top'] <= df['Line_USL'])
         
         # 3. GỘP LOGIC TOÀN APP
         df['Gloss_Pass'] = df['Lab_Pass'] & df['Line_Pass']
