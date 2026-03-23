@@ -220,58 +220,58 @@ if view_mode == "🚀 Executive Overview":
     st.subheader("🎯 Smart Focus: Priority Paint Codes (Run ≥ 5 Batches)")
     st.caption("The system automatically scans paint codes with sufficient statistical data, detecting color drift or gloss values approaching control limits for proactive QC.")
 
-    # LỌC DỮ LIỆU RÁC CHO BẢNG SMART FOCUS
+    st.markdown("---")
+    st.subheader("🎯 Smart Focus: Out of Control Paint Codes")
+    st.caption("This table isolates paint codes that have specific batches exceeding the specification limits (Gloss or Color NG).")
+
+    # 🛡️ LỌC DỮ LIỆU RÁC CHO BẢNG SMART FOCUS
     dff_focus = dff.dropna(subset=['Gloss_LSL', 'Gloss_USL', 'Gloss_Lab', 'Online_Gloss_Top'])
-    dff_focus = dff_focus[(dff_focus['Gloss_LSL'] > 0) & (dff_focus['Gloss_USL'] > 0) & (dff_focus['Gloss_Lab'] > 0) & (dff_focus['Online_Gloss_Top'] > 0)]
+    dff_focus = dff_focus[(dff_focus['Gloss_LSL'] > 0) & (dff_focus['Gloss_USL'] > 0) & (dff_focus['Gloss_Lab'] > 0) & (dff_focus['Online_Gloss_Top'] > 0)].copy()
 
     if not dff_focus.empty:
+        # BƯỚC 1: Đánh dấu chính xác các cuộn NG (Vượt giới hạn Độ bóng Lab, Độ bóng Line, hoặc Lệch màu)
+        dff_focus['Is_NG'] = (dff_focus['Gloss_Lab'] < dff_focus['Gloss_LSL']) | \
+                             (dff_focus['Gloss_Lab'] > dff_focus['Gloss_USL']) | \
+                             (dff_focus['Online_Gloss_Top'] < dff_focus['Gloss_LSL']) | \
+                             (dff_focus['Online_Gloss_Top'] > dff_focus['Gloss_USL']) | \
+                             (dff_focus['ΔE'] > 1.0)
+        
+        # BƯỚC 2: Gom các mã Lô (Batch Lot) bị NG lại thành 1 chuỗi để hiển thị
+        ng_batches = dff_focus[dff_focus['Is_NG']].groupby(['Ma_Son', 'Supplier'])['Batch_Lot'].apply(lambda x: ', '.join(x.astype(str).unique())).reset_index(name='Out of Spec Batches')
+
+        # BƯỚC 3: Tính toán thông số tổng thể cho từng mã sơn
         focus_df = dff_focus.groupby(['Ma_Son', 'Supplier']).agg(
             So_Lo=('Batch_Lot', 'nunique'),
             So_Cuon=('Batch_Lot', 'count'),
-            Gloss_TB=('Gloss_Lab', 'mean'),
-            LSL=('Gloss_LSL', 'first'),
-            USL=('Gloss_USL', 'first'),
             dE_TB=('ΔE', 'mean'),
             dE_Max=('ΔE', 'max'),
-            Yield=('Final_Status', lambda x: (x == '✅ PASS').mean() * 100)
+            Yield=('Is_NG', lambda x: (1 - x.mean()) * 100)
         ).reset_index()
 
-        focus_df = focus_df[focus_df['So_Lo'] >= 5]
+        # BƯỚC 4: LỌC TUYỆT ĐỐI (INNER JOIN) - Chỉ giữ lại những mã sơn THỰC SỰ CÓ LÔ BỊ NG
+        focus_df = pd.merge(focus_df, ng_batches, on=['Ma_Son', 'Supplier'], how='inner')
 
         if not focus_df.empty:
-            def assess_risk(row):
-                if row['Yield'] < 100 or row['dE_Max'] > 1.0:
-                    return '🔴 Critical (NG Present)'
-                elif row['dE_TB'] >= 0.8 or abs(row['Gloss_TB'] - row['LSL']) <= 2.0 or abs(row['USL'] - row['Gloss_TB']) <= 2.0:
-                    return '🟠 Warning (Near Limits)'
-                else:
-                    return '🟢 Safe'
+            # Sắp xếp theo tỷ lệ lỗi nặng nhất lên đầu
+            focus_df = focus_df.sort_values(by=['Yield', 'dE_Max'], ascending=[True, False])
 
-            focus_df['Risk_Level'] = focus_df.apply(assess_risk, axis=1)
-            
-            # LỌC BỎ MÃ SAFE, CHỈ HIỂN THỊ CẢNH BÁO
-            focus_df = focus_df[focus_df['Risk_Level'] != '🟢 Safe']
-            
-            focus_df = focus_df.sort_values(by=['Yield', 'dE_TB'], ascending=[True, False])
+            # Đổi tên cột hiển thị
+            focus_df_display = focus_df[['Ma_Son', 'Supplier', 'So_Lo', 'So_Cuon', 'Yield', 'dE_TB', 'dE_Max', 'Out of Spec Batches']]
+            focus_df_display.columns = ['Paint Code', 'Supplier', 'Total Batches', 'Total Coils', 'Yield Rate', 'Avg ΔE', 'Max ΔE', 'Out of Spec Batches']
 
-            focus_df_display = focus_df[['Ma_Son', 'Supplier', 'So_Lo', 'So_Cuon', 'Yield', 'dE_TB', 'dE_Max', 'Risk_Level']]
-            focus_df_display.columns = ['Paint Code', 'Supplier', 'Batches', 'Coils', 'Yield Rate', 'Avg ΔE', 'Max ΔE', 'Status']
-
-            if not focus_df_display.empty:
-                st.dataframe(
-                    focus_df_display.style.format({
-                        'Yield Rate': '{:.1f}%', 
-                        'Avg ΔE': '{:.2f}', 
-                        'Max ΔE': '{:.2f}'
-                    }).background_gradient(cmap='Reds', subset=['Avg ΔE', 'Max ΔE']),
-                    use_container_width=True, 
-                    hide_index=True
-                )
-                st.info("💡 **Actionable Insight:** Copy a `Paint Code` marked as 🔴 or 🟠, then switch to the **Gloss Analysis (SPC)** or **Color & ΔE Analysis** tab to investigate!")
-            else:
-                st.success("🎉 Excellent! No paint codes (with ≥ 5 batches) are currently triggering warnings.")
+            st.dataframe(
+                focus_df_display.style.format({
+                    'Yield Rate': '{:.1f}%', 
+                    'Avg ΔE': '{:.2f}', 
+                    'Max ΔE': '{:.2f}'
+                }).background_gradient(cmap='Reds_r', subset=['Yield Rate'])
+                  .background_gradient(cmap='Reds', subset=['Max ΔE']),
+                use_container_width=True, 
+                hide_index=True
+            )
+            st.info("💡 **Actionable Insight:** These paint codes have actual batches that failed the spec. Copy the `Paint Code` and check the **Gloss Analysis (SPC)** tab to trace the root cause!")
         else:
-            st.success("🎉 Excellent! No paint codes (with ≥ 5 batches) are currently triggering warnings.")   
+            st.success("🎉 Excellent! No paint codes are currently exceeding the control limits.")
     else:
         st.success("No valid data available for Smart Focus analysis.")
 # ==========================================
