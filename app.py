@@ -128,25 +128,30 @@ st.markdown("---")
 if view_mode == "🚀 Executive Overview":
     st.info("💡 Factory-wide performance overview. To analyze Gloss for specific color codes, navigate to the 'Gloss Analysis (SPC)' tab.")
     
-    # 🛡️ LỌC DỮ LIỆU RÁC CHO CHỈ SỐ GAP (Loại bỏ NA và giá trị <= 0)
-    dff_valid_gap = dff.dropna(subset=['Online_Gloss_Top', 'Gloss_Lab'])
-    dff_valid_gap = dff_valid_gap[(dff_valid_gap['Online_Gloss_Top'] > 0) & (dff_valid_gap['Gloss_Lab'] > 0)]
-    
-    k1, k2, k3, k4 = st.columns(4)
-    total_coils = len(dff)
-    k1.metric("📦 Total Production", f"{total_coils} coils")
-    
-    yield_rate = (dff['Final_Status'] == '✅ PASS').mean() * 100 if total_coils > 0 else 0
-    k2.metric("✅ Pass Rate (Yield %)", f"{yield_rate:.1f}%")
-    
-    ng_count = (dff['Final_Status'] == '❌ FAIL/NG').sum()
-    k3.metric("🚨 Total NG Coils", f"{ng_count} coils", delta_color="inverse")
-    
-    avg_gap = dff_valid_gap['Gap_Gloss'].mean() if not dff_valid_gap.empty else 0
-    k4.metric("⚖️ Lab vs Line Gap (Avg)", f"{avg_gap:.1f} GU")
+    # --- CẬP NHẬT: CHỈ LỌC CÁC CUỘN BỊ LỖI ĐỘ BÓNG (GLOSS NG) ---
+    # Bao gồm lỗi do phòng Lab đo trượt, hoặc lỗi do chạy thực tế trên chuyền (Online) văng khỏi LSL/USL
+    dff_gloss_ng = dff[
+        (dff['Gloss_Pass'] == False) | 
+        (dff['Online_Gloss_Top'] < dff['Gloss_LSL']) | 
+        (dff['Online_Gloss_Top'] > dff['Gloss_USL'])
+    ]
+    gloss_ng_count = len(dff_gloss_ng)
 
-    st.markdown("---")
-    st.subheader("📉 Factory Yield Trend by Date")
+    if gloss_ng_count > 0:
+        st.error(f"🚨 Detailed List of {gloss_ng_count} Gloss NG Coils (Out of Spec)")
+        
+        # Thêm cột 'Online_Gloss_Top' để Sếp dễ đối chiếu sự sai lệch giữa Lab và Chuyền
+        show_cols = ['Ngay_SX', 'Batch_Lot', 'Ma_Son', 'Supplier', 'Gloss_Lab', 'Online_Gloss_Top', 'Gloss_LSL', 'Gloss_USL', 'Final_Status']
+        
+        st.dataframe(
+            dff_gloss_ng[show_cols].style.format({
+                'Gloss_Lab': '{:.1f}', 
+                'Online_Gloss_Top': '{:.1f}', 
+                'Gloss_LSL': '{:.0f}', 
+                'Gloss_USL': '{:.0f}'
+            }), 
+            use_container_width=True, hide_index=True
+        )
     
     if not dff.empty:
         daily_yield = dff.groupby('Ngay_SX').apply(
