@@ -70,19 +70,20 @@ def load_and_prep_data():
         df['ΔE'] = df[['dE_N', 'dE_S']].mean(axis=1)
         df['Gap_Gloss'] = df['Online_Gloss_Top'] - df['Gloss_Lab']
         
+        # ---> TẠO CỘT GIỚI HẠN LINE (+/- 2 SO VỚI LAB) <---
+        df['Line_LSL'] = df['Gloss_LSL'] - 2.0
+        df['Line_USL'] = df['Gloss_USL'] + 2.0
+        
         # 1. ĐÁNH GIÁ LAB: Phải nằm nghiêm ngặt trong [LSL, USL]
         df['Lab_Pass'] = (df['Gloss_Lab'] >= df['Gloss_LSL']) & (df['Gloss_Lab'] <= df['Gloss_USL'])
         
-        # 2. ĐÁNH GIÁ LINE: Được phép nới rộng [LSL - 2, USL + 2] 
-        # (Dùng thêm fillna(True) để các cuộn không có dữ liệu Line không bị đánh rớt oan)
-        df['Line_Pass'] = ((df['Online_Gloss_Top'] >= (df['Gloss_LSL'] - 2.0)) & \
-                           (df['Online_Gloss_Top'] <= (df['Gloss_USL'] + 2.0))).fillna(True)
+        # 2. ĐÁNH GIÁ LINE: Được phép nới rộng theo giới hạn mới
+        df['Line_Pass'] = ((df['Online_Gloss_Top'] >= df['Line_LSL']) & \
+                           (df['Online_Gloss_Top'] <= df['Line_USL'])).fillna(True)
         
         # 3. GỘP LOGIC TOÀN APP
         df['Gloss_Pass'] = df['Lab_Pass'] & df['Line_Pass']
         df['Color_Pass'] = df['ΔE'] <= 1.0
-        
-        # Chốt Pass/Fail cuối cùng cho toàn bộ biểu đồ và KPI
         df['Final_Status'] = np.where(df['Gloss_Pass'] & df['Color_Pass'], '✅ PASS', '❌ FAIL/NG')
 
         return df.dropna(subset=['Supplier', 'Ngay_SX']).sort_values('Ngay_SX')
@@ -145,7 +146,7 @@ st.markdown("---")
 if view_mode == "🚀 Executive Overview":
     st.info("💡 Factory-wide performance overview. To analyze Gloss for specific color codes, navigate to the 'Gloss Analysis (SPC)' tab.")
     
-    # 🛡️ LỌC DỮ LIỆU RÁC CHO CHỈ SỐ GAP (Loại bỏ NA và giá trị <= 0)
+    # LỌC DỮ LIỆU RÁC CHO CHỈ SỐ GAP
     dff_valid_gap = dff.dropna(subset=['Online_Gloss_Top', 'Gloss_Lab'])
     dff_valid_gap = dff_valid_gap[(dff_valid_gap['Online_Gloss_Top'] > 0) & (dff_valid_gap['Gloss_Lab'] > 0)]
     
@@ -185,12 +186,7 @@ if view_mode == "🚀 Executive Overview":
         st.pyplot(fig_ov)
 
     # --- BẢNG LỌC RIÊNG CÁC CUỘN LỖI ĐỘ BÓNG (GLOSS NG) ---
-    dff_gloss_ng = dff[
-        (dff['Gloss_Lab'] < dff['Gloss_LSL']) | 
-        (dff['Gloss_Lab'] > dff['Gloss_USL']) | 
-        (dff['Online_Gloss_Top'] < dff['Gloss_LSL']) | 
-        (dff['Online_Gloss_Top'] > dff['Gloss_USL'])
-    ].copy()
+    dff_gloss_ng = dff[~dff['Gloss_Pass']].copy()
 
     gloss_ng_count = len(dff_gloss_ng)
 
@@ -199,85 +195,73 @@ if view_mode == "🚀 Executive Overview":
         
         def get_error_type(row):
             errors = []
-            if row['Gloss_Lab'] < row['Gloss_LSL'] or row['Gloss_Lab'] > row['Gloss_USL']:
+            if not row['Lab_Pass']:
                 errors.append("Lab NG")
-            if row['Online_Gloss_Top'] < row['Gloss_LSL']:
-                errors.append("Line Low")
-            elif row['Online_Gloss_Top'] > row['Gloss_USL']:
-                errors.append("Line High")
+            if row['Online_Gloss_Top'] < row['Line_LSL']:
+                errors.append(f"Line Low (< {row['Line_LSL']})")
+            elif row['Online_Gloss_Top'] > row['Line_USL']:
+                errors.append(f"Line High (> {row['Line_USL']})")
             return " + ".join(errors) if errors else "Unknown"
             
         dff_gloss_ng['Error_Type'] = dff_gloss_ng.apply(get_error_type, axis=1)
         
-        dff_gloss_ng_disp = dff_gloss_ng[['Ngay_SX', 'Coil_No', 'Batch_Lot', 'Ma_Son', 'Supplier', 'Gloss_Lab', 'Online_Gloss_Top', 'Gloss_LSL', 'Gloss_USL', 'Error_Type']]
-        dff_gloss_ng_disp.columns = ['Production Date', 'Coil ID', 'Batch Lot', 'Paint Code', 'Supplier', 'Gloss Lab', 'Gloss Line', 'LSL', 'USL', 'Error Type']
+        dff_gloss_ng_disp = dff_gloss_ng[['Ngay_SX', 'Coil_No', 'Batch_Lot', 'Ma_Son', 'Supplier', 'Gloss_Lab', 'Gloss_LSL', 'Gloss_USL', 'Online_Gloss_Top', 'Line_LSL', 'Line_USL', 'Error_Type']]
+        dff_gloss_ng_disp.columns = ['Production Date', 'Coil ID', 'Batch Lot', 'Paint Code', 'Supplier', 'Gloss Lab', 'Lab LSL', 'Lab USL', 'Gloss Line', 'Line LSL', 'Line USL', 'Error Type']
         
         def highlight_errors(val):
             return 'color: #e74c3c; font-weight: bold;'
         
         st.dataframe(
             dff_gloss_ng_disp.style.format({
-                'Gloss Lab': '{:.1f}', 
-                'Gloss Line': '{:.1f}', 
-                'LSL': '{:.0f}', 
-                'USL': '{:.0f}'
+                'Gloss Lab': '{:.1f}', 'Gloss Line': '{:.1f}', 
+                'Lab LSL': '{:.0f}', 'Lab USL': '{:.0f}',
+                'Line LSL': '{:.0f}', 'Line USL': '{:.0f}'
             }).map(highlight_errors, subset=['Error Type']),
             use_container_width=True, hide_index=True
         )
 
-   # --- SMART FOCUS ---
+    # --- SMART FOCUS ---
     st.markdown("---")
     st.subheader("🎯 Smart Focus: High-Risk Gloss Codes (≥ 3 NG Batches)")
     st.caption("Strictly isolates paint codes where at least 3 distinct batches have exceeded Gloss limits (Lab or Line). Color deviations (ΔE) are excluded.")
 
-    # LỌC DỮ LIỆU RÁC CHO BẢNG SMART FOCUS
     dff_focus = dff.dropna(subset=['Gloss_LSL', 'Gloss_USL', 'Gloss_Lab', 'Online_Gloss_Top']).copy()
     dff_focus = dff_focus[(dff_focus['Gloss_LSL'] > 0) & (dff_focus['Gloss_USL'] > 0) & (dff_focus['Gloss_Lab'] > 0) & (dff_focus['Online_Gloss_Top'] > 0)]
 
     if not dff_focus.empty:
-        # BƯỚC 1: Đánh dấu NG CHỈ DÀNH CHO LỖI ĐỘ BÓNG (Tuyệt đối không dính dáng đến Màu dE)
-        dff_focus['Gloss_NG'] = (dff_focus['Gloss_Lab'] < dff_focus['Gloss_LSL']) | \
-                                (dff_focus['Gloss_Lab'] > dff_focus['Gloss_USL']) | \
-                                (dff_focus['Online_Gloss_Top'] < dff_focus['Gloss_LSL']) | \
-                                (dff_focus['Online_Gloss_Top'] > dff_focus['Gloss_USL'])
+        dff_focus['Gloss_NG'] = ~dff_focus['Gloss_Pass']
         
-        # BƯỚC 2: Tính tổng số Lô và tổng số Cuộn
-        focus_df = dff_focus.groupby(['Ma_Son', 'Supplier']).agg(
-            So_Lo=('Batch_Lot', 'nunique'),
-            So_Cuon=('Batch_Lot', 'count')
+        focus_total = dff_focus.groupby(['Ma_Son', 'Supplier']).agg(
+            Total_Batches=('Batch_Lot', 'nunique'),
+            Total_Coils=('Batch_Lot', 'count')
         ).reset_index()
 
-        # BƯỚC 3: Lọc lấy thông tin các mẻ bị NG độ bóng
-        ng_data = dff_focus[dff_focus['Gloss_NG']]
+        ng_coils = dff_focus[dff_focus['Gloss_NG']]
         
-        if not ng_data.empty:
-            # Đếm số lô NG và Nối tên các lô NG lại
-            ng_batches_info = ng_data.groupby(['Ma_Son', 'Supplier']).agg(
-                NG_Batch_Count=('Batch_Lot', 'nunique'),
-                Out_Of_Spec_Batches=('Batch_Lot', lambda x: ', '.join(x.dropna().astype(str).unique()))
+        if not ng_coils.empty:
+            focus_ng = ng_coils.groupby(['Ma_Son', 'Supplier']).agg(
+                NG_Batches=('Batch_Lot', 'nunique'),
+                Out_Of_Spec=('Batch_Lot', lambda x: ', '.join(x.dropna().astype(str).unique()))
             ).reset_index()
 
-            # ---> CHỐT CHẶN SÁT THỦ: CHỈ LẤY CÁC MÃ CÓ TỪ 3 BATCH NG TRỞ LÊN <---
-            ng_batches_info = ng_batches_info[ng_batches_info['NG_Batch_Count'] >= 3]
+            focus_df = pd.merge(focus_total, focus_ng, on=['Ma_Son', 'Supplier'], how='inner')
 
-            if not ng_batches_info.empty:
-                # BƯỚC 4: Kết hợp dữ liệu (Inner Join)
-                focus_df = pd.merge(focus_df, ng_batches_info, on=['Ma_Son', 'Supplier'], how='inner')
+            # CHỐT CHẶN: >= 3 LÔ NG
+            focus_df = focus_df[focus_df['NG_Batches'] >= 3]
 
-                # Tạo cột hiển thị tỷ lệ
-                focus_df['Batch_Ratio'] = focus_df['NG_Batch_Count'].astype(str) + " / " + focus_df['So_Lo'].astype(str)
+            if not focus_df.empty:
+                focus_df['NG / Total Batches'] = focus_df['NG_Batches'].astype(str) + " / " + focus_df['Total_Batches'].astype(str)
+                focus_df = focus_df.sort_values(by=['NG_Batches', 'Total_Coils'], ascending=[False, False])
 
-                # Sắp xếp: Mã nào có nhiều Lô hỏng nhất đưa lên đầu
-                focus_df = focus_df.sort_values(by=['NG_Batch_Count', 'So_Cuon'], ascending=[False, False])
+                focus_display = focus_df[['Ma_Son', 'Supplier', 'NG / Total Batches', 'Total_Coils', 'Out_Of_Spec']]
+                focus_display.columns = ['Paint Code', 'Supplier', 'NG / Total Batches', 'Total Coils', 'Out of Spec Batches (Gloss)']
 
-                # Dàn cột hiển thị đúng như ý tưởng đã thảo luận
-                focus_df_display = focus_df[['Ma_Son', 'Supplier', 'Batch_Ratio', 'So_Cuon', 'Out_Of_Spec_Batches']]
-                focus_df_display.columns = ['Paint Code', 'Supplier', 'NG / Total Batches', 'Total Coils', 'Out of Spec Batches (Gloss)']
+                def highlight_ng_ratio(val):
+                    return 'color: #e74c3c; font-weight: bold;'
 
                 st.dataframe(
-                    focus_df_display,
-                    use_container_width=True, 
-                    hide_index=True
+                    focus_display.style.map(highlight_ng_ratio, subset=['NG / Total Batches']),
+                    use_container_width=True, hide_index=True
                 )
                 st.info("💡 **Actionable Insight:** These codes are highly unstable (≥ 3 NG Batches). Copy a `Paint Code` and check the **Gloss Analysis (SPC)** tab immediately to trace the root cause!")
             else:
@@ -285,7 +269,7 @@ if view_mode == "🚀 Executive Overview":
         else:
             st.success("🎉 Excellent! No paint codes have 3 or more batches exceeding Gloss control limits.")
     else:
-        st.success("No valid data available for Smart Focus analysis.")
+        st.warning("No valid data available for Smart Focus analysis.")
 
 # ==========================================
 # VIEW 2: GLOSS ANALYSIS (SPC)
@@ -310,6 +294,8 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
         if len(dff_g) > 1:
             lsl_val = dff_g['Gloss_LSL'].iloc[0]
             usl_val = dff_g['Gloss_USL'].iloc[0]
+            line_lsl_val = dff_g['Line_LSL'].iloc[0]
+            line_usl_val = dff_g['Line_USL'].iloc[0]
             
             mean_lab, std_lab = dff_g['Gloss_Lab'].mean(), dff_g['Gloss_Lab'].std()
             mean_line, std_line = dff_g['Online_Gloss_Top'].mean(), dff_g['Online_Gloss_Top'].std()
@@ -324,17 +310,16 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
             # --- 🚀 TREND LINE ---
             st.markdown("---")
             st.subheader(f"📈 Gloss Trend Line (Lab vs Line by Batch) - {sel_ma_son_tab2}")
-            st.caption("Tracks the Lab Gloss and average Line Gloss for each production batch against the specification limits (LSL to USL).")
+            st.caption("Tracks the Lab Gloss and average Line Gloss for each production batch against the specification limits (Lab and Line).")
             
-            if 'Line' not in dff_g.columns: dff_g['Line'] = 'Unknown Line'
-            if 'Order_No' not in dff_g.columns: dff_g['Order_No'] = 'Unknown Order'
-                
             dff_batch = dff_g.groupby('Batch_Lot', as_index=False).agg({
                 'Ngay_SX': 'min',
                 'Order_No': lambda x: ', '.join(x.dropna().astype(str).unique()),
                 'Line': 'first',
                 'Gloss_LSL': 'first',
                 'Gloss_USL': 'first',
+                'Line_LSL': 'first',
+                'Line_USL': 'first',
                 'Gloss_Lab': 'first', 
                 'Online_Gloss_Top': 'mean' 
             }).sort_values('Ngay_SX')
@@ -344,8 +329,11 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
             fig_trend, ax_trend = plt.subplots(figsize=(14, 5))
             ax_trend.plot(dff_batch['Label_X'], dff_batch['Gloss_Lab'], marker='o', color='#3498db', lw=2, label='Lab Gloss')
             ax_trend.plot(dff_batch['Label_X'], dff_batch['Online_Gloss_Top'], marker='s', color='#e67e22', lw=2, label='Avg Line Gloss')
-            ax_trend.axhline(lsl_val, color='red', ls='--', lw=2, label=f'LSL ({lsl_val:.1f})')
-            ax_trend.axhline(usl_val, color='red', ls='--', lw=2, label=f'USL ({usl_val:.1f})')
+            
+            ax_trend.axhline(lsl_val, color='red', ls='-', lw=2, label=f'Lab LSL ({lsl_val:.1f})')
+            ax_trend.axhline(usl_val, color='red', ls='-', lw=2, label=f'Lab USL ({usl_val:.1f})')
+            ax_trend.axhline(line_lsl_val, color='orange', ls='--', lw=2, alpha=0.7, label=f'Line LSL ({line_lsl_val:.1f})')
+            ax_trend.axhline(line_usl_val, color='orange', ls='--', lw=2, alpha=0.7, label=f'Line USL ({line_usl_val:.1f})')
             
             ax_trend.set_xlabel("Batch Lot & Date")
             ax_trend.set_ylabel("Gloss (GU)")
@@ -363,14 +351,14 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
             st.markdown("---")
             st.write("### 🔍 Batch Details")
             
-            batch_table = dff_batch[['Batch_Lot', 'Order_No', 'Line', 'Ngay_SX', 'Gloss_LSL', 'Gloss_USL', 'Gloss_Lab', 'Online_Gloss_Top']].copy()
+            batch_table = dff_batch[['Batch_Lot', 'Order_No', 'Line', 'Ngay_SX', 'Gloss_LSL', 'Gloss_USL', 'Gloss_Lab', 'Line_LSL', 'Line_USL', 'Online_Gloss_Top']].copy()
             batch_table['Gap (Line - Lab)'] = batch_table['Online_Gloss_Top'] - batch_table['Gloss_Lab']
             
-            batch_table.columns = ['Batch Lot', 'Order Number', 'Production Line', 'Production Date', 'LSL', 'USL', 'Lab Gloss', 'Avg Line Gloss', 'Gap (Line - Lab)']
+            batch_table.columns = ['Batch Lot', 'Order Number', 'Line', 'Production Date', 'Lab LSL', 'Lab USL', 'Lab Gloss', 'Line LSL', 'Line USL', 'Avg Line Gloss', 'Gap (Line - Lab)']
             
             st.dataframe(
                 batch_table.style.format({
-                    'LSL': '{:.0f}', 'USL': '{:.0f}', 
+                    'Lab LSL': '{:.0f}', 'Lab USL': '{:.0f}', 'Line LSL': '{:.0f}', 'Line USL': '{:.0f}',
                     'Lab Gloss': '{:.1f}', 'Avg Line Gloss': '{:.1f}', 'Gap (Line - Lab)': '{:+.1f}'
                 }).background_gradient(cmap='RdYlGn_r', subset=['Gap (Line - Lab)']), 
                 use_container_width=True, hide_index=True
@@ -394,8 +382,8 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
                 sns.histplot(dff_g['Gloss_Lab'], stat="density", bins=bins_arr, color='#3498db', alpha=0.4, label='Lab Bins', ax=ax_g1)
                 sns.histplot(dff_g['Online_Gloss_Top'], stat="density", bins=bins_arr, color='#e67e22', alpha=0.4, label='Line Bins', ax=ax_g1)
                 
-                plot_min = min(lsl_val, min_val) - 2
-                plot_max = max(usl_val, max_val) + 2
+                plot_min = min(line_lsl_val, min_val) - 2
+                plot_max = max(line_usl_val, max_val) + 2
                 x_axis = np.linspace(plot_min, plot_max, 200)
                 
                 if pd.notna(std_lab) and std_lab > 0:
@@ -405,8 +393,10 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
                     ax_g1.plot(x_axis, stats.norm.pdf(x_axis, mean_line, std_line), color='#d35400', lw=2.5, 
                                label=f'Line Curve (μ={mean_line:.1f}, σ={std_line:.2f})')
 
-                ax_g1.axvline(lsl_val, color='red', ls='--', lw=1.5)
-                ax_g1.axvline(usl_val, color='red', ls='--', lw=1.5)
+                ax_g1.axvline(lsl_val, color='red', ls='-', lw=1.5)
+                ax_g1.axvline(usl_val, color='red', ls='-', lw=1.5)
+                ax_g1.axvline(line_lsl_val, color='orange', ls='--', lw=1.5, alpha=0.7)
+                ax_g1.axvline(line_usl_val, color='orange', ls='--', lw=1.5, alpha=0.7)
                 
                 ax_g1.set_xlim(plot_min, plot_max)
                 ax_g1.set_xlabel("Gloss (GU)")
@@ -424,8 +414,13 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
                 df_melt = dff_g.melt(value_vars=['Gloss_Lab', 'Online_Gloss_Top'], var_name='Measurement', value_name='Gloss')
                 sns.boxplot(data=df_melt, x='Measurement', y='Gloss', palette=['#3498db', '#e67e22'], width=0.4, showfliers=False, ax=ax_g2)
                 sns.stripplot(data=df_melt, x='Measurement', y='Gloss', color='black', alpha=0.4, size=4, jitter=True, ax=ax_g2)
-                ax_g2.axhline(lsl_val, color='red', ls='--', lw=1.5)
-                ax_g2.axhline(usl_val, color='red', ls='--', lw=1.5)
+                
+                # Vẽ vạch cho Boxplot
+                ax_g2.axhline(lsl_val, color='red', ls='-', lw=1.5)
+                ax_g2.axhline(usl_val, color='red', ls='-', lw=1.5)
+                ax_g2.axhline(line_lsl_val, color='orange', ls='--', lw=1.5, alpha=0.7)
+                ax_g2.axhline(line_usl_val, color='orange', ls='--', lw=1.5, alpha=0.7)
+                
                 ax_g2.set_xticklabels(['Lab Gloss', 'Line Gloss'])
                 ax_g2.set_xlabel("")
                 ax_g2.set_ylabel("Gloss (GU)")
