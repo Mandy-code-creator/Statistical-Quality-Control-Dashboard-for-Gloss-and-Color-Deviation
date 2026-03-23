@@ -129,12 +129,13 @@ st.title(view_mode)
 st.markdown("---")
 
 # ==========================================
+# ==========================================
 # VIEW 1: OVERVIEW (EXECUTIVE SUMMARY)
 # ==========================================
 if view_mode == "🚀 Executive Overview":
     st.info("💡 Factory-wide performance overview. To analyze Gloss for specific color codes, navigate to the 'Gloss Analysis (SPC)' tab.")
     
-    # LỌC DỮ LIỆU RÁC CHO CHỈ SỐ GAP (Loại bỏ NA và giá trị <= 0)
+    # 🛡️ LỌC DỮ LIỆU RÁC CHO CHỈ SỐ GAP (Loại bỏ NA và giá trị <= 0)
     dff_valid_gap = dff.dropna(subset=['Online_Gloss_Top', 'Gloss_Lab'])
     dff_valid_gap = dff_valid_gap[(dff_valid_gap['Online_Gloss_Top'] > 0) & (dff_valid_gap['Gloss_Lab'] > 0)]
     
@@ -201,13 +202,17 @@ if view_mode == "🚀 Executive Overview":
         dff_gloss_ng_disp = dff_gloss_ng[['Ngay_SX', 'Coil_No', 'Batch_Lot', 'Ma_Son', 'Supplier', 'Gloss_Lab', 'Online_Gloss_Top', 'Gloss_LSL', 'Gloss_USL', 'Error_Type']]
         dff_gloss_ng_disp.columns = ['Production Date', 'Coil ID', 'Batch Lot', 'Paint Code', 'Supplier', 'Gloss Lab', 'Gloss Line', 'LSL', 'USL', 'Error Type']
         
+        # Hàm nhuộm đỏ chữ cho text
+        def highlight_errors(val):
+            return 'color: #e74c3c; font-weight: bold;'
+        
         st.dataframe(
             dff_gloss_ng_disp.style.format({
                 'Gloss Lab': '{:.1f}', 
                 'Gloss Line': '{:.1f}', 
                 'LSL': '{:.0f}', 
                 'USL': '{:.0f}'
-            }).background_gradient(cmap='Reds', subset=['Error Type']),
+            }).map(highlight_errors, subset=['Error Type']), # Sử dụng map để tô màu chữ Text, không gây lỗi ValueError
             use_container_width=True, hide_index=True
         )
 
@@ -269,7 +274,6 @@ if view_mode == "🚀 Executive Overview":
             st.success("🎉 Excellent! No paint codes (with ≥ 5 batches) are currently triggering warnings.")   
     else:
         st.success("No valid data available for Smart Focus analysis.")
-
 # ==========================================
 # VIEW 2: GLOSS ANALYSIS (SPC)
 # ==========================================
