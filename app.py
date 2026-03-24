@@ -227,7 +227,36 @@ if view_mode == "🚀 Executive Overview":
             }).map(highlight_errors, subset=['Error Type']),
             use_container_width=True, hide_index=True
         )
+# ... (code trước đó)
+    if gloss_ng_count > 0:
+        st.error(f"🚨 Detailed List of {gloss_ng_count} Gloss NG Coils (Out of Spec)")
+        
+        # ... (các hàm xử lý Error_Type và đổi tên cột) ...
+        
+        def highlight_errors(val):
+            return 'color: #e74c3c; font-weight: bold;'
+        
+        st.dataframe(
+            dff_gloss_ng_disp.style.format({
+                'Gloss Lab': '{:.1f}', 'Gloss Line': '{:.1f}', 
+                'Lab LSL': '{:.0f}', 'Lab USL': '{:.0f}',
+                'Line LSL': '{:.0f}', 'Line USL': '{:.0f}'
+            }).map(highlight_errors, subset=['Error Type']),
+            use_container_width=True, hide_index=True
+        )
 
+        # ---> CHÈN THÊM NÚT XUẤT EXCEL NGAY DƯỚI BẢNG NÀY <---
+        st.markdown("<br>", unsafe_allow_html=True) # Thêm 1 dòng trống cho đẹp
+        
+        # Chuyển dữ liệu bảng thành định dạng CSV (dùng utf-8-sig để Excel không bị lỗi font chữ tiếng Trung)
+        csv_data = dff_gloss_ng_disp.to_csv(index=False).encode('utf-8-sig')
+        
+        st.download_button(
+            label="📥 Tải Danh sách NG (Mở bằng Excel)",
+            data=csv_data,
+            file_name="Gloss_NG_Report.csv",
+            mime="text/csv",
+        )
     # --- SMART FOCUS ---
     st.markdown("---")
     st.subheader("🎯 Smart Focus: High-Risk Gloss Codes (≥ 3 NG Batches)")
