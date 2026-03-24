@@ -65,10 +65,14 @@ def load_and_prep_data():
         df = df[~df['Ma_Son_Str'].isin(invalid_codes)]
         df = df[~df['Color_Code'].isin(invalid_codes)]
 
+        # ---> CHỐT CHẶN MỚI: XÓA SẠCH DỮ LIỆU KHÔNG CÓ GIỚI HẠN KIỂM SOÁT (LSL/USL) <---
+        df = df.dropna(subset=['Gloss_LSL', 'Gloss_USL'])
+        df = df[(df['Gloss_LSL'] > 0) & (df['Gloss_USL'] > 0)]
+
         df['Ngay_SX'] = pd.to_datetime(df['Ngay_SX'], errors='coerce').dt.date
         df['Online_Gloss_Top'] = df[['G_Top_N', 'G_Top_S']].mean(axis=1)
         
-        # ---> CHỐT CHẶN MỚI: XÓA SẠCH CÁC CUỘN CÓ GLOSS LINE = 0 HOẶC NA <---
+        # ---> CHỐT CHẶN: XÓA SẠCH CÁC CUỘN CÓ GLOSS LINE = 0 HOẶC NA <---
         df = df.dropna(subset=['Online_Gloss_Top'])
         df = df[df['Online_Gloss_Top'] > 0]
 
@@ -82,7 +86,7 @@ def load_and_prep_data():
         # 1. ĐÁNH GIÁ LAB: Phải nằm nghiêm ngặt trong [LSL, USL]
         df['Lab_Pass'] = (df['Gloss_Lab'] >= df['Gloss_LSL']) & (df['Gloss_Lab'] <= df['Gloss_USL'])
         
-        # 2. ĐÁNH GIÁ LINE: Nằm trong giới hạn Line (Đã bỏ fillna vì không còn NA nữa)
+        # 2. ĐÁNH GIÁ LINE: Được phép nới rộng theo giới hạn mới
         df['Line_Pass'] = (df['Online_Gloss_Top'] >= df['Line_LSL']) & (df['Online_Gloss_Top'] <= df['Line_USL'])
         
         # 3. GỘP LOGIC TOÀN APP
@@ -91,7 +95,6 @@ def load_and_prep_data():
         df['Final_Status'] = np.where(df['Gloss_Pass'] & df['Color_Pass'], '✅ PASS', '❌ FAIL/NG')
 
         return df.dropna(subset=['Supplier', 'Ngay_SX']).sort_values('Ngay_SX')
-        
     except Exception as e:
         st.error(f"⚠️ System Error: {e}")
         return pd.DataFrame()
