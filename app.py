@@ -91,6 +91,7 @@ def load_and_prep_data():
         df['Final_Status'] = np.where(df['Gloss_Pass'] & df['Color_Pass'], '✅ PASS', '❌ FAIL/NG')
 
         return df.dropna(subset=['Supplier', 'Ngay_SX']).sort_values('Ngay_SX')
+        
     except Exception as e:
         st.error(f"⚠️ System Error: {e}")
         return pd.DataFrame()
