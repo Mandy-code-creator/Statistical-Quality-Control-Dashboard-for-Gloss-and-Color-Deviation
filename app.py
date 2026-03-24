@@ -149,6 +149,7 @@ st.title(view_mode)
 st.markdown("---")
 
 # ==========================================
+# ==========================================
 # VIEW 1: OVERVIEW (EXECUTIVE SUMMARY)
 # ==========================================
 if view_mode == "🚀 Executive Overview":
@@ -227,36 +228,17 @@ if view_mode == "🚀 Executive Overview":
             }).map(highlight_errors, subset=['Error Type']),
             use_container_width=True, hide_index=True
         )
-# ... (code trước đó)
-    if gloss_ng_count > 0:
-        st.error(f"🚨 Detailed List of {gloss_ng_count} Gloss NG Coils (Out of Spec)")
-        
-        # ... (các hàm xử lý Error_Type và đổi tên cột) ...
-        
-        def highlight_errors(val):
-            return 'color: #e74c3c; font-weight: bold;'
-        
-        st.dataframe(
-            dff_gloss_ng_disp.style.format({
-                'Gloss Lab': '{:.1f}', 'Gloss Line': '{:.1f}', 
-                'Lab LSL': '{:.0f}', 'Lab USL': '{:.0f}',
-                'Line LSL': '{:.0f}', 'Line USL': '{:.0f}'
-            }).map(highlight_errors, subset=['Error Type']),
-            use_container_width=True, hide_index=True
-        )
 
-        # ---> CHÈN THÊM NÚT XUẤT EXCEL NGAY DƯỚI BẢNG NÀY <---
-        st.markdown("<br>", unsafe_allow_html=True) # Thêm 1 dòng trống cho đẹp
-        
-        # Chuyển dữ liệu bảng thành định dạng CSV (dùng utf-8-sig để Excel không bị lỗi font chữ tiếng Trung)
+        # NÚT XUẤT EXCEL CHO BẢNG GLOSS NG
+        st.markdown("<br>", unsafe_allow_html=True)
         csv_data = dff_gloss_ng_disp.to_csv(index=False).encode('utf-8-sig')
-        
         st.download_button(
             label="📥 Tải Danh sách NG (Mở bằng Excel)",
             data=csv_data,
             file_name="Gloss_NG_Report.csv",
             mime="text/csv",
         )
+
     # --- SMART FOCUS ---
     st.markdown("---")
     st.subheader("🎯 Smart Focus: High-Risk Gloss Codes (≥ 3 NG Batches)")
@@ -300,6 +282,17 @@ if view_mode == "🚀 Executive Overview":
                     focus_display.style.map(highlight_ng_ratio, subset=['NG / Total Batches']),
                     use_container_width=True, hide_index=True
                 )
+                
+                # ---> NÚT XUẤT EXCEL CHO BẢNG SMART FOCUS <---
+                st.markdown("<br>", unsafe_allow_html=True)
+                csv_focus = focus_display.to_csv(index=False).encode('utf-8-sig')
+                st.download_button(
+                    label="📥 Tải Bảng Smart Focus (Mở bằng Excel)",
+                    data=csv_focus,
+                    file_name="Smart_Focus_Report.csv",
+                    mime="text/csv",
+                )
+                
                 st.info("💡 **Actionable Insight:** These codes are highly unstable (≥ 3 NG Batches). Copy a `Paint Code` and check the **Gloss Analysis (SPC)** tab immediately to trace the root cause!")
             else:
                 st.success("🎉 Excellent! No paint codes have 3 or more batches exceeding Gloss control limits.")
@@ -307,7 +300,6 @@ if view_mode == "🚀 Executive Overview":
             st.success("🎉 Excellent! No paint codes have 3 or more batches exceeding Gloss control limits.")
     else:
         st.warning("No valid data available for Smart Focus analysis.")
-
 # ==========================================
 # VIEW 2: GLOSS ANALYSIS (SPC)
 # ==========================================
