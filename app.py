@@ -90,7 +90,7 @@ if df.empty: st.stop()
 # --- 3. SIDEBAR: NAVIGATION & SMART FILTERS ---
 with st.sidebar:
     # NÚT RESTART / REFRESH DATA
-    if st.button("🔄 Cập nhật dữ liệu mới", use_container_width=True, type="primary"):
+    if st.button("🔄 Restart loaddata", use_container_width=True, type="primary"):
         st.cache_data.clear() 
         st.rerun()            
         
