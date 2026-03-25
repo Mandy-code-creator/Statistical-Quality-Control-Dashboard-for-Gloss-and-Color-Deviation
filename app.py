@@ -345,16 +345,16 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
     st.info("💡 SPC Analysis: Monitor the actual Gloss trend (Lab vs Line) across different production batches to detect process shifts.")
     
     # =========================================================
-    # EARLY WARNING RADAR (NOW FILTERED FOR >= 3 BATCHES)
+    # EARLY WARNING RADAR (NOW FILTERED FOR >= 5 BATCHES)
     # =========================================================
     risk_alert = pd.DataFrame()
     with st.expander("🚨 Early Warning Radar (Click to view at-risk codes)", expanded=True):
-        st.caption("This table automatically scans data to identify paint codes (≥ 3 Batches produced) that are Out of Spec (NG) or approaching the control limits (Margin ≤ 1.0 GU).")
+        st.caption("This table automatically scans data to identify paint codes (≥ 5 Batches produced) that are Out of Spec (NG) or approaching the control limits (Margin ≤ 1.0 GU).")
         
         df_valid_radar = dff.dropna(subset=['Online_Gloss_Top', 'Line_LSL', 'Line_USL', 'Batch_Lot'])
         if not df_valid_radar.empty:
             risk_summary = df_valid_radar.groupby(['Ma_Son', 'Supplier']).agg(
-                Batches=('Batch_Lot', 'nunique'), # TÍNH SỐ LƯỢNG LÔ (BATCH)
+                Batches=('Batch_Lot', 'nunique'), 
                 Coils=('Online_Gloss_Top', 'count'),
                 Min_Gloss=('Online_Gloss_Top', 'min'),
                 Max_Gloss=('Online_Gloss_Top', 'max'),
@@ -362,8 +362,7 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
                 USL=('Line_USL', 'first')
             ).reset_index()
 
-            # ---> CHỐT CHẶN: CHỈ LẤY CÁC MÃ CÓ TỪ 3 BATCH TRỞ LÊN <---
-            risk_summary = risk_summary[risk_summary['Batches'] >= 3].copy()
+            risk_summary = risk_summary[risk_summary['Batches'] >= 5].copy()
 
             if not risk_summary.empty:
                 def check_risk(row):
@@ -378,7 +377,6 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
 
                 if not risk_alert.empty:
                     risk_alert = risk_alert.sort_values(by='Status', ascending=True)
-                    # Bổ sung cột Batches vào bảng hiển thị
                     risk_alert.columns = ['Paint Code', 'Supplier', 'Batches', 'Coils', 'Gloss Min', 'Gloss Max', 'Line LSL', 'Line USL', 'Status']
 
                     def highlight_status(val):
@@ -393,9 +391,9 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
                         use_container_width=True, hide_index=True
                     )
                 else:
-                    st.success("🎉 No paint codes (with ≥ 3 batches) are out of limits or critically near limits at this time!")
+                    st.success("🎉 No paint codes (with ≥ 5 batches) are out of limits or critically near limits at this time!")
             else:
-                st.info("Not enough data. No paint codes have reached the minimum requirement of 3 batches.")
+                st.info("Not enough data. No paint codes have reached the minimum requirement of 5 batches.")
 
     st.markdown("---")
 
@@ -501,65 +499,51 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
         else:
             st.success("✅ All batches meet gloss standards (Lab & Line).")
 
-        # --- HISTOGRAM & BOXPLOT ---
-        c1, c2 = st.columns([1.5, 2])
-        with c1:
-            st.write("**Gloss Distribution**")
-            fig_g1, ax_g1 = plt.subplots(figsize=(6, 5.5)) 
+        # --- HISTOGRAM ONLY (UPDATED TO COUNT) ---
+        st.write("**Gloss Distribution (Histogram & Normal Curve)**")
+        fig_g1, ax_g1 = plt.subplots(figsize=(10, 5)) 
+        
+        min_val = min(dff_g['Gloss_Lab'].min(), dff_g['Online_Gloss_Top'].min())
+        max_val = max(dff_g['Gloss_Lab'].max(), dff_g['Online_Gloss_Top'].max())
+        if min_val == max_val: 
+            min_val -= 1
+            max_val += 1
             
-            min_val = min(dff_g['Gloss_Lab'].min(), dff_g['Online_Gloss_Top'].min())
-            max_val = max(dff_g['Gloss_Lab'].max(), dff_g['Online_Gloss_Top'].max())
-            if min_val == max_val: 
-                min_val -= 1
-                max_val += 1
-                
-            bins_arr = np.linspace(min_val, max_val, 12) 
+        bins_arr = np.linspace(min_val, max_val, 12) 
+        bin_width = bins_arr[1] - bins_arr[0]  # Tính độ rộng của mỗi cột
+        
+        # Đã đổi stat="density" thành stat="count"
+        sns.histplot(dff_g['Gloss_Lab'], stat="count", bins=bins_arr, color='#3498db', alpha=0.4, label='Lab Bins', ax=ax_g1)
+        sns.histplot(dff_g['Online_Gloss_Top'], stat="count", bins=bins_arr, color='#e67e22', alpha=0.4, label='Line Bins', ax=ax_g1)
+        
+        plot_min = min(line_lsl_val, min_val) - 2
+        plot_max = max(line_usl_val, max_val) + 2
+        x_axis = np.linspace(plot_min, plot_max, 200)
+        
+        # Nhân Scaling Factor (N * bin_width) cho đường cong chuẩn để nó bám theo cột
+        if pd.notna(std_lab) and std_lab > 0:
+            y_lab_scaled = stats.norm.pdf(x_axis, mean_lab, std_lab) * len(dff_g['Gloss_Lab']) * bin_width
+            ax_g1.plot(x_axis, y_lab_scaled, color='#2980b9', lw=2.5, label=f'Lab Curve')
             
-            sns.histplot(dff_g['Gloss_Lab'], stat="density", bins=bins_arr, color='#3498db', alpha=0.4, label='Lab Bins', ax=ax_g1)
-            sns.histplot(dff_g['Online_Gloss_Top'], stat="density", bins=bins_arr, color='#e67e22', alpha=0.4, label='Line Bins', ax=ax_g1)
-            
-            plot_min = min(line_lsl_val, min_val) - 2
-            plot_max = max(line_usl_val, max_val) + 2
-            x_axis = np.linspace(plot_min, plot_max, 200)
-            
-            if pd.notna(std_lab) and std_lab > 0:
-                ax_g1.plot(x_axis, stats.norm.pdf(x_axis, mean_lab, std_lab), color='#2980b9', lw=2.5, label=f'Lab Curve')
-            if pd.notna(std_line) and std_line > 0:
-                ax_g1.plot(x_axis, stats.norm.pdf(x_axis, mean_line, std_line), color='#d35400', lw=2.5, label=f'Line Curve')
+        if pd.notna(std_line) and std_line > 0:
+            y_line_scaled = stats.norm.pdf(x_axis, mean_line, std_line) * len(dff_g['Online_Gloss_Top']) * bin_width
+            ax_g1.plot(x_axis, y_line_scaled, color='#d35400', lw=2.5, label=f'Line Curve')
 
-            ax_g1.axvline(lsl_val, color='red', ls='-', lw=1.5)
-            ax_g1.axvline(usl_val, color='red', ls='-', lw=1.5)
-            ax_g1.axvline(line_lsl_val, color='orange', ls='--', lw=1.5, alpha=0.7)
-            ax_g1.axvline(line_usl_val, color='orange', ls='--', lw=1.5, alpha=0.7)
-            
-            ax_g1.set_xlim(plot_min, plot_max)
-            ax_g1.set_xlabel("Gloss (GU)")
-            ax_g1.set_ylabel("Density")
-            
-            handles, labels = ax_g1.get_legend_handles_labels()
-            ax_g1.legend(handles, labels, bbox_to_anchor=(0.5, -0.15), loc='upper center', ncol=2, fontsize=9, frameon=True)
-            
-            plt.tight_layout() 
-            st.pyplot(fig_g1)
-            plt.close(fig_g1)
-            
-        with c2:
-            st.write("**Data Dispersion**")
-            fig_g2, ax_g2 = plt.subplots(figsize=(8, 5.5)) 
-            df_melt = dff_g.melt(value_vars=['Gloss_Lab', 'Online_Gloss_Top'], var_name='Measurement', value_name='Gloss')
-            sns.boxplot(data=df_melt, x='Measurement', y='Gloss', palette=['#3498db', '#e67e22'], width=0.4, showfliers=False, ax=ax_g2)
-            sns.stripplot(data=df_melt, x='Measurement', y='Gloss', color='black', alpha=0.4, size=4, jitter=True, ax=ax_g2)
-            
-            ax_g2.axhline(lsl_val, color='red', ls='-', lw=1.5)
-            ax_g2.axhline(usl_val, color='red', ls='-', lw=1.5)
-            ax_g2.axhline(line_lsl_val, color='orange', ls='--', lw=1.5, alpha=0.7)
-            ax_g2.axhline(line_usl_val, color='orange', ls='--', lw=1.5, alpha=0.7)
-            
-            ax_g2.set_xticklabels(['Lab Gloss', 'Line Gloss'])
-            ax_g2.set_xlabel("")
-            ax_g2.set_ylabel("Gloss (GU)")
-            st.pyplot(fig_g2)
-            plt.close(fig_g2)
+        ax_g1.axvline(lsl_val, color='red', ls='-', lw=1.5)
+        ax_g1.axvline(usl_val, color='red', ls='-', lw=1.5)
+        ax_g1.axvline(line_lsl_val, color='orange', ls='--', lw=1.5, alpha=0.7)
+        ax_g1.axvline(line_usl_val, color='orange', ls='--', lw=1.5, alpha=0.7)
+        
+        ax_g1.set_xlim(plot_min, plot_max)
+        ax_g1.set_xlabel("Gloss (GU)")
+        ax_g1.set_ylabel("Number of Coils (Count)")  # Đổi nhãn trục Y
+        
+        handles, labels = ax_g1.get_legend_handles_labels()
+        ax_g1.legend(handles, labels, bbox_to_anchor=(0.5, -0.15), loc='upper center', ncol=2, fontsize=9, frameon=True)
+        
+        plt.tight_layout() 
+        st.pyplot(fig_g1)
+        plt.close(fig_g1)
 
         # Khép Data Details vào Expander
         with st.expander("🔍 View Full Batch Details", expanded=False):
@@ -574,23 +558,21 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
                 use_container_width=True, hide_index=True
             )
 
-
     # =========================================================
-    # TAB LAYOUT: AUTO TOP 10 vs MANUAL SEARCH
+    # TAB LAYOUT: AUTO TOP 15 vs MANUAL SEARCH
     # =========================================================
     list_ma_son_tab2 = sorted(dff['Ma_Son'].dropna().unique().tolist())
     if list_ma_son_tab2:
-        tab_top_risk, tab_custom = st.tabs(["🚨 Auto-Analysis: Top 10 At-Risk Codes", "🔍 Manual Search & Analysis"])
+        tab_top_risk, tab_custom = st.tabs(["🚨 Auto-Analysis: Top 15 At-Risk Codes", "🔍 Manual Search & Analysis"])
 
         with tab_top_risk:
-            st.markdown("### Top 10 Paint Codes Approaching or Exceeding Limits")
+            st.markdown("### Top 15 Paint Codes Approaching or Exceeding Limits")
             st.caption("Only displaying codes with ≥ 5 production batches.")
             if not risk_alert.empty:
-                # Lấy Top 10 mã (đã lọc >= 5 batch từ trên xuống)
-                top_10_codes = risk_alert['Paint Code'].head(10).tolist()
-                for i, code in enumerate(top_10_codes):
+                top_15_codes = risk_alert['Paint Code'].head(15).tolist()
+                for i, code in enumerate(top_15_codes):
                     st.markdown(f"#### #{i+1}: Paint Code `{code}`")
-                    render_spc_analysis(code, dff, key_suffix=f"top10_{i}")
+                    render_spc_analysis(code, dff, key_suffix=f"top15_{i}")
                     st.markdown("---")
             else:
                 st.success("✅ No at-risk codes found! All processes are highly stable.")
@@ -612,105 +594,6 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
             
             st.markdown("---")
             render_spc_analysis(sel_ma_son_tab2, dff, key_suffix="custom")
-# ==========================================
-# VIEW 3: COLOR DEVIATION
-# ==========================================
-elif view_mode == "🎨 Color & ΔE Analysis":
-    st.info("💡 Trend analysis of Total Color Difference (ΔE) and distribution of individual color components (ΔL, Δa, Δb) to detect color drift.")
-    
-    list_ma_son_tab3 = sorted(dff['Ma_Son'].dropna().unique().tolist())
-    
-    if list_ma_son_tab3:
-        sel_ma_son_tab3 = st.selectbox("🎯 Select Full Paint Code for Color Analysis:", list_ma_son_tab3, key="tab3_mason")
-        dff_c = dff[dff['Ma_Son'] == sel_ma_son_tab3].copy()
-        
-        if not dff_c.empty:
-            dff_c_batch = dff_c.groupby('Batch_Lot', as_index=False).agg({
-                'Ngay_SX': 'min',
-                'ΔE': 'mean'
-            }).sort_values('Ngay_SX')
-            
-            dff_c_batch['Batch_Lot'] = dff_c_batch['Batch_Lot'].astype(str)
-
-            st.markdown("---")
-            st.subheader(f"📈 Avg Total Color Difference Trend (ΔE) - {sel_ma_son_tab3}")
-            fig_c1, ax_c1 = plt.subplots(figsize=(12, 4))
-            
-            ax_c1.plot(dff_c_batch['Batch_Lot'], dff_c_batch['ΔE'], marker='o', color='#e74c3c', lw=2, label='Avg ΔE')
-            
-            ax_c1.axhline(1.0, color='red', ls='--', lw=2, label='Spec Limit (ΔE = 1.0)')
-            ax_c1.axhline(0.8, color='orange', ls=':', lw=1.5, label='Warning Limit (ΔE = 0.8)') 
-            
-            ax_c1.set_xlabel("Batch Lot")
-            ax_c1.set_ylabel("Color Difference (ΔE)")
-            plt.xticks(rotation=45, ha='right')
-            
-            locs, labels = plt.xticks()
-            if len(locs) > 40:
-                for i, label in enumerate(labels):
-                    if i % 3 != 0: label.set_visible(False)
-                    
-            plt.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
-            st.pyplot(fig_c1)
-            
-            st.markdown("---")
-            st.subheader("📊 Distribution of Base Color Components (ΔL, Δa, Δb)")
-            st.caption("If the peak shifts from 0, it indicates a consistent color drift (Lighter/Darker, Redder/Greener, Yellower/Bluer).")
-            
-            col_L, col_a, col_b = st.columns(3)
-            
-            with col_L:
-                fig_L, ax_L = plt.subplots(figsize=(5, 4))
-                sns.histplot(dff_c['dL_N'], kde=True, color='#95a5a6', ax=ax_L) 
-                ax_L.axvline(0, color='black', ls='--', lw=1.5)
-                ax_L.set_title("Lightness (ΔL)")
-                ax_L.set_xlabel("ΔL (+ Lighter / - Darker)")
-                ax_L.set_ylabel("Count")
-                st.pyplot(fig_L)
-                
-            with col_a:
-                fig_a, ax_a = plt.subplots(figsize=(5, 4))
-                sns.histplot(dff_c['da_N'], kde=True, color='#e74c3c', ax=ax_a) 
-                ax_a.axvline(0, color='black', ls='--', lw=1.5)
-                ax_a.set_title("Red/Green (Δa)")
-                ax_a.set_xlabel("Δa (+ Redder / - Greener)")
-                ax_a.set_ylabel("")
-                st.pyplot(fig_a)
-                
-            with col_b:
-                fig_b, ax_b = plt.subplots(figsize=(5, 4))
-                sns.histplot(dff_c['db_N'], kde=True, color='#f1c40f', ax=ax_b) 
-                ax_b.axvline(0, color='black', ls='--', lw=1.5)
-                ax_b.set_title("Yellow/Blue (Δb)")
-                ax_b.set_xlabel("Δb (+ Yellower / - Bluer)")
-                ax_b.set_ylabel("")
-                st.pyplot(fig_b)
-
-            st.markdown("---")
-            col_s1, col_s2 = st.columns(2)
-            with col_s1:
-                st.subheader("Color Shift Coordinates (Δa vs Δb)")
-                fig_s1, ax_s1 = plt.subplots(figsize=(6, 5))
-                sns.scatterplot(data=dff_c, x='da_N', y='db_N', hue='ΔE', size='ΔE', palette='coolwarm', ax=ax_s1)
-                ax_s1.axhline(0, color='black', lw=1, ls='--')
-                ax_s1.axvline(0, color='black', lw=1, ls='--')
-                ax_s1.set_xlabel("Δa (Red/Green Axis)")
-                ax_s1.set_ylabel("Δb (Yellow/Blue Axis)")
-                plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-                st.pyplot(fig_s1)
-                
-            with col_s2:
-                st.subheader("Dispersion of Total Color Difference (Boxplot ΔE)")
-                fig_s2, ax_s2 = plt.subplots(figsize=(6, 5))
-                sns.boxplot(data=dff_c, x='Supplier', y='ΔE', palette='Reds', ax=ax_s2)
-                ax_s2.axhline(1.0, color='red', ls='--', lw=2, label='Spec Limit (1.0)')
-                ax_s2.set_xlabel("Supplier")
-                ax_s2.set_ylabel("Total Color Difference (ΔE)")
-                plt.legend()
-                st.pyplot(fig_s2)
-        else:
-            st.warning("⚠️ Insufficient data to perform color analysis for this paint code.")
-
 # ==========================================
 # VIEW 4: PROCESS UNIFORMITY
 # ==========================================
