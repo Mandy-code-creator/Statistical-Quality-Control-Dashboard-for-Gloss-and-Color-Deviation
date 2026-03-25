@@ -5,18 +5,18 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import scipy.stats as stats 
 
-# --- 1. THIẾT LẬP GIAO DIỆN ---
+# --- 1. UI SETUP ---
 st.set_page_config(page_title="Steel QA Master Dashboard", layout="wide", page_icon="🏭")
 sns.set_theme(style="whitegrid")
 
-# --- 2. DATA HIERARCHY & LOAD DATA ---
+# --- 2. DATA LOAD & PREP ---
 @st.cache_data(ttl=10)
 def load_and_prep_data():
     sheet_url = "https://docs.google.com/spreadsheets/d/1ugm7G1kgGmSlk5PhoKk62h_bs5pX4bDuwUgdaELLYHE/export?format=csv&gid=0"
     try:
         df = pd.read_csv(sheet_url)
         
-        # BỘ TỪ ĐIỂN DỊCH TÊN CỘT TỪ TIẾNG TRUNG SANG BIẾN HỆ THỐNG
+        # COLUMN MAPPING
         col_map = {
             '產出鋼捲號碼': 'Coil_No', '鋼捲號碼': 'Coil_No', '鋼捲號': 'Coil_No', '卷号': 'Coil_No', 'Coil ID': 'Coil_No',
             '訂單號碼': 'Order_No', '訂單號': 'Order_No', '工單號': 'Order_No', '工單': 'Order_No', 
@@ -34,7 +34,6 @@ def load_and_prep_data():
             
         df = df.rename(columns=col_map)
         
-        # BẢO VỆ LỖI BỊ THIẾU CỘT
         if 'Line' not in df.columns: df['Line'] = 'Unknown Line'
         if 'Order_No' not in df.columns: df['Order_No'] = 'Unknown Order'
         if 'Coil_No' not in df.columns: df['Coil_No'] = 'Unknown Coil'
@@ -58,21 +57,19 @@ def load_and_prep_data():
         for c in num_cols:
             if c in df.columns: df[c] = pd.to_numeric(df[c], errors='coerce')
 
-        # --- DATA CLEANING & GLOBAL QC LOGIC ---
+        # DATA CLEANING
         df = df.dropna(subset=['Gloss_Lab', 'Ma_Son'])
         df = df[df['Gloss_Lab'] > 0] 
         invalid_codes = ['0', '00', '000', '0000', 'NA', 'N/A', 'NAN', 'NULL', 'NONE']
         df = df[~df['Ma_Son_Str'].isin(invalid_codes)]
         df = df[~df['Color_Code'].isin(invalid_codes)]
 
-        # ---> CHỐT CHẶN MỚI: XÓA SẠCH DỮ LIỆU KHÔNG CÓ GIỚI HẠN KIỂM SOÁT (LSL/USL) <---
         df = df.dropna(subset=['Gloss_LSL', 'Gloss_USL'])
         df = df[(df['Gloss_LSL'] > 0) & (df['Gloss_USL'] > 0)]
 
         df['Ngay_SX'] = pd.to_datetime(df['Ngay_SX'], errors='coerce').dt.date
         df['Online_Gloss_Top'] = df[['G_Top_N', 'G_Top_S']].mean(axis=1)
         
-        # ---> CHỐT CHẶN: XÓA SẠCH CÁC CUỘN CÓ GLOSS LINE = 0 HOẶC NA <---
         df = df.dropna(subset=['Online_Gloss_Top'])
         df = df[df['Online_Gloss_Top'] > 0]
 
@@ -87,10 +84,10 @@ def load_and_prep_data():
 df = load_and_prep_data()
 if df.empty: st.stop()
 
-# --- 3. SIDEBAR: NAVIGATION & SMART FILTERS ---
+# --- 3. SIDEBAR: NAVIGATION & FILTERS ---
 with st.sidebar:
-    # NÚT RESTART / REFRESH DATA
-    if st.button("🔄 Restart loaddata", use_container_width=True, type="primary"):
+    # REFRESH DATA BUTTON
+    if st.button("🔄 Refresh Data", use_container_width=True, type="primary"):
         st.cache_data.clear() 
         st.rerun()            
         
@@ -110,13 +107,13 @@ with st.sidebar:
         label_visibility="collapsed"
     )
     
-    # CÀI ĐẶT GIỚI HẠN LINH HOẠT (LIMIT SETTINGS)
+    # DYNAMIC LIMIT SETTINGS
     st.markdown("---")
     st.markdown("### ⚙️ Limit Settings")
-    line_offset = st.number_input("Biên độ Line (Line = Lab ± X)", value=2.0, step=0.5, help="Khoảng chênh lệch cho phép giữa Line và Lab")
+    line_offset = st.number_input("Line Offset (Line = Lab ± X)", value=2.0, step=0.5, help="Allowed deviation between Line and Lab limits")
 
     with st.expander("🛠️ Custom Gloss Limits", expanded=False):
-        st.caption("Nhập Mã Sơn (Ma_Son) để cài đặt giới hạn riêng.")
+        st.caption("Enter Paint Code to set custom control limits.")
         
         if "custom_gloss_rules" not in st.session_state:
             init_data = pd.DataFrame({
@@ -147,7 +144,7 @@ with st.sidebar:
     sel_col = st.selectbox("🎨 Color Group:", list_col)
 
 # ==============================================================================
-# ÁP DỤNG GIỚI HẠN ĐỘNG & TÍNH TOÁN PASS/FAIL (Làm ngoài hàm Cache)
+# APPLY LIMITS & CALC PASS/FAIL
 # ==============================================================================
 df['Line_LSL'] = df['Gloss_LSL'] - line_offset
 df['Line_USL'] = df['Gloss_USL'] + line_offset
@@ -176,7 +173,7 @@ df['Color_Pass'] = df['ΔE'] <= 1.0
 df['Final_Status'] = np.where(df['Gloss_Pass'] & df['Color_Pass'], '✅ PASS', '❌ FAIL/NG')
 
 # ==============================================================================
-# APPLY FILTERS
+# APPLY FILTERS TO DFF
 # ==============================================================================
 dff = df.copy()
 if len(date_range) == 2:
@@ -237,7 +234,7 @@ if view_mode == "🚀 Executive Overview":
         plt.legend()
         st.pyplot(fig_ov)
 
-    # --- BẢNG LỌC RIÊNG CÁC CUỘN LỖI ĐỘ BÓNG (GLOSS NG) ---
+    # --- GLOSS NG COILS DETAILED LIST ---
     dff_gloss_ng = dff[~dff['Gloss_Pass']].copy()
     gloss_ng_count = len(dff_gloss_ng)
 
@@ -271,11 +268,10 @@ if view_mode == "🚀 Executive Overview":
             use_container_width=True, hide_index=True
         )
 
-        # NÚT XUẤT EXCEL CHO BẢNG GLOSS NG
         st.markdown("<br>", unsafe_allow_html=True)
         csv_data = dff_gloss_ng_disp.to_csv(index=False).encode('utf-8-sig')
         st.download_button(
-            label="📥 Tải Danh sách NG (Mở bằng Excel)",
+            label="📥 Download NG List (CSV)",
             data=csv_data,
             file_name="Gloss_NG_Report.csv",
             mime="text/csv",
@@ -326,7 +322,7 @@ if view_mode == "🚀 Executive Overview":
                 st.markdown("<br>", unsafe_allow_html=True)
                 csv_focus = focus_display.to_csv(index=False).encode('utf-8-sig')
                 st.download_button(
-                    label="📥 Tải Bảng Smart Focus (Mở bằng Excel)",
+                    label="📥 Download Smart Focus (CSV)",
                     data=csv_focus,
                     file_name="Smart_Focus_Report.csv",
                     mime="text/csv",
@@ -346,10 +342,67 @@ if view_mode == "🚀 Executive Overview":
 elif view_mode == "✨ Gloss Analysis (SPC)":
     st.info("💡 SPC Analysis: Monitor the actual Gloss trend (Lab vs Line) across different production batches to detect process shifts.")
     
+    # EARLY WARNING RADAR
+    with st.expander("🚨 Early Warning Radar (Click to view at-risk codes)", expanded=True):
+        st.caption("This table automatically scans all data to identify paint codes that are Out of Spec (NG) or approaching the control limits (Margin ≤ 1.0 GU).")
+        
+        df_valid_radar = dff.dropna(subset=['Online_Gloss_Top', 'Line_LSL', 'Line_USL'])
+        if not df_valid_radar.empty:
+            risk_summary = df_valid_radar.groupby(['Ma_Son', 'Supplier']).agg(
+                Coils=('Online_Gloss_Top', 'count'),
+                Min_Gloss=('Online_Gloss_Top', 'min'),
+                Max_Gloss=('Online_Gloss_Top', 'max'),
+                LSL=('Line_LSL', 'first'),
+                USL=('Line_USL', 'first')
+            ).reset_index()
+
+            def check_risk(row):
+                if row['Min_Gloss'] < row['LSL'] or row['Max_Gloss'] > row['USL']:
+                    return '🔴 Out of Limit (NG)'
+                elif (row['Min_Gloss'] - row['LSL'] <= 1.0) or (row['USL'] - row['Max_Gloss'] <= 1.0):
+                    return '🟠 Near Limit (≤ 1.0 GU)'
+                return '🟢 Safe'
+
+            risk_summary['Status'] = risk_summary.apply(check_risk, axis=1)
+            risk_alert = risk_summary[risk_summary['Status'] != '🟢 Safe'].copy()
+
+            if not risk_alert.empty:
+                risk_alert = risk_alert.sort_values(by='Status', ascending=True)
+                risk_alert.columns = ['Paint Code', 'Supplier', 'Coils', 'Gloss Min', 'Gloss Max', 'Line LSL', 'Line USL', 'Status']
+
+                def highlight_status(val):
+                    if '🔴' in str(val): return 'color: white; background-color: #e74c3c; font-weight: bold;'
+                    if '🟠' in str(val): return 'color: white; background-color: #f39c12; font-weight: bold;'
+                    return ''
+
+                st.dataframe(
+                    risk_alert.style.format({
+                        'Gloss Min': '{:.1f}', 'Gloss Max': '{:.1f}', 'Line LSL': '{:.1f}', 'Line USL': '{:.1f}'
+                    }).map(highlight_status, subset=['Status']),
+                    use_container_width=True, hide_index=True
+                )
+            else:
+                st.success("🎉 No paint codes are out of limits or critically near limits at this time!")
+
+    st.markdown("---")
+
     list_ma_son_tab2 = sorted(dff['Ma_Son'].dropna().unique().tolist())
     
     if list_ma_son_tab2:
-        sel_ma_son_tab2 = st.selectbox("🎯 Select Full Paint Code:", list_ma_son_tab2)
+        # SMART SEARCH BAR
+        col_search1, col_search2 = st.columns([1, 2])
+        with col_search1:
+            search_keyword = st.text_input("🔍 Quick Search Paint Code:", "", placeholder="Type part of code (e.g., SC8, 14SE...)").upper()
+        
+        filtered_list = [code for code in list_ma_son_tab2 if search_keyword in str(code).upper()]
+        
+        with col_search2:
+            if filtered_list:
+                sel_ma_son_tab2 = st.selectbox(f"🎯 Select Paint Code ({len(filtered_list)} found):", filtered_list)
+            else:
+                st.warning(f"❌ No paint code found containing '{search_keyword}'")
+                st.stop()
+
         dff_g = dff[dff['Ma_Son'] == sel_ma_son_tab2].copy()
         
         dff_g = dff_g.dropna(subset=['Gloss_LSL', 'Gloss_USL', 'Gloss_Lab', 'Online_Gloss_Top'])
@@ -376,10 +429,10 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
             
             st.success(f"📅 **Timeframe:** `{min_date}` to `{max_date}` | **Volume:** `{so_lo}` Batches (`{so_cuon}` Coils).")
 
-            # --- 🚀 TREND LINE ---
+            # --- TREND LINE ---
             st.markdown("---")
             st.subheader(f"📈 Gloss Trend Line (Lab vs Line by Batch) - {sel_ma_son_tab2}")
-            st.caption("Tracks the Lab Gloss and average Line Gloss for each production batch against the specification limits (Lab and Line).")
+            st.caption("Tracks the Lab Gloss and average Line Gloss for each production batch against the specification limits.")
             
             dff_batch = dff_g.groupby('Batch_Lot', as_index=False).agg({
                 'Ngay_SX': 'min',
@@ -416,9 +469,7 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
             plt.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
             st.pyplot(fig_trend)
 
-            # =========================================================
-            # THÊM MỚI: BẢNG THỐNG KÊ CÁC BATCH VƯỢT GIỚI HẠN (NG)
-            # =========================================================
+            # NG BATCHES LIST
             st.markdown("---")
             st.subheader("🚨 Out of Spec Batches (Gloss NG)")
             
@@ -445,7 +496,7 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
                 ng_display = ng_batches[['Batch_Lot', 'Ngay_SX', 'Gloss_Lab', 'Online_Gloss_Top', 'Error Details']].copy()
                 ng_display.columns = ['Batch Lot', 'Production Date', 'Lab Gloss', 'Avg Line Gloss', 'Error Details']
                 
-                st.error(f"⚠️ Phát hiện **{len(ng_batches)} lô** vi phạm giới hạn kiểm soát độ bóng!")
+                st.error(f"⚠️ Detected **{len(ng_batches)} batches** violating gloss control limits!")
                 
                 st.dataframe(
                     ng_display.style.format({
@@ -459,9 +510,9 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
                     use_container_width=True, hide_index=True
                 )
             else:
-                st.success("✅ Tuyệt vời! Tất cả các lô trong giai đoạn này đều đạt chuẩn độ bóng (Lab & Line).")
+                st.success("✅ Excellent! All batches in this period meet gloss standards (Lab & Line).")
 
-            # --- BẢNG BATCH DETAILS ---
+            # --- BATCH DETAILS ---
             st.markdown("---")
             st.write("### 🔍 Full Batch Details")
             
