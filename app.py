@@ -79,21 +79,6 @@ def load_and_prep_data():
         df['ΔE'] = df[['dE_N', 'dE_S']].mean(axis=1)
         df['Gap_Gloss'] = df['Online_Gloss_Top'] - df['Gloss_Lab']
         
-        # TẠO CỘT GIỚI HẠN LINE (+/- 2 SO VỚI LAB)
-        df['Line_LSL'] = df['Gloss_LSL'] - 2.0
-        df['Line_USL'] = df['Gloss_USL'] + 2.0
-        
-        # 1. ĐÁNH GIÁ LAB: Phải nằm nghiêm ngặt trong [LSL, USL]
-        df['Lab_Pass'] = (df['Gloss_Lab'] >= df['Gloss_LSL']) & (df['Gloss_Lab'] <= df['Gloss_USL'])
-        
-        # 2. ĐÁNH GIÁ LINE: Được phép nới rộng theo giới hạn mới
-        df['Line_Pass'] = (df['Online_Gloss_Top'] >= df['Line_LSL']) & (df['Online_Gloss_Top'] <= df['Line_USL'])
-        
-        # 3. GỘP LOGIC TOÀN APP
-        df['Gloss_Pass'] = df['Lab_Pass'] & df['Line_Pass']
-        df['Color_Pass'] = df['ΔE'] <= 1.0
-        df['Final_Status'] = np.where(df['Gloss_Pass'] & df['Color_Pass'], '✅ PASS', '❌ FAIL/NG')
-
         return df.dropna(subset=['Supplier', 'Ngay_SX']).sort_values('Ngay_SX')
     except Exception as e:
         st.error(f"⚠️ System Error: {e}")
@@ -104,6 +89,13 @@ if df.empty: st.stop()
 
 # --- 3. SIDEBAR: NAVIGATION & SMART FILTERS ---
 with st.sidebar:
+    # NÚT RESTART / REFRESH DATA
+    if st.button("🔄 Cập nhật dữ liệu mới", use_container_width=True, type="primary"):
+        st.cache_data.clear() 
+        st.rerun()            
+        
+    st.markdown("---")
+    
     st.markdown("### 📊 View Mode")
     view_mode = st.radio(
         "Select Analysis View:",
@@ -118,6 +110,27 @@ with st.sidebar:
         label_visibility="collapsed"
     )
     
+    # CÀI ĐẶT GIỚI HẠN LINH HOẠT (LIMIT SETTINGS)
+    st.markdown("---")
+    st.markdown("### ⚙️ Limit Settings")
+    line_offset = st.number_input("Biên độ Line (Line = Lab ± X)", value=2.0, step=0.5, help="Khoảng chênh lệch cho phép giữa Line và Lab")
+
+    with st.expander("🛠️ Custom Gloss Limits", expanded=False):
+        st.caption("Nhập Mã Sơn (Ma_Son) để cài đặt giới hạn riêng.")
+        
+        if "custom_gloss_rules" not in st.session_state:
+            init_data = pd.DataFrame({
+                "Ma_Son": ["", "", ""],
+                "Lab_LSL": [0.0, 0.0, 0.0],
+                "Lab_USL": [0.0, 0.0, 0.0],
+                "Line_LSL": [0.0, 0.0, 0.0],
+                "Line_USL": [0.0, 0.0, 0.0]
+            })
+            st.session_state["custom_gloss_rules"] = init_data
+
+        edited_rules = st.data_editor(st.session_state["custom_gloss_rules"], num_rows="dynamic", hide_index=True)
+        st.session_state["custom_gloss_rules"] = edited_rules
+
     st.markdown("---")
     st.markdown("### 🔍 Data Filters")
     
@@ -132,15 +145,47 @@ with st.sidebar:
     
     list_col = ['All'] + sorted(df['Color_Group'].unique().tolist())
     sel_col = st.selectbox("🎨 Color Group:", list_col)
-    
-    # APPLY FILTERS
-    dff = df.copy()
-    if len(date_range) == 2:
-        dff = dff[(dff['Ngay_SX'] >= date_range[0]) & (dff['Ngay_SX'] <= date_range[1])]
-    if sel_sup != 'All': dff = dff[dff['Supplier'] == sel_sup]
-    if sel_res != 'All': dff = dff[dff['Coating_Type'] == sel_res]
-    if sel_col != 'All': dff = dff[dff['Color_Group'] == sel_col]
-    
+
+# ==============================================================================
+# ÁP DỤNG GIỚI HẠN ĐỘNG & TÍNH TOÁN PASS/FAIL (Làm ngoài hàm Cache)
+# ==============================================================================
+df['Line_LSL'] = df['Gloss_LSL'] - line_offset
+df['Line_USL'] = df['Gloss_USL'] + line_offset
+
+custom_df = st.session_state["custom_gloss_rules"].dropna(subset=["Ma_Son"])
+custom_df = custom_df[custom_df["Ma_Son"].str.strip() != ""]
+
+for _, rule in custom_df.iterrows():
+    ma_son = str(rule["Ma_Son"]).strip()
+    mask = df["Ma_Son"] == ma_son
+
+    if mask.any():
+        if pd.notna(rule["Lab_LSL"]) and rule["Lab_LSL"] > 0:
+            df.loc[mask, 'Gloss_LSL'] = float(rule["Lab_LSL"])
+        if pd.notna(rule["Lab_USL"]) and rule["Lab_USL"] > 0:
+            df.loc[mask, 'Gloss_USL'] = float(rule["Lab_USL"])
+        if pd.notna(rule["Line_LSL"]) and rule["Line_LSL"] > 0:
+            df.loc[mask, 'Line_LSL'] = float(rule["Line_LSL"])
+        if pd.notna(rule["Line_USL"]) and rule["Line_USL"] > 0:
+            df.loc[mask, 'Line_USL'] = float(rule["Line_USL"])
+
+df['Lab_Pass'] = (df['Gloss_Lab'] >= df['Gloss_LSL']) & (df['Gloss_Lab'] <= df['Gloss_USL'])
+df['Line_Pass'] = (df['Online_Gloss_Top'] >= df['Line_LSL']) & (df['Online_Gloss_Top'] <= df['Line_USL'])
+df['Gloss_Pass'] = df['Lab_Pass'] & df['Line_Pass']
+df['Color_Pass'] = df['ΔE'] <= 1.0
+df['Final_Status'] = np.where(df['Gloss_Pass'] & df['Color_Pass'], '✅ PASS', '❌ FAIL/NG')
+
+# ==============================================================================
+# APPLY FILTERS
+# ==============================================================================
+dff = df.copy()
+if len(date_range) == 2:
+    dff = dff[(dff['Ngay_SX'] >= date_range[0]) & (dff['Ngay_SX'] <= date_range[1])]
+if sel_sup != 'All': dff = dff[dff['Supplier'] == sel_sup]
+if sel_res != 'All': dff = dff[dff['Coating_Type'] == sel_res]
+if sel_col != 'All': dff = dff[dff['Color_Group'] == sel_col]
+
+with st.sidebar:
     st.markdown("---")
     st.caption(f"📦 Showing: {len(dff)} coils (Invalid codes filtered out)")
 
@@ -149,13 +194,11 @@ st.title(view_mode)
 st.markdown("---")
 
 # ==========================================
-# ==========================================
 # VIEW 1: OVERVIEW (EXECUTIVE SUMMARY)
 # ==========================================
 if view_mode == "🚀 Executive Overview":
     st.info("💡 Factory-wide performance overview. To analyze Gloss for specific color codes, navigate to the 'Gloss Analysis (SPC)' tab.")
     
-    # LỌC DỮ LIỆU RÁC CHO CHỈ SỐ GAP
     dff_valid_gap = dff.dropna(subset=['Online_Gloss_Top', 'Gloss_Lab'])
     dff_valid_gap = dff_valid_gap[(dff_valid_gap['Online_Gloss_Top'] > 0) & (dff_valid_gap['Gloss_Lab'] > 0)]
     
@@ -196,7 +239,6 @@ if view_mode == "🚀 Executive Overview":
 
     # --- BẢNG LỌC RIÊNG CÁC CUỘN LỖI ĐỘ BÓNG (GLOSS NG) ---
     dff_gloss_ng = dff[~dff['Gloss_Pass']].copy()
-
     gloss_ng_count = len(dff_gloss_ng)
 
     if gloss_ng_count > 0:
@@ -264,8 +306,6 @@ if view_mode == "🚀 Executive Overview":
             ).reset_index()
 
             focus_df = pd.merge(focus_total, focus_ng, on=['Ma_Son', 'Supplier'], how='inner')
-
-            # CHỐT CHẶN: >= 3 LÔ NG
             focus_df = focus_df[focus_df['NG_Batches'] >= 3]
 
             if not focus_df.empty:
@@ -283,7 +323,6 @@ if view_mode == "🚀 Executive Overview":
                     use_container_width=True, hide_index=True
                 )
                 
-                # ---> NÚT XUẤT EXCEL CHO BẢNG SMART FOCUS <---
                 st.markdown("<br>", unsafe_allow_html=True)
                 csv_focus = focus_display.to_csv(index=False).encode('utf-8-sig')
                 st.download_button(
@@ -300,6 +339,7 @@ if view_mode == "🚀 Executive Overview":
             st.success("🎉 Excellent! No paint codes have 3 or more batches exceeding Gloss control limits.")
     else:
         st.warning("No valid data available for Smart Focus analysis.")
+
 # ==========================================
 # VIEW 2: GLOSS ANALYSIS (SPC)
 # ==========================================
@@ -375,10 +415,55 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
             
             plt.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
             st.pyplot(fig_trend)
+
+            # =========================================================
+            # THÊM MỚI: BẢNG THỐNG KÊ CÁC BATCH VƯỢT GIỚI HẠN (NG)
+            # =========================================================
+            st.markdown("---")
+            st.subheader("🚨 Out of Spec Batches (Gloss NG)")
             
+            ng_batches = dff_batch[
+                (dff_batch['Gloss_Lab'] < dff_batch['Gloss_LSL']) | 
+                (dff_batch['Gloss_Lab'] > dff_batch['Gloss_USL']) | 
+                (dff_batch['Online_Gloss_Top'] < dff_batch['Line_LSL']) | 
+                (dff_batch['Online_Gloss_Top'] > dff_batch['Line_USL'])
+            ].copy()
+            
+            if not ng_batches.empty:
+                def get_batch_error(row):
+                    errs = []
+                    if row['Gloss_Lab'] < row['Gloss_LSL']: errs.append(f"Lab Low (<{row['Gloss_LSL']:.1f})")
+                    elif row['Gloss_Lab'] > row['Gloss_USL']: errs.append(f"Lab High (>{row['Gloss_USL']:.1f})")
+                    
+                    if row['Online_Gloss_Top'] < row['Line_LSL']: errs.append(f"Line Low (<{row['Line_LSL']:.1f})")
+                    elif row['Online_Gloss_Top'] > row['Line_USL']: errs.append(f"Line High (>{row['Line_USL']:.1f})")
+                    
+                    return " + ".join(errs)
+                    
+                ng_batches['Error Details'] = ng_batches.apply(get_batch_error, axis=1)
+                
+                ng_display = ng_batches[['Batch_Lot', 'Ngay_SX', 'Gloss_Lab', 'Online_Gloss_Top', 'Error Details']].copy()
+                ng_display.columns = ['Batch Lot', 'Production Date', 'Lab Gloss', 'Avg Line Gloss', 'Error Details']
+                
+                st.error(f"⚠️ Phát hiện **{len(ng_batches)} lô** vi phạm giới hạn kiểm soát độ bóng!")
+                
+                st.dataframe(
+                    ng_display.style.format({
+                        'Lab Gloss': '{:.1f}', 
+                        'Avg Line Gloss': '{:.1f}'
+                    }).set_properties(**{
+                        'background-color': '#ffebee', 
+                        'color': '#c0392b', 
+                        'font-weight': 'bold'
+                    }, subset=['Error Details']),
+                    use_container_width=True, hide_index=True
+                )
+            else:
+                st.success("✅ Tuyệt vời! Tất cả các lô trong giai đoạn này đều đạt chuẩn độ bóng (Lab & Line).")
+
             # --- BẢNG BATCH DETAILS ---
             st.markdown("---")
-            st.write("### 🔍 Batch Details")
+            st.write("### 🔍 Full Batch Details")
             
             batch_table = dff_batch[['Batch_Lot', 'Order_No', 'Line', 'Ngay_SX', 'Gloss_LSL', 'Gloss_USL', 'Gloss_Lab', 'Line_LSL', 'Line_USL', 'Online_Gloss_Top']].copy()
             batch_table['Gap (Line - Lab)'] = batch_table['Online_Gloss_Top'] - batch_table['Gloss_Lab']
@@ -444,7 +529,6 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
                 sns.boxplot(data=df_melt, x='Measurement', y='Gloss', palette=['#3498db', '#e67e22'], width=0.4, showfliers=False, ax=ax_g2)
                 sns.stripplot(data=df_melt, x='Measurement', y='Gloss', color='black', alpha=0.4, size=4, jitter=True, ax=ax_g2)
                 
-                # Vẽ vạch cho Boxplot
                 ax_g2.axhline(lsl_val, color='red', ls='-', lw=1.5)
                 ax_g2.axhline(usl_val, color='red', ls='-', lw=1.5)
                 ax_g2.axhline(line_lsl_val, color='orange', ls='--', lw=1.5, alpha=0.7)
