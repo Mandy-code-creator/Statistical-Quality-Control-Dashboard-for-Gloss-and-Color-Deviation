@@ -584,9 +584,9 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
 
         with tab_top_risk:
             st.markdown("### Top 10 Paint Codes Approaching or Exceeding Limits")
-            st.caption("Only displaying codes with ≥ 3 production batches.")
+            st.caption("Only displaying codes with ≥ 5 production batches.")
             if not risk_alert.empty:
-                # Lấy Top 10 mã (đã lọc >= 3 batch từ trên xuống)
+                # Lấy Top 10 mã (đã lọc >= 5 batch từ trên xuống)
                 top_10_codes = risk_alert['Paint Code'].head(10).tolist()
                 for i, code in enumerate(top_10_codes):
                     st.markdown(f"#### #{i+1}: Paint Code `{code}`")
