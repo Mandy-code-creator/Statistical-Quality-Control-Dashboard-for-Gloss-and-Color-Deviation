@@ -338,21 +338,23 @@ if view_mode == "🚀 Executive Overview":
 
 # ==========================================
 # ==========================================
+# ==========================================
 # VIEW 2: GLOSS ANALYSIS (SPC)
 # ==========================================
 elif view_mode == "✨ Gloss Analysis (SPC)":
     st.info("💡 SPC Analysis: Monitor the actual Gloss trend (Lab vs Line) across different production batches to detect process shifts.")
     
     # =========================================================
-    # EARLY WARNING RADAR
+    # EARLY WARNING RADAR (NOW FILTERED FOR >= 3 BATCHES)
     # =========================================================
     risk_alert = pd.DataFrame()
     with st.expander("🚨 Early Warning Radar (Click to view at-risk codes)", expanded=True):
-        st.caption("This table automatically scans all data to identify paint codes that are Out of Spec (NG) or approaching the control limits (Margin ≤ 1.0 GU).")
+        st.caption("This table automatically scans data to identify paint codes (≥ 3 Batches produced) that are Out of Spec (NG) or approaching the control limits (Margin ≤ 1.0 GU).")
         
-        df_valid_radar = dff.dropna(subset=['Online_Gloss_Top', 'Line_LSL', 'Line_USL'])
+        df_valid_radar = dff.dropna(subset=['Online_Gloss_Top', 'Line_LSL', 'Line_USL', 'Batch_Lot'])
         if not df_valid_radar.empty:
             risk_summary = df_valid_radar.groupby(['Ma_Son', 'Supplier']).agg(
+                Batches=('Batch_Lot', 'nunique'), # TÍNH SỐ LƯỢNG LÔ (BATCH)
                 Coils=('Online_Gloss_Top', 'count'),
                 Min_Gloss=('Online_Gloss_Top', 'min'),
                 Max_Gloss=('Online_Gloss_Top', 'max'),
@@ -360,33 +362,40 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
                 USL=('Line_USL', 'first')
             ).reset_index()
 
-            def check_risk(row):
-                if row['Min_Gloss'] < row['LSL'] or row['Max_Gloss'] > row['USL']:
-                    return '🔴 Out of Limit (NG)'
-                elif (row['Min_Gloss'] - row['LSL'] <= 1.0) or (row['USL'] - row['Max_Gloss'] <= 1.0):
-                    return '🟠 Near Limit (≤ 1.0 GU)'
-                return '🟢 Safe'
+            # ---> CHỐT CHẶN: CHỈ LẤY CÁC MÃ CÓ TỪ 3 BATCH TRỞ LÊN <---
+            risk_summary = risk_summary[risk_summary['Batches'] >= 3].copy()
 
-            risk_summary['Status'] = risk_summary.apply(check_risk, axis=1)
-            risk_alert = risk_summary[risk_summary['Status'] != '🟢 Safe'].copy()
+            if not risk_summary.empty:
+                def check_risk(row):
+                    if row['Min_Gloss'] < row['LSL'] or row['Max_Gloss'] > row['USL']:
+                        return '🔴 Out of Limit (NG)'
+                    elif (row['Min_Gloss'] - row['LSL'] <= 1.0) or (row['USL'] - row['Max_Gloss'] <= 1.0):
+                        return '🟠 Near Limit (≤ 1.0 GU)'
+                    return '🟢 Safe'
 
-            if not risk_alert.empty:
-                risk_alert = risk_alert.sort_values(by='Status', ascending=True)
-                risk_alert.columns = ['Paint Code', 'Supplier', 'Coils', 'Gloss Min', 'Gloss Max', 'Line LSL', 'Line USL', 'Status']
+                risk_summary['Status'] = risk_summary.apply(check_risk, axis=1)
+                risk_alert = risk_summary[risk_summary['Status'] != '🟢 Safe'].copy()
 
-                def highlight_status(val):
-                    if '🔴' in str(val): return 'color: white; background-color: #e74c3c; font-weight: bold;'
-                    if '🟠' in str(val): return 'color: white; background-color: #f39c12; font-weight: bold;'
-                    return ''
+                if not risk_alert.empty:
+                    risk_alert = risk_alert.sort_values(by='Status', ascending=True)
+                    # Bổ sung cột Batches vào bảng hiển thị
+                    risk_alert.columns = ['Paint Code', 'Supplier', 'Batches', 'Coils', 'Gloss Min', 'Gloss Max', 'Line LSL', 'Line USL', 'Status']
 
-                st.dataframe(
-                    risk_alert.style.format({
-                        'Gloss Min': '{:.1f}', 'Gloss Max': '{:.1f}', 'Line LSL': '{:.1f}', 'Line USL': '{:.1f}'
-                    }).map(highlight_status, subset=['Status']),
-                    use_container_width=True, hide_index=True
-                )
+                    def highlight_status(val):
+                        if '🔴' in str(val): return 'color: white; background-color: #e74c3c; font-weight: bold;'
+                        if '🟠' in str(val): return 'color: white; background-color: #f39c12; font-weight: bold;'
+                        return ''
+
+                    st.dataframe(
+                        risk_alert.style.format({
+                            'Gloss Min': '{:.1f}', 'Gloss Max': '{:.1f}', 'Line LSL': '{:.1f}', 'Line USL': '{:.1f}'
+                        }).map(highlight_status, subset=['Status']),
+                        use_container_width=True, hide_index=True
+                    )
+                else:
+                    st.success("🎉 No paint codes (with ≥ 3 batches) are out of limits or critically near limits at this time!")
             else:
-                st.success("🎉 No paint codes are out of limits or critically near limits at this time!")
+                st.info("Not enough data. No paint codes have reached the minimum requirement of 3 batches.")
 
     st.markdown("---")
 
@@ -552,7 +561,7 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
             st.pyplot(fig_g2)
             plt.close(fig_g2)
 
-        # Khép Data Details vào Expander để tránh làm màn hình quá dài
+        # Khép Data Details vào Expander
         with st.expander("🔍 View Full Batch Details", expanded=False):
             batch_table = dff_batch[['Batch_Lot', 'Order_No', 'Line', 'Ngay_SX', 'Gloss_LSL', 'Gloss_USL', 'Gloss_Lab', 'Line_LSL', 'Line_USL', 'Online_Gloss_Top']].copy()
             batch_table['Gap (Line - Lab)'] = batch_table['Online_Gloss_Top'] - batch_table['Gloss_Lab']
@@ -575,8 +584,9 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
 
         with tab_top_risk:
             st.markdown("### Top 10 Paint Codes Approaching or Exceeding Limits")
+            st.caption("Only displaying codes with ≥ 3 production batches.")
             if not risk_alert.empty:
-                # Lấy Top 10 mã (đã tự động sort độ nguy hiểm từ hàm Radar ở trên)
+                # Lấy Top 10 mã (đã lọc >= 3 batch từ trên xuống)
                 top_10_codes = risk_alert['Paint Code'].head(10).tolist()
                 for i, code in enumerate(top_10_codes):
                     st.markdown(f"#### #{i+1}: Paint Code `{code}`")
@@ -602,7 +612,6 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
             
             st.markdown("---")
             render_spc_analysis(sel_ma_son_tab2, dff, key_suffix="custom")
-
 # ==========================================
 # VIEW 3: COLOR DEVIATION
 # ==========================================
