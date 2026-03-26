@@ -197,49 +197,78 @@ if view_mode == "✨ Gloss Analysis (SPC)":
     st.info("💡 SPC Analysis: Monitor the actual Gloss trend (Lab vs Line) across different production batches to detect process shifts.")
     
     # =========================================================
-    # EARLY WARNING RADAR (NOW FILTERED FOR >= 5 BATCHES)
+    # =========================================================
+    # EARLY WARNING RADAR (NOW INCLUDES LAB/LINE ISSUE SOURCE)
     # =========================================================
     risk_alert = pd.DataFrame()
     with st.expander("🚨 Early Warning Radar (Click to view at-risk codes)", expanded=True):
         st.caption("This table automatically scans data to identify paint codes (≥ 5 Batches produced) that are Out of Spec (NG) or approaching the control limits (Margin ≤ 1.0 GU).")
         
-        df_valid_radar = dff.dropna(subset=['Online_Gloss_Top', 'Line_LSL', 'Line_USL', 'Batch_Lot'])
+        # Bổ sung quét cả dữ liệu Lab và Line
+        df_valid_radar = dff.dropna(subset=['Online_Gloss_Top', 'Line_LSL', 'Line_USL', 'Gloss_Lab', 'Gloss_LSL', 'Gloss_USL', 'Batch_Lot'])
+        
         if not df_valid_radar.empty:
             risk_summary = df_valid_radar.groupby(['Ma_Son', 'Supplier']).agg(
                 Batches=('Batch_Lot', 'nunique'), 
                 Coils=('Online_Gloss_Top', 'count'),
-                Min_Gloss=('Online_Gloss_Top', 'min'),
-                Max_Gloss=('Online_Gloss_Top', 'max'),
-                LSL=('Line_LSL', 'first'),
-                USL=('Line_USL', 'first')
+                Line_Min=('Online_Gloss_Top', 'min'),
+                Line_Max=('Online_Gloss_Top', 'max'),
+                Line_LSL=('Line_LSL', 'first'),
+                Line_USL=('Line_USL', 'first'),
+                Lab_Min=('Gloss_Lab', 'min'),
+                Lab_Max=('Gloss_Lab', 'max'),
+                Lab_LSL=('Gloss_LSL', 'first'),
+                Lab_USL=('Gloss_USL', 'first')
             ).reset_index()
 
             risk_summary = risk_summary[risk_summary['Batches'] >= 5].copy()
 
             if not risk_summary.empty:
+                # Hàm kiểm tra 2 lớp (Line và Lab)
                 def check_risk(row):
-                    if row['Min_Gloss'] < row['LSL'] or row['Max_Gloss'] > row['USL']:
-                        return '🔴 Out of Limit (NG)'
-                    elif (row['Min_Gloss'] - row['LSL'] <= 1.0) or (row['USL'] - row['Max_Gloss'] <= 1.0):
-                        return '🟠 Near Limit (≤ 1.0 GU)'
-                    return '🟢 Safe'
+                    line_ng = row['Line_Min'] < row['Line_LSL'] or row['Line_Max'] > row['Line_USL']
+                    lab_ng = row['Lab_Min'] < row['Lab_LSL'] or row['Lab_Max'] > row['Lab_USL']
+                    
+                    line_near = (row['Line_Min'] - row['Line_LSL'] <= 1.0) or (row['Line_USL'] - row['Line_Max'] <= 1.0)
+                    lab_near = (row['Lab_Min'] - row['Lab_LSL'] <= 1.0) or (row['Lab_USL'] - row['Lab_Max'] <= 1.0)
+                    
+                    source = []
+                    status = '🟢 Safe'
+                    
+                    if line_ng or lab_ng:
+                        status = '🔴 Out of Limit (NG)'
+                        if lab_ng: source.append("Lab")
+                        if line_ng: source.append("Line")
+                    elif line_near or lab_near:
+                        status = '🟠 Near Limit (≤ 1.0 GU)'
+                        if lab_near: source.append("Lab")
+                        if line_near: source.append("Line")
+                        
+                    return pd.Series([status, " + ".join(source) if source else "-"])
 
-                risk_summary['Status'] = risk_summary.apply(check_risk, axis=1)
+                risk_summary[['Status', 'Issue Source']] = risk_summary.apply(check_risk, axis=1)
                 risk_alert = risk_summary[risk_summary['Status'] != '🟢 Safe'].copy()
 
                 if not risk_alert.empty:
                     risk_alert = risk_alert.sort_values(by='Status', ascending=True)
-                    risk_alert.columns = ['Paint Code', 'Supplier', 'Batches', 'Coils', 'Gloss Min', 'Gloss Max', 'Line LSL', 'Line USL', 'Status']
+                    # Sắp xếp lại cột cho trực quan
+                    risk_alert = risk_alert[['Ma_Son', 'Supplier', 'Batches', 'Coils', 'Issue Source', 'Lab_Min', 'Lab_Max', 'Line_Min', 'Line_Max', 'Status']]
+                    risk_alert.columns = ['Paint Code', 'Supplier', 'Batches', 'Coils', 'Issue Source', 'Lab Min', 'Lab Max', 'Line Min', 'Line Max', 'Status']
 
                     def highlight_status(val):
                         if '🔴' in str(val): return 'color: white; background-color: #e74c3c; font-weight: bold;'
                         if '🟠' in str(val): return 'color: white; background-color: #f39c12; font-weight: bold;'
                         return ''
+                    
+                    def highlight_source(val):
+                        if 'Lab' in str(val) or 'Line' in str(val): return 'font-weight: bold; color: #d35400;'
+                        return ''
 
                     st.dataframe(
                         risk_alert.style.format({
-                            'Gloss Min': '{:.1f}', 'Gloss Max': '{:.1f}', 'Line LSL': '{:.1f}', 'Line USL': '{:.1f}'
-                        }).map(highlight_status, subset=['Status']),
+                            'Lab Min': '{:.1f}', 'Lab Max': '{:.1f}', 'Line Min': '{:.1f}', 'Line Max': '{:.1f}'
+                        }).map(highlight_status, subset=['Status'])
+                          .map(highlight_source, subset=['Issue Source']),
                         use_container_width=True, hide_index=True
                     )
                 else:
@@ -248,7 +277,6 @@ if view_mode == "✨ Gloss Analysis (SPC)":
                 st.info("Not enough data. No paint codes have reached the minimum requirement of 5 batches.")
 
     st.markdown("---")
-
     # =========================================================
     # REUSABLE FUNCTION TO RENDER SPC CHARTS FOR A PAINT CODE
     # =========================================================
