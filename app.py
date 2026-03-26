@@ -97,6 +97,7 @@ with st.sidebar:
     view_mode = st.radio(
         "Select Analysis View:",
         [
+            "🚀 Executive Overview",
             "✨ Gloss Analysis (SPC)",
             "🎨 Color & ΔE Analysis",
             "⚖️ Process Uniformity",
@@ -189,9 +190,157 @@ with st.sidebar:
 st.title(view_mode)
 st.markdown("---")
 
-# ==========================================
 
 # ==========================================
+# VIEW 1: OVERVIEW (EXECUTIVE SUMMARY)
+# ==========================================
+if view_mode == "🚀 Executive Overview":
+    st.info("💡 Factory-wide performance overview. To analyze Gloss for specific color codes, navigate to the 'Gloss Analysis (SPC)' tab.")
+    
+    dff_valid_gap = dff.dropna(subset=['Online_Gloss_Top', 'Gloss_Lab'])
+    dff_valid_gap = dff_valid_gap[(dff_valid_gap['Online_Gloss_Top'] > 0) & (dff_valid_gap['Gloss_Lab'] > 0)]
+    
+    k1, k2, k3, k4 = st.columns(4)
+    total_coils = len(dff)
+    k1.metric("📦 Total Production", f"{total_coils} coils")
+    
+    yield_rate = (dff['Final_Status'] == '✅ PASS').mean() * 100 if total_coils > 0 else 0
+    k2.metric("✅ Pass Rate (Yield %)", f"{yield_rate:.1f}%")
+    
+    ng_count = (dff['Final_Status'] == '❌ FAIL/NG').sum()
+    k3.metric("🚨 Total NG Coils", f"{ng_count} coils", delta_color="inverse")
+    
+    avg_gap = dff_valid_gap['Gap_Gloss'].mean() if not dff_valid_gap.empty else 0
+    k4.metric("⚖️ Lab vs Line Gap (Avg)", f"{avg_gap:.1f} GU")
+
+    st.markdown("---")
+    
+    # --- GLOSS NG COILS DETAILED LIST (MOVED TO TOP OF VIEW 1) ---
+    dff_gloss_ng = dff[~dff['Gloss_Pass']].copy()
+    gloss_ng_count = len(dff_gloss_ng)
+
+    if gloss_ng_count > 0:
+        st.error(f"🚨 ACTION REQUIRED: Detailed List of {gloss_ng_count} Gloss NG Coils (Out of Spec)")
+        
+        def get_error_type(row):
+            errors = []
+            if not row['Lab_Pass']:
+                errors.append("Lab NG")
+            if row['Online_Gloss_Top'] < row['Line_LSL']:
+                errors.append(f"Line Low (< {row['Line_LSL']})")
+            elif row['Online_Gloss_Top'] > row['Line_USL']:
+                errors.append(f"Line High (> {row['Line_USL']})")
+            return " + ".join(errors) if errors else "Unknown"
+            
+        dff_gloss_ng['Error_Type'] = dff_gloss_ng.apply(get_error_type, axis=1)
+        
+        dff_gloss_ng_disp = dff_gloss_ng[['Ngay_SX', 'Coil_No', 'Batch_Lot', 'Ma_Son', 'Supplier', 'Gloss_Lab', 'Gloss_LSL', 'Gloss_USL', 'Online_Gloss_Top', 'Line_LSL', 'Line_USL', 'Error_Type']]
+        dff_gloss_ng_disp.columns = ['Production Date', 'Coil ID', 'Batch Lot', 'Paint Code', 'Supplier', 'Gloss Lab', 'Lab LSL', 'Lab USL', 'Gloss Line', 'Line LSL', 'Line USL', 'Error Type']
+        
+        def highlight_errors(val):
+            return 'color: #e74c3c; font-weight: bold;'
+        
+        st.dataframe(
+            dff_gloss_ng_disp.style.format({
+                'Gloss Lab': '{:.1f}', 'Gloss Line': '{:.1f}', 
+                'Lab LSL': '{:.0f}', 'Lab USL': '{:.0f}',
+                'Line LSL': '{:.0f}', 'Line USL': '{:.0f}'
+            }).map(highlight_errors, subset=['Error Type']),
+            use_container_width=True, hide_index=True
+        )
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        csv_data = dff_gloss_ng_disp.to_csv(index=False).encode('utf-8-sig')
+        st.download_button(
+            label="📥 Download NG List (CSV)",
+            data=csv_data,
+            file_name="Gloss_NG_Report.csv",
+            mime="text/csv",
+        )
+    else:
+        st.success("✅ Excellent! No Gloss NG Coils detected in the current timeframe.")
+
+    st.markdown("---")
+    st.subheader("📉 Factory Yield Trend by Date")
+    
+    if not dff.empty:
+        daily_yield = dff.groupby('Ngay_SX').apply(
+            lambda x: (x['Final_Status'] == '✅ PASS').mean() * 100
+        ).reset_index()
+        daily_yield.columns = ['Ngay_SX', 'Yield_Rate']
+        
+        fig_ov, ax_ov = plt.subplots(figsize=(15, 4))
+        sns.lineplot(data=daily_yield, x='Ngay_SX', y='Yield_Rate', marker='o', color='#2ca02c', linewidth=2, ax=ax_ov)
+        
+        ax_ov.axhline(100, color='gray', ls='--', alpha=0.5) 
+        ax_ov.axhline(95, color='orange', ls='--', label='Warning (95%)') 
+        
+        ax_ov.set_ylim(min(80, daily_yield['Yield_Rate'].min() - 5), 105)
+        ax_ov.set_xlabel("Production Date")
+        ax_ov.set_ylabel("Yield Rate (%)")
+        plt.xticks(rotation=45)
+        plt.legend()
+        st.pyplot(fig_ov)
+
+    # --- SMART FOCUS ---
+    st.markdown("---")
+    st.subheader("🎯 Smart Focus: High-Risk Gloss Codes (≥ 3 NG Batches)")
+    st.caption("Strictly isolates paint codes where at least 3 distinct batches have exceeded Gloss limits (Lab or Line). Color deviations (ΔE) are excluded.")
+
+    dff_focus = dff.dropna(subset=['Gloss_LSL', 'Gloss_USL', 'Gloss_Lab', 'Online_Gloss_Top']).copy()
+    dff_focus = dff_focus[(dff_focus['Gloss_LSL'] > 0) & (dff_focus['Gloss_USL'] > 0) & (dff_focus['Gloss_Lab'] > 0) & (dff_focus['Online_Gloss_Top'] > 0)]
+
+    if not dff_focus.empty:
+        dff_focus['Gloss_NG'] = ~dff_focus['Gloss_Pass']
+        
+        focus_total = dff_focus.groupby(['Ma_Son', 'Supplier']).agg(
+            Total_Batches=('Batch_Lot', 'nunique'),
+            Total_Coils=('Batch_Lot', 'count')
+        ).reset_index()
+
+        ng_coils = dff_focus[dff_focus['Gloss_NG']]
+        
+        if not ng_coils.empty:
+            focus_ng = ng_coils.groupby(['Ma_Son', 'Supplier']).agg(
+                NG_Batches=('Batch_Lot', 'nunique'),
+                Out_Of_Spec=('Batch_Lot', lambda x: ', '.join(x.dropna().astype(str).unique()))
+            ).reset_index()
+
+            focus_df = pd.merge(focus_total, focus_ng, on=['Ma_Son', 'Supplier'], how='inner')
+            focus_df = focus_df[focus_df['NG_Batches'] >= 3]
+
+            if not focus_df.empty:
+                focus_df['NG / Total Batches'] = focus_df['NG_Batches'].astype(str) + " / " + focus_df['Total_Batches'].astype(str)
+                focus_df = focus_df.sort_values(by=['NG_Batches', 'Total_Coils'], ascending=[False, False])
+
+                focus_display = focus_df[['Ma_Son', 'Supplier', 'NG / Total Batches', 'Total_Coils', 'Out_Of_Spec']]
+                focus_display.columns = ['Paint Code', 'Supplier', 'NG / Total Batches', 'Total Coils', 'Out of Spec Batches (Gloss)']
+
+                def highlight_ng_ratio(val):
+                    return 'color: #e74c3c; font-weight: bold;'
+
+                st.dataframe(
+                    focus_display.style.map(highlight_ng_ratio, subset=['NG / Total Batches']),
+                    use_container_width=True, hide_index=True
+                )
+                
+                st.markdown("<br>", unsafe_allow_html=True)
+                csv_focus = focus_display.to_csv(index=False).encode('utf-8-sig')
+                st.download_button(
+                    label="📥 Download Smart Focus (CSV)",
+                    data=csv_focus,
+                    file_name="Smart_Focus_Report.csv",
+                    mime="text/csv",
+                )
+                
+                st.info("💡 **Actionable Insight:** These codes are highly unstable (≥ 3 NG Batches). Copy a `Paint Code` and check the **Gloss Analysis (SPC)** tab immediately to trace the root cause!")
+            else:
+                st.success("🎉 Excellent! No paint codes have 3 or more batches exceeding Gloss control limits.")
+        else:
+            st.success("🎉 Excellent! No paint codes have 3 or more batches exceeding Gloss control limits.")
+    else:
+        st.warning("No valid data available for Smart Focus analysis.")
+
 # ==========================================
 # VIEW 2: GLOSS ANALYSIS (SPC)
 # ==========================================
@@ -364,9 +513,8 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
             max_val += 1
             
         bins_arr = np.linspace(min_val, max_val, 12) 
-        bin_width = bins_arr[1] - bins_arr[0]  # Tính độ rộng của mỗi cột
+        bin_width = bins_arr[1] - bins_arr[0]
         
-        # Đã đổi stat="density" thành stat="count"
         sns.histplot(dff_g['Gloss_Lab'], stat="count", bins=bins_arr, color='#3498db', alpha=0.4, label='Lab Bins', ax=ax_g1)
         sns.histplot(dff_g['Online_Gloss_Top'], stat="count", bins=bins_arr, color='#e67e22', alpha=0.4, label='Line Bins', ax=ax_g1)
         
@@ -374,7 +522,6 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
         plot_max = max(line_usl_val, max_val) + 2
         x_axis = np.linspace(plot_min, plot_max, 200)
         
-        # Nhân Scaling Factor (N * bin_width) cho đường cong chuẩn để nó bám theo cột
         if pd.notna(std_lab) and std_lab > 0:
             y_lab_scaled = stats.norm.pdf(x_axis, mean_lab, std_lab) * len(dff_g['Gloss_Lab']) * bin_width
             ax_g1.plot(x_axis, y_lab_scaled, color='#2980b9', lw=2.5, label=f'Lab Curve')
@@ -390,7 +537,7 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
         
         ax_g1.set_xlim(plot_min, plot_max)
         ax_g1.set_xlabel("Gloss (GU)")
-        ax_g1.set_ylabel("Number of Coils (Count)")  # Đổi nhãn trục Y
+        ax_g1.set_ylabel("Number of Coils (Count)")
         
         handles, labels = ax_g1.get_legend_handles_labels()
         ax_g1.legend(handles, labels, bbox_to_anchor=(0.5, -0.15), loc='upper center', ncol=2, fontsize=9, frameon=True)
@@ -448,6 +595,106 @@ elif view_mode == "✨ Gloss Analysis (SPC)":
             
             st.markdown("---")
             render_spc_analysis(sel_ma_son_tab2, dff, key_suffix="custom")
+
+# ==========================================
+# VIEW 3: COLOR DEVIATION
+# ==========================================
+elif view_mode == "🎨 Color & ΔE Analysis":
+    st.info("💡 Trend analysis of Total Color Difference (ΔE) and distribution of individual color components (ΔL, Δa, Δb) to detect color drift.")
+    
+    list_ma_son_tab3 = sorted(dff['Ma_Son'].dropna().unique().tolist())
+    
+    if list_ma_son_tab3:
+        sel_ma_son_tab3 = st.selectbox("🎯 Select Full Paint Code for Color Analysis:", list_ma_son_tab3, key="tab3_mason")
+        dff_c = dff[dff['Ma_Son'] == sel_ma_son_tab3].copy()
+        
+        if not dff_c.empty:
+            dff_c_batch = dff_c.groupby('Batch_Lot', as_index=False).agg({
+                'Ngay_SX': 'min',
+                'ΔE': 'mean'
+            }).sort_values('Ngay_SX')
+            
+            dff_c_batch['Batch_Lot'] = dff_c_batch['Batch_Lot'].astype(str)
+
+            st.markdown("---")
+            st.subheader(f"📈 Avg Total Color Difference Trend (ΔE) - {sel_ma_son_tab3}")
+            fig_c1, ax_c1 = plt.subplots(figsize=(12, 4))
+            
+            ax_c1.plot(dff_c_batch['Batch_Lot'], dff_c_batch['ΔE'], marker='o', color='#e74c3c', lw=2, label='Avg ΔE')
+            
+            ax_c1.axhline(1.0, color='red', ls='--', lw=2, label='Spec Limit (ΔE = 1.0)')
+            ax_c1.axhline(0.8, color='orange', ls=':', lw=1.5, label='Warning Limit (ΔE = 0.8)') 
+            
+            ax_c1.set_xlabel("Batch Lot")
+            ax_c1.set_ylabel("Color Difference (ΔE)")
+            plt.xticks(rotation=45, ha='right')
+            
+            locs, labels = plt.xticks()
+            if len(locs) > 40:
+                for i, label in enumerate(labels):
+                    if i % 3 != 0: label.set_visible(False)
+                    
+            plt.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
+            st.pyplot(fig_c1)
+            
+            st.markdown("---")
+            st.subheader("📊 Distribution of Base Color Components (ΔL, Δa, Δb)")
+            st.caption("If the peak shifts from 0, it indicates a consistent color drift (Lighter/Darker, Redder/Greener, Yellower/Bluer).")
+            
+            col_L, col_a, col_b = st.columns(3)
+            
+            with col_L:
+                fig_L, ax_L = plt.subplots(figsize=(5, 4))
+                sns.histplot(dff_c['dL_N'], kde=True, color='#95a5a6', ax=ax_L) 
+                ax_L.axvline(0, color='black', ls='--', lw=1.5)
+                ax_L.set_title("Lightness (ΔL)")
+                ax_L.set_xlabel("ΔL (+ Lighter / - Darker)")
+                ax_L.set_ylabel("Count")
+                st.pyplot(fig_L)
+                
+            with col_a:
+                fig_a, ax_a = plt.subplots(figsize=(5, 4))
+                sns.histplot(dff_c['da_N'], kde=True, color='#e74c3c', ax=ax_a) 
+                ax_a.axvline(0, color='black', ls='--', lw=1.5)
+                ax_a.set_title("Red/Green (Δa)")
+                ax_a.set_xlabel("Δa (+ Redder / - Greener)")
+                ax_a.set_ylabel("")
+                st.pyplot(fig_a)
+                
+            with col_b:
+                fig_b, ax_b = plt.subplots(figsize=(5, 4))
+                sns.histplot(dff_c['db_N'], kde=True, color='#f1c40f', ax=ax_b) 
+                ax_b.axvline(0, color='black', ls='--', lw=1.5)
+                ax_b.set_title("Yellow/Blue (Δb)")
+                ax_b.set_xlabel("Δb (+ Yellower / - Bluer)")
+                ax_b.set_ylabel("")
+                st.pyplot(fig_b)
+
+            st.markdown("---")
+            col_s1, col_s2 = st.columns(2)
+            with col_s1:
+                st.subheader("Color Shift Coordinates (Δa vs Δb)")
+                fig_s1, ax_s1 = plt.subplots(figsize=(6, 5))
+                sns.scatterplot(data=dff_c, x='da_N', y='db_N', hue='ΔE', size='ΔE', palette='coolwarm', ax=ax_s1)
+                ax_s1.axhline(0, color='black', lw=1, ls='--')
+                ax_s1.axvline(0, color='black', lw=1, ls='--')
+                ax_s1.set_xlabel("Δa (Red/Green Axis)")
+                ax_s1.set_ylabel("Δb (Yellow/Blue Axis)")
+                plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+                st.pyplot(fig_s1)
+                
+            with col_s2:
+                st.subheader("Dispersion of Total Color Difference (Boxplot ΔE)")
+                fig_s2, ax_s2 = plt.subplots(figsize=(6, 5))
+                sns.boxplot(data=dff_c, x='Supplier', y='ΔE', palette='Reds', ax=ax_s2)
+                ax_s2.axhline(1.0, color='red', ls='--', lw=2, label='Spec Limit (1.0)')
+                ax_s2.set_xlabel("Supplier")
+                ax_s2.set_ylabel("Total Color Difference (ΔE)")
+                plt.legend()
+                st.pyplot(fig_s2)
+        else:
+            st.warning("⚠️ Insufficient data to perform color analysis for this paint code.")
+
 # ==========================================
 # VIEW 4: PROCESS UNIFORMITY
 # ==========================================
