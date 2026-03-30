@@ -558,10 +558,11 @@ elif view_mode == "🎨 Color & ΔE Analysis":
             st.warning("⚠️ Insufficient data to perform color analysis for this paint code.")
 
 # ==========================================
+# ==========================================
 # VIEW 3: STATISTICAL CONTROL LIMITS (NEW)
 # ==========================================
 elif view_mode == "📊 Statistical Control Limits":
-    st.info("💡 Empirical Control Limits: Calculates dynamic process limits based on actual production history using 3 advanced statistical methods.")
+    st.info("💡 Strict Input Control: Calculates dynamic process limits for Lab Gloss based on production history. To reduce downstream variation, new Lab limits are constrained so they NEVER exceed current official specs.")
     
     list_ma_son_tab4 = sorted(dff['Ma_Son'].dropna().unique().tolist())
     if list_ma_son_tab4:
@@ -578,106 +579,145 @@ elif view_mode == "📊 Statistical Control Limits":
                 st.warning(f"❌ No paint code found containing '{search_keyword}'")
                 st.stop()
         
-        # Sort data sequentially by date and coil number to respect production order
+        # Sort data sequentially by date and coil number
         dff_spc = dff[dff['Ma_Son'] == sel_ma_son_tab4].copy()
-        dff_spc = dff_spc.dropna(subset=['Online_Gloss_Top', 'Ngay_SX']).sort_values(['Ngay_SX', 'Coil_No'])
+        dff_spc = dff_spc.dropna(subset=['Online_Gloss_Top', 'Gloss_Lab', 'Ngay_SX']).sort_values(['Ngay_SX', 'Coil_No'])
         
         if len(dff_spc) >= 5:
-            data = dff_spc['Online_Gloss_Top'].values
+            lab_data = dff_spc['Gloss_Lab'].values
+            line_data = dff_spc['Online_Gloss_Top'].values
+            
+            # Official Limits
+            lab_lsl = dff_spc['Gloss_LSL'].iloc[0]
+            lab_usl = dff_spc['Gloss_USL'].iloc[0]
+            line_lsl = dff_spc['Line_LSL'].iloc[0]
+            line_usl = dff_spc['Line_USL'].iloc[0]
             
             # --- 1. Standard Deviation Method (3-Sigma) ---
-            mean_val = np.mean(data)
-            std_val = np.std(data, ddof=1)
-            ucl_std = mean_val + 3 * std_val
-            lcl_std = mean_val - 3 * std_val
+            mean_lab = np.mean(lab_data)
+            std_lab = np.std(lab_data, ddof=1)
+            lcl_std_raw = mean_lab - 3 * std_lab
+            ucl_std_raw = mean_lab + 3 * std_lab
             
             # --- 2. IQR Method ---
-            q1 = np.percentile(data, 25)
-            q3 = np.percentile(data, 75)
+            q1 = np.percentile(lab_data, 25)
+            q3 = np.percentile(lab_data, 75)
             iqr_val = q3 - q1
-            ucl_iqr = q3 + 1.5 * iqr_val
-            lcl_iqr = q1 - 1.5 * iqr_val
+            lcl_iqr_raw = q1 - 1.5 * iqr_val
+            ucl_iqr_raw = q3 + 1.5 * iqr_val
             
             # --- 3. I-MR Method (Individuals-Moving Range) ---
-            mr = np.abs(np.diff(data))
-            mean_mr = np.mean(mr)
-            ucl_imr = mean_val + 2.66 * mean_mr
-            lcl_imr = mean_val - 2.66 * mean_mr
+            mr = np.abs(np.diff(lab_data))
+            mean_mr = np.mean(mr) if len(mr) > 0 else 0
+            lcl_imr_raw = mean_lab - 2.66 * mean_mr
+            ucl_imr_raw = mean_lab + 2.66 * mean_mr
             
-            # Summary Table
-            limits_df = pd.DataFrame({
-                "Method": [
-                    "Standard Deviation (3σ)", 
-                    "Interquartile Range (IQR)", 
-                    "Individuals-Moving Range (I-MR)"
-                ],
-                "LCL (Lower Limit)": [lcl_std, lcl_iqr, lcl_imr],
-                "Center (Mean/Median)": [mean_val, np.median(data), mean_val],
-                "UCL (Upper Limit)": [ucl_std, ucl_iqr, ucl_imr]
-            })
+            # --- APPLY BUSINESS RULE: MUST BE STRICTER THAN OFFICIAL ---
+            # Hàm max() cho LCL: Lấy số lớn hơn (thu hẹp đáy)
+            # Hàm min() cho UCL: Lấy số nhỏ hơn (thu hẹp đỉnh)
+            lcl_std, ucl_std = max(lcl_std_raw, lab_lsl), min(ucl_std_raw, lab_usl)
+            lcl_iqr, ucl_iqr = max(lcl_iqr_raw, lab_lsl), min(ucl_iqr_raw, lab_usl)
+            lcl_imr, ucl_imr = max(lcl_imr_raw, lab_lsl), min(ucl_imr_raw, lab_usl)
             
             st.markdown("---")
-            st.subheader(f"🧮 Empirical Process Limits for {sel_ma_son_tab4}")
-            st.caption(f"Calculated dynamically based on the historical sequence of **{len(data)} production coils**.")
-            
-            st.dataframe(
-                limits_df.style.format({
-                    "LCL (Lower Limit)": "{:.2f}",
-                    "Center (Mean/Median)": "{:.2f}",
-                    "UCL (Upper Limit)": "{:.2f}"
-                }).set_properties(**{'font-weight': 'bold'}, subset=['Method']),
-                use_container_width=True, hide_index=True
-            )
-            
-            # Interactive Plot
-            st.markdown("---")
-            st.write("**Visual Comparison of Calculated Control Limits vs Actual Production**")
-            
-            sel_method = st.radio("Select limit method to display on chart:", 
+            sel_method = st.radio("🧮 Select Statistical Method for New Lab Limits:", 
                                   ["Standard Deviation (3σ)", "Interquartile Range (IQR)", "Individuals-Moving Range (I-MR)"], 
                                   horizontal=True)
             
-            fig_lim, ax_lim = plt.subplots(figsize=(14, 5))
-            
-            # Plot actual data
-            ax_lim.plot(range(len(data)), data, marker='o', color='#3498db', lw=1.5, label='Online Gloss')
-            
-            # Assign variables based on selection
             if sel_method == "Standard Deviation (3σ)":
-                plot_ucl, plot_lcl, plot_center = ucl_std, lcl_std, mean_val
+                plot_lcl, plot_ucl, plot_center = lcl_std, ucl_std, mean_lab
             elif sel_method == "Interquartile Range (IQR)":
-                plot_ucl, plot_lcl, plot_center = ucl_iqr, lcl_iqr, np.median(data)
+                plot_lcl, plot_ucl, plot_center = lcl_iqr, ucl_iqr, np.median(lab_data)
             else:
-                plot_ucl, plot_lcl, plot_center = ucl_imr, lcl_imr, mean_val
-                
-            # Draw Dynamic Limits
-            ax_lim.axhline(plot_ucl, color='red', ls='-', lw=2.5, label=f'Calculated UCL ({plot_ucl:.1f})')
-            ax_lim.axhline(plot_center, color='green', ls='-', lw=1.5, label=f'Center ({plot_center:.1f})')
-            ax_lim.axhline(plot_lcl, color='red', ls='-', lw=2.5, label=f'Calculated LCL ({plot_lcl:.1f})')
-            
-            # Draw Official Spec Limits for Reference
-            spec_usl = dff_spc['Line_USL'].iloc[0]
-            spec_lsl = dff_spc['Line_LSL'].iloc[0]
-            ax_lim.axhline(spec_usl, color='orange', ls='--', lw=2, alpha=0.8, label=f'Official Spec USL ({spec_usl:.1f})')
-            ax_lim.axhline(spec_lsl, color='orange', ls='--', lw=2, alpha=0.8, label=f'Official Spec LSL ({spec_lsl:.1f})')
-            
-            # Add shaded area for out-of-spec zones
-            ax_lim.fill_between(range(len(data)), plot_ucl, max(ax_lim.get_ylim()[1], plot_ucl+1), color='red', alpha=0.1)
-            ax_lim.fill_between(range(len(data)), min(ax_lim.get_ylim()[0], plot_lcl-1), plot_lcl, color='red', alpha=0.1)
+                plot_lcl, plot_ucl, plot_center = lcl_imr, ucl_imr, mean_lab
 
-            ax_lim.set_xlabel("Sequential Production Order (Coil Index)")
-            ax_lim.set_ylabel("Online Gloss (GU)")
-            ax_lim.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
+            # --- METRICS DISPLAY ---
+            st.caption(f"Based on historical data of **{len(lab_data)} coils**, proposing new strict boundaries for Lab QA:")
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("Official Lab LSL", f"{lab_lsl:.1f}")
+            col2.metric(f"New Lab LCL", f"{plot_lcl:.2f}", delta=f"{plot_lcl - lab_lsl:+.2f} (Stricter)" if plot_lcl > lab_lsl else "Unchanged", delta_color="inverse" if plot_lcl > lab_lsl else "off")
+            col3.metric(f"New Lab UCL", f"{plot_ucl:.2f}", delta=f"{plot_ucl - lab_usl:+.2f} (Stricter)" if plot_ucl < lab_usl else "Unchanged", delta_color="inverse" if plot_ucl < lab_usl else "off")
+            col4.metric("Official Lab USL", f"{lab_usl:.1f}")
             
+            # --- CHART 1: TREND LINE ---
+            st.markdown("---")
+            st.write("**📈 Trend Line: Sequential Production (Lab & Line)**")
+            fig_trend, ax_trend = plt.subplots(figsize=(14, 4.5))
+            
+            x_axis = range(len(lab_data))
+            ax_trend.plot(x_axis, lab_data, marker='o', color='#3498db', lw=2, label='Lab Gloss')
+            ax_trend.plot(x_axis, line_data, marker='s', color='#e67e22', lw=2, label='Line Gloss')
+            
+            # Draw Limits
+            ax_trend.axhline(lab_usl, color='red', ls='-', lw=1.5, alpha=0.3, label=f'Official Lab USL ({lab_usl:.1f})')
+            ax_trend.axhline(lab_lsl, color='red', ls='-', lw=1.5, alpha=0.3, label=f'Official Lab LSL ({lab_lsl:.1f})')
+            
+            ax_trend.axhline(line_usl, color='orange', ls='--', lw=1.5, alpha=0.4, label=f'Official Line USL ({line_usl:.1f})')
+            ax_trend.axhline(line_lsl, color='orange', ls='--', lw=1.5, alpha=0.4, label=f'Official Line LSL ({line_lsl:.1f})')
+            
+            ax_trend.axhline(plot_ucl, color='green', ls='-', lw=2.5, label=f'NEW Lab UCL ({plot_ucl:.2f})')
+            ax_trend.axhline(plot_lcl, color='green', ls='-', lw=2.5, label=f'NEW Lab LCL ({plot_lcl:.2f})')
+            
+            # Shade the "safe" new Lab zone
+            ax_trend.fill_between(x_axis, plot_lcl, plot_ucl, color='green', alpha=0.05)
+
+            ax_trend.set_xlabel("Sequential Production Order (Coil Index)")
+            ax_trend.set_ylabel("Gloss (GU)")
+            ax_trend.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
             plt.tight_layout()
-            st.pyplot(fig_lim)
-            plt.close(fig_lim)
+            st.pyplot(fig_trend)
+            plt.close(fig_trend)
+            
+            # --- CHART 2: NORMAL DISTRIBUTION ---
+            st.markdown("---")
+            st.write("**📊 Data Distribution & Normal Curve (Lab & Line)**")
+            fig_dist, ax_dist = plt.subplots(figsize=(14, 4.5))
+            
+            min_val = min(np.min(lab_data), np.min(line_data), lab_lsl, line_lsl) - 2
+            max_val = max(np.max(lab_data), np.max(line_data), lab_usl, line_usl) + 2
+            bins_arr = np.linspace(min_val, max_val, 15)
+            bin_width = bins_arr[1] - bins_arr[0]
+            
+            sns.histplot(lab_data, stat="count", bins=bins_arr, color='#3498db', alpha=0.4, label='Lab Bins', ax=ax_dist)
+            sns.histplot(line_data, stat="count", bins=bins_arr, color='#e67e22', alpha=0.4, label='Line Bins', ax=ax_dist)
+            
+            x_axis_dist = np.linspace(min_val, max_val, 200)
+            
+            # Lab Curve
+            if std_lab > 0:
+                y_lab_scaled = stats.norm.pdf(x_axis_dist, mean_lab, std_lab) * len(lab_data) * bin_width
+                ax_dist.plot(x_axis_dist, y_lab_scaled, color='#2980b9', lw=2.5, label='Lab Normal Curve')
+            
+            # Line Curve
+            mean_line = np.mean(line_data)
+            std_line = np.std(line_data, ddof=1)
+            if std_line > 0:
+                y_line_scaled = stats.norm.pdf(x_axis_dist, mean_line, std_line) * len(line_data) * bin_width
+                ax_dist.plot(x_axis_dist, y_line_scaled, color='#d35400', lw=2.5, label='Line Normal Curve')
+                
+            # Draw Limits on Distribution Chart
+            ax_dist.axvline(lab_usl, color='red', ls='-', lw=1.5, alpha=0.3)
+            ax_dist.axvline(lab_lsl, color='red', ls='-', lw=1.5, alpha=0.3)
+            ax_dist.axvline(line_usl, color='orange', ls='--', lw=1.5, alpha=0.4)
+            ax_dist.axvline(line_lsl, color='orange', ls='--', lw=1.5, alpha=0.4)
+            
+            ax_dist.axvline(plot_ucl, color='green', ls='-', lw=2.5, label=f'NEW Lab UCL ({plot_ucl:.2f})')
+            ax_dist.axvline(plot_lcl, color='green', ls='-', lw=2.5, label=f'NEW Lab LCL ({plot_lcl:.2f})')
+            
+            # Shade the safe zone
+            ax_dist.axvspan(plot_lcl, plot_ucl, color='green', alpha=0.05)
+            
+            ax_dist.set_xlabel("Gloss (GU)")
+            ax_dist.set_ylabel("Number of Coils (Count)")
+            ax_dist.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
+            plt.tight_layout()
+            st.pyplot(fig_dist)
+            plt.close(fig_dist)
             
         else:
             st.warning("⚠️ Insufficient data. We need at least 5 consecutive production coils to calculate meaningful statistical control limits.")
     else:
         st.warning("No data available.")
-
 # ==========================================
 # VIEW 4: SUPPLIER COMPARISON
 # ==========================================
