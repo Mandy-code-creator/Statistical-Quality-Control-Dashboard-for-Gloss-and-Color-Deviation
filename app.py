@@ -632,33 +632,59 @@ elif view_mode == "📊 Statistical Control Limits":
             lcl_imr, ucl_imr = max(lcl_imr_raw, lab_lsl), min(ucl_imr_raw, lab_usl)
             
             # =========================================================
+            # =========================================================
             # METHODS COMPARISON SUMMARY TABLE
             # =========================================================
             st.markdown("---")
             st.subheader("📋 Methods Comparison Summary")
-            st.caption(f"Comparing the calculated statistical limits. New Limits are constrained to never exceed Official Lab Limits (**{lab_lsl:.1f} - {lab_usl:.1f}**).")
+            st.caption(f"Comparing the new calculated limits against current official specs. (New limits are constrained to never exceed Official Lab Limits).")
             
             summary_data = [
-                {"Method": f"Standard Deviation ({sigma_mult}σ)", "Raw LCL": lcl_std_raw, "Raw UCL": ucl_std_raw, "New Lab LCL": lcl_std, "New Lab UCL": ucl_std},
-                {"Method": f"Interquartile Range (K={k_mult})", "Raw LCL": lcl_iqr_raw, "Raw UCL": ucl_iqr_raw, "New Lab LCL": lcl_iqr, "New Lab UCL": ucl_iqr},
-                {"Method": "Individuals-Moving Range (I-MR)", "Raw LCL": lcl_imr_raw, "Raw UCL": ucl_imr_raw, "New Lab LCL": lcl_imr, "New Lab UCL": ucl_imr}
+                {
+                    "Method": f"Standard Deviation ({sigma_mult}σ)", 
+                    "Current Lab LSL": lab_lsl, 
+                    "Current Lab USL": lab_usl, 
+                    "New Lab LCL": lcl_std, 
+                    "New Lab UCL": ucl_std,
+                    "Mean": mean_lab,
+                    "Std Dev (s)": std_lab
+                },
+                {
+                    "Method": f"Interquartile Range (K={k_mult})", 
+                    "Current Lab LSL": lab_lsl, 
+                    "Current Lab USL": lab_usl, 
+                    "New Lab LCL": lcl_iqr, 
+                    "New Lab UCL": ucl_iqr,
+                    "Mean": mean_lab,
+                    "Std Dev (s)": std_lab
+                },
+                {
+                    "Method": "Individuals-Moving Range (I-MR)", 
+                    "Current Lab LSL": lab_lsl, 
+                    "Current Lab USL": lab_usl, 
+                    "New Lab LCL": lcl_imr, 
+                    "New Lab UCL": ucl_imr,
+                    "Mean": mean_lab,
+                    "Std Dev (s)": std_lab
+                }
             ]
             
             summary_df = pd.DataFrame(summary_data)
             
-            # Tính toán khoảng thu hẹp (Tightened By)
-            summary_df['LCL Tightened By'] = summary_df['New Lab LCL'] - lab_lsl
-            summary_df['UCL Tightened By'] = lab_usl - summary_df['New Lab UCL']
-            
+            # Định dạng bảng: in đậm tên phương pháp, tô xanh giới hạn mới
             st.dataframe(
                 summary_df.style.format({
-                    "Raw LCL": "{:.2f}", "Raw UCL": "{:.2f}", 
+                    "Current Lab LSL": "{:.1f}", "Current Lab USL": "{:.1f}", 
                     "New Lab LCL": "{:.2f}", "New Lab UCL": "{:.2f}",
-                    "LCL Tightened By": "+{:.2f} GU", "UCL Tightened By": "-{:.2f} GU"
-                }).background_gradient(cmap='Greens', subset=['LCL Tightened By', 'UCL Tightened By'])
-                  .set_properties(**{'font-weight': 'bold'}, subset=['Method']),
+                    "Mean": "{:.2f}", "Std Dev (s)": "{:.2f}"
+                }).set_properties(**{'font-weight': 'bold'}, subset=['Method'])
+                  .set_properties(**{'background-color': '#e8f5e9', 'color': '#2e7d32', 'font-weight': 'bold'}, subset=['New Lab LCL', 'New Lab UCL']),
                 use_container_width=True, hide_index=True
             )
+
+            # =========================================================
+            # VISUALIZATION
+            # =========================================================
 
             # =========================================================
             # VISUALIZATION
