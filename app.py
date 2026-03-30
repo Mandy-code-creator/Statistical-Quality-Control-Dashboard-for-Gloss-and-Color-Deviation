@@ -99,7 +99,7 @@ with st.sidebar:
         [
             "✨ Gloss Analysis (SPC)",
             "🎨 Color & ΔE Analysis",
-            "⚖️ Process Uniformity",
+            "📊 Statistical Control Limits", # ĐÃ THAY THẾ VIEW PROCESS UNIFORMITY
             "🤝 Supplier Comparison",
             "📋 Summary Data Report"
         ],
@@ -189,22 +189,17 @@ with st.sidebar:
 st.title(view_mode)
 st.markdown("---")
 
-
 # ==========================================
-# VIEW 1 (FORMERLY VIEW 2): GLOSS ANALYSIS (SPC)
+# VIEW 1: GLOSS ANALYSIS (SPC)
 # ==========================================
 if view_mode == "✨ Gloss Analysis (SPC)":
     st.info("💡 SPC Analysis: Monitor the actual Gloss trend (Lab vs Line) across different production batches to detect process shifts.")
     
-    # =========================================================
-    # =========================================================
-    # EARLY WARNING RADAR (NOW INCLUDES LAB/LINE ISSUE SOURCE)
-    # =========================================================
+    # EARLY WARNING RADAR
     risk_alert = pd.DataFrame()
     with st.expander("🚨 Early Warning Radar (Click to view at-risk codes)", expanded=True):
         st.caption("This table automatically scans data to identify paint codes (≥ 5 Batches produced) that are Out of Spec (NG) or approaching the control limits (Margin ≤ 1.0 GU).")
         
-        # Bổ sung quét cả dữ liệu Lab và Line
         df_valid_radar = dff.dropna(subset=['Online_Gloss_Top', 'Line_LSL', 'Line_USL', 'Gloss_Lab', 'Gloss_LSL', 'Gloss_USL', 'Batch_Lot'])
         
         if not df_valid_radar.empty:
@@ -224,7 +219,6 @@ if view_mode == "✨ Gloss Analysis (SPC)":
             risk_summary = risk_summary[risk_summary['Batches'] >= 5].copy()
 
             if not risk_summary.empty:
-                # Hàm kiểm tra 2 lớp (Line và Lab)
                 def check_risk(row):
                     line_ng = row['Line_Min'] < row['Line_LSL'] or row['Line_Max'] > row['Line_USL']
                     lab_ng = row['Lab_Min'] < row['Lab_LSL'] or row['Lab_Max'] > row['Lab_USL']
@@ -251,7 +245,6 @@ if view_mode == "✨ Gloss Analysis (SPC)":
 
                 if not risk_alert.empty:
                     risk_alert = risk_alert.sort_values(by='Status', ascending=True)
-                    # Sắp xếp lại cột cho trực quan
                     risk_alert = risk_alert[['Ma_Son', 'Supplier', 'Batches', 'Coils', 'Issue Source', 'Lab_Min', 'Lab_Max', 'Line_Min', 'Line_Max', 'Status']]
                     risk_alert.columns = ['Paint Code', 'Supplier', 'Batches', 'Coils', 'Issue Source', 'Lab Min', 'Lab Max', 'Line Min', 'Line Max', 'Status']
 
@@ -277,9 +270,8 @@ if view_mode == "✨ Gloss Analysis (SPC)":
                 st.info("Not enough data. No paint codes have reached the minimum requirement of 5 batches.")
 
     st.markdown("---")
-    # =========================================================
-    # REUSABLE FUNCTION TO RENDER SPC CHARTS FOR A PAINT CODE
-    # =========================================================
+    
+    # REUSABLE SPC RENDER
     def render_spc_analysis(paint_code, data_source, key_suffix):
         dff_g = data_source[data_source['Ma_Son'] == paint_code].copy()
         dff_g = dff_g.dropna(subset=['Gloss_LSL', 'Gloss_USL', 'Gloss_Lab', 'Online_Gloss_Top'])
@@ -309,7 +301,6 @@ if view_mode == "✨ Gloss Analysis (SPC)":
         
         st.success(f"📅 **Timeframe:** `{min_date}` to `{max_date}` | **Volume:** `{so_lo}` Batches (`{so_cuon}` Coils).")
 
-        # --- TREND LINE ---
         dff_batch = dff_g.groupby('Batch_Lot', as_index=False).agg({
             'Ngay_SX': 'min',
             'Order_No': lambda x: ', '.join(x.dropna().astype(str).unique()),
@@ -346,7 +337,6 @@ if view_mode == "✨ Gloss Analysis (SPC)":
         st.pyplot(fig_trend)
         plt.close(fig_trend)
 
-        # --- NG BATCHES LIST ---
         ng_batches = dff_batch[
             (dff_batch['Gloss_Lab'] < dff_batch['Gloss_LSL']) | 
             (dff_batch['Gloss_Lab'] > dff_batch['Gloss_USL']) | 
@@ -379,7 +369,6 @@ if view_mode == "✨ Gloss Analysis (SPC)":
         else:
             st.success("✅ All batches meet gloss standards (Lab & Line).")
 
-        # --- HISTOGRAM ONLY (UPDATED TO COUNT) ---
         st.write("**Gloss Distribution (Histogram & Normal Curve)**")
         fig_g1, ax_g1 = plt.subplots(figsize=(10, 5)) 
         
@@ -423,7 +412,6 @@ if view_mode == "✨ Gloss Analysis (SPC)":
         st.pyplot(fig_g1)
         plt.close(fig_g1)
 
-        # Khép Data Details vào Expander
         with st.expander("🔍 View Full Batch Details", expanded=False):
             batch_table = dff_batch[['Batch_Lot', 'Order_No', 'Line', 'Ngay_SX', 'Gloss_LSL', 'Gloss_USL', 'Gloss_Lab', 'Line_LSL', 'Line_USL', 'Online_Gloss_Top']].copy()
             batch_table['Gap (Line - Lab)'] = batch_table['Online_Gloss_Top'] - batch_table['Gloss_Lab']
@@ -436,9 +424,6 @@ if view_mode == "✨ Gloss Analysis (SPC)":
                 use_container_width=True, hide_index=True
             )
 
-    # =========================================================
-    # TAB LAYOUT: AUTO TOP 15 vs MANUAL SEARCH
-    # =========================================================
     list_ma_son_tab2 = sorted(dff['Ma_Son'].dropna().unique().tolist())
     if list_ma_son_tab2:
         tab_top_risk, tab_custom = st.tabs(["🚨 Auto-Analysis: Top 15 At-Risk Codes", "🔍 Manual Search & Analysis"])
@@ -474,7 +459,7 @@ if view_mode == "✨ Gloss Analysis (SPC)":
             render_spc_analysis(sel_ma_son_tab2, dff, key_suffix="custom")
 
 # ==========================================
-# VIEW 3: COLOR DEVIATION
+# VIEW 2: COLOR DEVIATION
 # ==========================================
 elif view_mode == "🎨 Color & ΔE Analysis":
     st.info("💡 Trend analysis of Total Color Difference (ΔE) and distribution of individual color components (ΔL, Δa, Δb) to detect color drift.")
@@ -573,31 +558,128 @@ elif view_mode == "🎨 Color & ΔE Analysis":
             st.warning("⚠️ Insufficient data to perform color analysis for this paint code.")
 
 # ==========================================
-# VIEW 4: PROCESS UNIFORMITY
+# VIEW 3: STATISTICAL CONTROL LIMITS (NEW)
 # ==========================================
-elif view_mode == "⚖️ Process Uniformity":
-    c5, c6 = st.columns(2)
-    with c5:
-        st.subheader("Online Uniformity: North vs South (Top)")
-        fig_u1, ax_u1 = plt.subplots(figsize=(8, 5))
-        sns.scatterplot(data=dff, x='G_Top_N', y='G_Top_S', color='purple', alpha=0.6, ax=ax_u1)
-        if not dff.empty and pd.notna(dff['G_Top_N'].min()):
-            min_val = min(dff['G_Top_N'].min(), dff['G_Top_S'].min())
-            max_val = max(dff['G_Top_N'].max(), dff['G_Top_S'].max())
-            ax_u1.plot([min_val, max_val], [min_val, max_val], 'r--', lw=2)
-        ax_u1.set_xlabel("Gloss North"); ax_u1.set_ylabel("Gloss South")
-        st.pyplot(fig_u1)
+elif view_mode == "📊 Statistical Control Limits":
+    st.info("💡 Empirical Control Limits: Calculates dynamic process limits based on actual production history using 3 advanced statistical methods.")
+    
+    list_ma_son_tab4 = sorted(dff['Ma_Son'].dropna().unique().tolist())
+    if list_ma_son_tab4:
+        col_search1, col_search2 = st.columns([1, 2])
+        with col_search1:
+            search_keyword = st.text_input("🔍 Quick Search Paint Code:", "", placeholder="Type part of code (e.g., SC8...)").upper()
         
-    with c6:
-        st.subheader("Lab vs Production Gap (Online - Lab)")
-        fig_u2, ax_u2 = plt.subplots(figsize=(8, 5))
-        sns.histplot(dff['Gap_Gloss'], kde=True, color='orange', ax=ax_u2)
-        ax_u2.axvline(0, color='black', ls='--')
-        ax_u2.set_xlabel("Difference (Online - Lab)")
-        st.pyplot(fig_u2)
+        filtered_list = [code for code in list_ma_son_tab4 if search_keyword in str(code).upper()]
+        
+        with col_search2:
+            if filtered_list:
+                sel_ma_son_tab4 = st.selectbox(f"🎯 Select Paint Code ({len(filtered_list)} found):", filtered_list, key="spc_limit_select")
+            else:
+                st.warning(f"❌ No paint code found containing '{search_keyword}'")
+                st.stop()
+        
+        # Sort data sequentially by date and coil number to respect production order
+        dff_spc = dff[dff['Ma_Son'] == sel_ma_son_tab4].copy()
+        dff_spc = dff_spc.dropna(subset=['Online_Gloss_Top', 'Ngay_SX']).sort_values(['Ngay_SX', 'Coil_No'])
+        
+        if len(dff_spc) >= 5:
+            data = dff_spc['Online_Gloss_Top'].values
+            
+            # --- 1. Standard Deviation Method (3-Sigma) ---
+            mean_val = np.mean(data)
+            std_val = np.std(data, ddof=1)
+            ucl_std = mean_val + 3 * std_val
+            lcl_std = mean_val - 3 * std_val
+            
+            # --- 2. IQR Method ---
+            q1 = np.percentile(data, 25)
+            q3 = np.percentile(data, 75)
+            iqr_val = q3 - q1
+            ucl_iqr = q3 + 1.5 * iqr_val
+            lcl_iqr = q1 - 1.5 * iqr_val
+            
+            # --- 3. I-MR Method (Individuals-Moving Range) ---
+            mr = np.abs(np.diff(data))
+            mean_mr = np.mean(mr)
+            ucl_imr = mean_val + 2.66 * mean_mr
+            lcl_imr = mean_val - 2.66 * mean_mr
+            
+            # Summary Table
+            limits_df = pd.DataFrame({
+                "Method": [
+                    "Standard Deviation (3σ)", 
+                    "Interquartile Range (IQR)", 
+                    "Individuals-Moving Range (I-MR)"
+                ],
+                "LCL (Lower Limit)": [lcl_std, lcl_iqr, lcl_imr],
+                "Center (Mean/Median)": [mean_val, np.median(data), mean_val],
+                "UCL (Upper Limit)": [ucl_std, ucl_iqr, ucl_imr]
+            })
+            
+            st.markdown("---")
+            st.subheader(f"🧮 Empirical Process Limits for {sel_ma_son_tab4}")
+            st.caption(f"Calculated dynamically based on the historical sequence of **{len(data)} production coils**.")
+            
+            st.dataframe(
+                limits_df.style.format({
+                    "LCL (Lower Limit)": "{:.2f}",
+                    "Center (Mean/Median)": "{:.2f}",
+                    "UCL (Upper Limit)": "{:.2f}"
+                }).set_properties(**{'font-weight': 'bold'}, subset=['Method']),
+                use_container_width=True, hide_index=True
+            )
+            
+            # Interactive Plot
+            st.markdown("---")
+            st.write("**Visual Comparison of Calculated Control Limits vs Actual Production**")
+            
+            sel_method = st.radio("Select limit method to display on chart:", 
+                                  ["Standard Deviation (3σ)", "Interquartile Range (IQR)", "Individuals-Moving Range (I-MR)"], 
+                                  horizontal=True)
+            
+            fig_lim, ax_lim = plt.subplots(figsize=(14, 5))
+            
+            # Plot actual data
+            ax_lim.plot(range(len(data)), data, marker='o', color='#3498db', lw=1.5, label='Online Gloss')
+            
+            # Assign variables based on selection
+            if sel_method == "Standard Deviation (3σ)":
+                plot_ucl, plot_lcl, plot_center = ucl_std, lcl_std, mean_val
+            elif sel_method == "Interquartile Range (IQR)":
+                plot_ucl, plot_lcl, plot_center = ucl_iqr, lcl_iqr, np.median(data)
+            else:
+                plot_ucl, plot_lcl, plot_center = ucl_imr, lcl_imr, mean_val
+                
+            # Draw Dynamic Limits
+            ax_lim.axhline(plot_ucl, color='red', ls='-', lw=2.5, label=f'Calculated UCL ({plot_ucl:.1f})')
+            ax_lim.axhline(plot_center, color='green', ls='-', lw=1.5, label=f'Center ({plot_center:.1f})')
+            ax_lim.axhline(plot_lcl, color='red', ls='-', lw=2.5, label=f'Calculated LCL ({plot_lcl:.1f})')
+            
+            # Draw Official Spec Limits for Reference
+            spec_usl = dff_spc['Line_USL'].iloc[0]
+            spec_lsl = dff_spc['Line_LSL'].iloc[0]
+            ax_lim.axhline(spec_usl, color='orange', ls='--', lw=2, alpha=0.8, label=f'Official Spec USL ({spec_usl:.1f})')
+            ax_lim.axhline(spec_lsl, color='orange', ls='--', lw=2, alpha=0.8, label=f'Official Spec LSL ({spec_lsl:.1f})')
+            
+            # Add shaded area for out-of-spec zones
+            ax_lim.fill_between(range(len(data)), plot_ucl, max(ax_lim.get_ylim()[1], plot_ucl+1), color='red', alpha=0.1)
+            ax_lim.fill_between(range(len(data)), min(ax_lim.get_ylim()[0], plot_lcl-1), plot_lcl, color='red', alpha=0.1)
+
+            ax_lim.set_xlabel("Sequential Production Order (Coil Index)")
+            ax_lim.set_ylabel("Online Gloss (GU)")
+            ax_lim.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
+            
+            plt.tight_layout()
+            st.pyplot(fig_lim)
+            plt.close(fig_lim)
+            
+        else:
+            st.warning("⚠️ Insufficient data. We need at least 5 consecutive production coils to calculate meaningful statistical control limits.")
+    else:
+        st.warning("No data available.")
 
 # ==========================================
-# VIEW 5: SUPPLIER COMPARISON
+# VIEW 4: SUPPLIER COMPARISON
 # ==========================================
 elif view_mode == "🤝 Supplier Comparison":
     st.info("💡 Flexible Mode: Select a specific code for capability comparison (Cpk). Select 'All' to evaluate overall stability of a color group based on Target Deviation (ΔGloss).")
@@ -848,7 +930,7 @@ elif view_mode == "🤝 Supplier Comparison":
             st.warning("⚠️ Insufficient data (needs at least 2 coils/supplier with Line data) to perform comparison.")
 
 # ==========================================
-# VIEW 6: SUMMARY DATA REPORT
+# VIEW 5: SUMMARY DATA REPORT
 # ==========================================
 elif view_mode == "📋 Summary Data Report":
     st.info("Master Data table, grouped by Resin Type, Color Code, and Supplier.")
