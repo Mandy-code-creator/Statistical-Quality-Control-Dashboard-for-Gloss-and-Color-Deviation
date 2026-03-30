@@ -559,6 +559,7 @@ elif view_mode == "🎨 Color & ΔE Analysis":
 
 # ==========================================
 # ==========================================
+# ==========================================
 # VIEW 3: STATISTICAL CONTROL LIMITS (NEW)
 # ==========================================
 elif view_mode == "📊 Statistical Control Limits":
@@ -593,18 +594,31 @@ elif view_mode == "📊 Statistical Control Limits":
             line_lsl = dff_spc['Line_LSL'].iloc[0]
             line_usl = dff_spc['Line_USL'].iloc[0]
             
-            # --- 1. Standard Deviation Method (3-Sigma) ---
+            st.success(f"📅 **Historical Volume:** `{dff_spc['Batch_Lot'].nunique()}` Batches (`{len(lab_data)}` Coils).")
+
+            # =========================================================
+            # ADJUSTABLE MULTIPLIERS
+            # =========================================================
+            st.markdown("---")
+            st.subheader("⚙️ Adjust Statistical Multipliers")
+            c_mod1, c_mod2 = st.columns(2)
+            with c_mod1:
+                sigma_mult = st.number_input("Sigma Multiplier (Standard Deviation)", value=3.0, step=0.5, help="Standard is 3.0. Lower values (e.g. 2.0) will make limits stricter.")
+            with c_mod2:
+                k_mult = st.number_input("K Multiplier (IQR Method)", value=1.5, step=0.1, help="Standard is 1.5. Higher values (e.g. 3.0) allow more variation before flagging as outlier.")
+            
+            # --- 1. Standard Deviation Method ---
             mean_lab = np.mean(lab_data)
             std_lab = np.std(lab_data, ddof=1)
-            lcl_std_raw = mean_lab - 3 * std_lab
-            ucl_std_raw = mean_lab + 3 * std_lab
+            lcl_std_raw = mean_lab - sigma_mult * std_lab
+            ucl_std_raw = mean_lab + sigma_mult * std_lab
             
             # --- 2. IQR Method ---
             q1 = np.percentile(lab_data, 25)
             q3 = np.percentile(lab_data, 75)
             iqr_val = q3 - q1
-            lcl_iqr_raw = q1 - 1.5 * iqr_val
-            ucl_iqr_raw = q3 + 1.5 * iqr_val
+            lcl_iqr_raw = q1 - k_mult * iqr_val
+            ucl_iqr_raw = q3 + k_mult * iqr_val
             
             # --- 3. I-MR Method (Individuals-Moving Range) ---
             mr = np.abs(np.diff(lab_data))
@@ -613,26 +627,55 @@ elif view_mode == "📊 Statistical Control Limits":
             ucl_imr_raw = mean_lab + 2.66 * mean_mr
             
             # --- APPLY BUSINESS RULE: MUST BE STRICTER THAN OFFICIAL ---
-            # Hàm max() cho LCL: Lấy số lớn hơn (thu hẹp đáy)
-            # Hàm min() cho UCL: Lấy số nhỏ hơn (thu hẹp đỉnh)
             lcl_std, ucl_std = max(lcl_std_raw, lab_lsl), min(ucl_std_raw, lab_usl)
             lcl_iqr, ucl_iqr = max(lcl_iqr_raw, lab_lsl), min(ucl_iqr_raw, lab_usl)
             lcl_imr, ucl_imr = max(lcl_imr_raw, lab_lsl), min(ucl_imr_raw, lab_usl)
             
+            # =========================================================
+            # METHODS COMPARISON SUMMARY TABLE
+            # =========================================================
             st.markdown("---")
-            sel_method = st.radio("🧮 Select Statistical Method for New Lab Limits:", 
-                                  ["Standard Deviation (3σ)", "Interquartile Range (IQR)", "Individuals-Moving Range (I-MR)"], 
+            st.subheader("📋 Methods Comparison Summary")
+            st.caption(f"Comparing the calculated statistical limits. New Limits are constrained to never exceed Official Lab Limits (**{lab_lsl:.1f} - {lab_usl:.1f}**).")
+            
+            summary_data = [
+                {"Method": f"Standard Deviation ({sigma_mult}σ)", "Raw LCL": lcl_std_raw, "Raw UCL": ucl_std_raw, "New Lab LCL": lcl_std, "New Lab UCL": ucl_std},
+                {"Method": f"Interquartile Range (K={k_mult})", "Raw LCL": lcl_iqr_raw, "Raw UCL": ucl_iqr_raw, "New Lab LCL": lcl_iqr, "New Lab UCL": ucl_iqr},
+                {"Method": "Individuals-Moving Range (I-MR)", "Raw LCL": lcl_imr_raw, "Raw UCL": ucl_imr_raw, "New Lab LCL": lcl_imr, "New Lab UCL": ucl_imr}
+            ]
+            
+            summary_df = pd.DataFrame(summary_data)
+            
+            # Tính toán khoảng thu hẹp (Tightened By)
+            summary_df['LCL Tightened By'] = summary_df['New Lab LCL'] - lab_lsl
+            summary_df['UCL Tightened By'] = lab_usl - summary_df['New Lab UCL']
+            
+            st.dataframe(
+                summary_df.style.format({
+                    "Raw LCL": "{:.2f}", "Raw UCL": "{:.2f}", 
+                    "New Lab LCL": "{:.2f}", "New Lab UCL": "{:.2f}",
+                    "LCL Tightened By": "+{:.2f} GU", "UCL Tightened By": "-{:.2f} GU"
+                }).background_gradient(cmap='Greens', subset=['LCL Tightened By', 'UCL Tightened By'])
+                  .set_properties(**{'font-weight': 'bold'}, subset=['Method']),
+                use_container_width=True, hide_index=True
+            )
+
+            # =========================================================
+            # VISUALIZATION
+            # =========================================================
+            st.markdown("---")
+            sel_method = st.radio("🧮 Select Statistical Method to Visualize:", 
+                                  [f"Standard Deviation ({sigma_mult}σ)", f"Interquartile Range (K={k_mult})", "Individuals-Moving Range (I-MR)"], 
                                   horizontal=True)
             
-            if sel_method == "Standard Deviation (3σ)":
+            if "Standard Deviation" in sel_method:
                 plot_lcl, plot_ucl, plot_center = lcl_std, ucl_std, mean_lab
-            elif sel_method == "Interquartile Range (IQR)":
+            elif "Interquartile Range" in sel_method:
                 plot_lcl, plot_ucl, plot_center = lcl_iqr, ucl_iqr, np.median(lab_data)
             else:
                 plot_lcl, plot_ucl, plot_center = lcl_imr, ucl_imr, mean_lab
 
             # --- METRICS DISPLAY ---
-            st.caption(f"Based on historical data of **{len(lab_data)} coils**, proposing new strict boundaries for Lab QA:")
             col1, col2, col3, col4 = st.columns(4)
             col1.metric("Official Lab LSL", f"{lab_lsl:.1f}")
             col2.metric(f"New Lab LCL", f"{plot_lcl:.2f}", delta=f"{plot_lcl - lab_lsl:+.2f} (Stricter)" if plot_lcl > lab_lsl else "Unchanged", delta_color="inverse" if plot_lcl > lab_lsl else "off")
