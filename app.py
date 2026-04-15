@@ -849,30 +849,98 @@ elif view_mode == "⚖️ Paired Difference Analysis":
                 delta_color="off"
             )
 
-            # --- STEP 5: DISTRIBUTION CHECK ---
+            # --- STEP 5: COMPREHENSIVE VISUAL DIAGNOSTICS (Δ ANALYSIS) ---
             st.markdown("---")
-            st.markdown("### 📊 Delta Distribution Check (Δ Histogram)")
-            st.caption("If the distribution is approximately normal, this offset method accounts for the majority of the deviation variance.")
+            st.markdown("### 📊 Step 3: Comprehensive Δ Analysis")
+            st.caption("Visualizing the systematic offset using Control Trends, Probability Density, and Empirical Distributions.")
 
-            fig_delta, ax_delta = plt.subplots(figsize=(10, 4))
-            sns.histplot(batch_analysis['Delta'], kde=True, color='#8e44ad', ax=ax_delta, bins=10)
+            # --- Chart 1: Constant vs. Drift Bias (Time-Series Control Chart) ---
+            st.markdown("#### 1. Bias Trend (Constant vs. Drift)")
+            fig_trend, ax_trend = plt.subplots(figsize=(14, 4))
+            
+            # X-axis formatting
+            batch_labels = batch_analysis['Batch_Lot'].astype(str)
+            ax_trend.plot(batch_labels, batch_analysis['Delta'], marker='o', color='#2c3e50', lw=2, label='Batch Δ (Line - Lab)')
+            
+            # Draw Bias and Control Limits
+            ax_trend.axhline(mean_delta, color='#e74c3c', ls='-', lw=2, label=f'Mean Bias ({mean_delta:+.2f})')
+            ax_trend.axhline(mean_delta + (3 * std_delta), color='#27ae60', ls='--', lw=1.5, label='+3σ Limit')
+            ax_trend.axhline(mean_delta - (3 * std_delta), color='#27ae60', ls='--', lw=1.5, label='-3σ Limit')
+            ax_trend.axhline(0, color='#7f8c8d', ls=':', lw=1.5, label='Zero Offset (Ideal)')
+            
+            # Format X-axis to prevent clutter
+            ax_trend.set_xlabel("Batch Lot Sequence")
+            ax_trend.set_ylabel("Deviation Δ (GU)")
+            plt.xticks(rotation=45, ha='right')
+            locs, labels = plt.xticks()
+            if len(locs) > 30:
+                step = max(1, len(locs) // 20) 
+                for i, label in enumerate(labels):
+                    if i % step != 0: label.set_visible(False)
+                    
+            ax_trend.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
+            st.pyplot(fig_trend)
+            plt.close(fig_trend)
 
-            ax_delta.axvline(mean_delta, color='red', ls='--', lw=2, label=f'Mean Δ ({mean_delta:+.2f})')
-            ax_delta.axvline(0, color='black', ls='-', lw=1.5, alpha=0.5, label='Zero Diff (0)')
+            # Create columns for the next two charts
+            col_chart1, col_chart2 = st.columns(2)
 
-            ax_delta.set_xlabel("Deviation (Δ = Line Mean - Lab)")
-            ax_delta.set_ylabel("Batch Count")
-            ax_delta.legend()
-            st.pyplot(fig_delta)
-            plt.close(fig_delta)
+            # Setup data for distributions
+            mean_lab = batch_analysis['Gloss_Lab'].mean()
+            std_lab = batch_analysis['Gloss_Lab'].std() if batch_analysis['Gloss_Lab'].std() > 0 else 0.5
+            mean_line = batch_analysis['Online_Gloss_Top'].mean()
+            std_line = batch_analysis['Online_Gloss_Top'].std() if batch_analysis['Online_Gloss_Top'].std() > 0 else 0.5
 
-            st.markdown("---")
-            st.success("""
-            **Executive Summary:**
-            Considering the mismatch between batch-level Lab data and coil-level Line data, a paired difference approach was applied. The systematic offset between Lab and Line was quantified and used to redefine the Lab target, ensuring better alignment with the Line process and reducing the deviation effectively.
-            """)
-        else:
-            st.warning("⚠️ Insufficient data. At least 5 batches are required to accurately calculate the systematic offset (Δ).")
+            x_min = min(mean_lab - 3.5*std_lab, mean_line - 3.5*std_line)
+            x_max = max(mean_lab + 3.5*std_lab, mean_line + 3.5*std_line)
+            x_axis = np.linspace(x_min, x_max, 200)
+
+            with col_chart1:
+                # --- Chart 2: Assigned vs Achieved (Shifted Normal Curves) ---
+                st.markdown("#### 2. Systematic Shift (Normal Curves)")
+                fig_curve, ax_curve = plt.subplots(figsize=(6, 5))
+                
+                # Lab Curve (Assigned/Target)
+                y_lab = stats.norm.pdf(x_axis, mean_lab, std_lab)
+                ax_curve.plot(x_axis, y_lab, color='#27ae60', lw=2.5, label='Lab (Assigned)')
+                ax_curve.axvline(mean_lab, color='#27ae60', ls='--', lw=1)
+                
+                # Line Curve (Achieved)
+                y_line = stats.norm.pdf(x_axis, mean_line, std_line)
+                ax_curve.plot(x_axis, y_line, color='#c0392b', lw=2.5, label='Line (Achieved)')
+                ax_curve.axvline(mean_line, color='#c0392b', ls='--', lw=1)
+                
+                # Draw Bias Annotations
+                y_annotate = max(max(y_lab), max(y_line)) * 0.5
+                ax_curve.annotate('', xy=(mean_lab, y_annotate), xytext=(mean_line, y_annotate),
+                                  arrowprops=dict(arrowstyle='<->', color='#f39c12', lw=2))
+                ax_curve.text((mean_lab + mean_line)/2, y_annotate + 0.01, f'Bias: {mean_delta:+.2f}', 
+                              ha='center', va='bottom', color='#f39c12', fontweight='bold')
+
+                ax_curve.set_xlabel("Gloss Value (GU)")
+                ax_curve.set_ylabel("Probability Density")
+                ax_curve.legend()
+                st.pyplot(fig_curve)
+                plt.close(fig_curve)
+
+            with col_chart2:
+                # --- Chart 3: Overlap of Distributions (Histograms) ---
+                st.markdown("#### 3. Population Overlap (Histograms)")
+                fig_hist, ax_hist = plt.subplots(figsize=(6, 5))
+                
+                # Determine shared bins
+                min_bin = min(batch_analysis['Gloss_Lab'].min(), batch_analysis['Online_Gloss_Top'].min())
+                max_bin = max(batch_analysis['Gloss_Lab'].max(), batch_analysis['Online_Gloss_Top'].max())
+                bins_shared = np.linspace(min_bin - 1, max_bin + 1, 15)
+
+                sns.histplot(batch_analysis['Gloss_Lab'], bins=bins_shared, color='#27ae60', alpha=0.4, label='Lab Population', ax=ax_hist)
+                sns.histplot(batch_analysis['Online_Gloss_Top'], bins=bins_shared, color='#3498db', alpha=0.6, label='Line Population', ax=ax_hist)
+                
+                ax_hist.set_xlabel("Gloss Value Bin Range (GU)")
+                ax_hist.set_ylabel("Batch Count")
+                ax_hist.legend()
+                st.pyplot(fig_hist)
+                plt.close(fig_hist)
 
 # ==========================================
 # VIEW 5: SUPPLIER COMPARISON
