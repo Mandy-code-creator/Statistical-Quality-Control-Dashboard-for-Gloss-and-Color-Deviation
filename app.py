@@ -10,7 +10,7 @@ st.set_page_config(page_title="Steel QA Master Dashboard", layout="wide", page_i
 sns.set_theme(style="whitegrid")
 
 # --- 2. DATA LOAD & PREP ---
-@st.cache_data(ttl=10)
+@st.cache_data(ttl=300) # Increased TTL to 5 minutes to improve performance
 def load_and_prep_data():
     sheet_url = "https://docs.google.com/spreadsheets/d/1ugm7G1kgGmSlk5PhoKk62h_bs5pX4bDuwUgdaELLYHE/export?format=csv&gid=0"
     try:
@@ -99,7 +99,8 @@ with st.sidebar:
         [
             "✨ Gloss Analysis (SPC)",
             "🎨 Color & ΔE Analysis",
-            "📊 Statistical Control Limits", 
+            "📊 Statistical Control Limits",
+            "⚖️ Paired Difference Analysis", 
             "🤝 Supplier Comparison",
             "📋 Summary Data Report"
         ],
@@ -296,10 +297,10 @@ if view_mode == "✨ Gloss Analysis (SPC)":
 
         min_date = dff_g['Ngay_SX'].min()
         max_date = dff_g['Ngay_SX'].max()
-        so_lo = dff_g['Batch_Lot'].nunique()
-        so_cuon = len(dff_g)
+        batch_count = dff_g['Batch_Lot'].nunique()
+        coil_count = len(dff_g)
         
-        st.success(f"📅 **Timeframe:** `{min_date}` to `{max_date}` | **Volume:** `{so_lo}` Batches (`{so_cuon}` Coils).")
+        st.success(f"📅 **Timeframe:** `{min_date}` to `{max_date}` | **Volume:** `{batch_count}` Batches (`{coil_count}` Coils).")
 
         dff_batch = dff_g.groupby('Batch_Lot', as_index=False).agg({
             'Ngay_SX': 'min',
@@ -313,7 +314,7 @@ if view_mode == "✨ Gloss Analysis (SPC)":
             'Online_Gloss_Top': 'mean' 
         }).sort_values('Ngay_SX')
         
-        # 1. CHỈ LẤY MÃ BATCH LOT LÀM NHÃN TRỤC X
+        # USE BATCH LOT ONLY FOR X-AXIS
         dff_batch['Label_X'] = dff_batch['Batch_Lot'].astype(str)
         
         fig_trend, ax_trend = plt.subplots(figsize=(14, 4.5))
@@ -325,16 +326,14 @@ if view_mode == "✨ Gloss Analysis (SPC)":
         ax_trend.axhline(line_lsl_val, color='orange', ls='--', lw=2, alpha=0.7, label=f'Line LSL ({line_lsl_val:.1f})')
         ax_trend.axhline(line_usl_val, color='orange', ls='--', lw=2, alpha=0.7, label=f'Line USL ({line_usl_val:.1f})')
         
-        # 2. CẬP NHẬT TÊN TRỤC X
         ax_trend.set_xlabel("Batch Lot")
         ax_trend.set_ylabel("Gloss (GU)")
         
-        # 3. XOAY NHÃN VÀ GIẢM MẬT ĐỘ NẾU QUÁ NHIỀU LÔ
+        # ROTATE AND REDUCE DENSITY OF LABELS
         plt.xticks(rotation=45, ha='right')
         locs, labels = plt.xticks()
         
         if len(locs) > 30:
-            # Tự động tính toán khoảng cách để chỉ hiển thị tối đa khoảng 20 nhãn
             step = max(1, len(locs) // 20) 
             for i, label in enumerate(labels):
                 if i % step != 0: 
@@ -565,9 +564,7 @@ elif view_mode == "🎨 Color & ΔE Analysis":
             st.warning("⚠️ Insufficient data to perform color analysis for this paint code.")
 
 # ==========================================
-# ==========================================
-# ==========================================
-# VIEW 3: STATISTICAL CONTROL LIMITS (NEW)
+# VIEW 3: STATISTICAL CONTROL LIMITS
 # ==========================================
 elif view_mode == "📊 Statistical Control Limits":
     st.info("💡 Strict Input Control: Calculates dynamic process limits for Lab Gloss based on production history. To reduce downstream variation, new Lab limits are constrained so they NEVER exceed current official specs.")
@@ -639,7 +636,6 @@ elif view_mode == "📊 Statistical Control Limits":
             lcl_imr, ucl_imr = max(lcl_imr_raw, lab_lsl), min(ucl_imr_raw, lab_usl)
             
             # =========================================================
-            # =========================================================
             # METHODS COMPARISON SUMMARY TABLE
             # =========================================================
             st.markdown("---")
@@ -678,7 +674,6 @@ elif view_mode == "📊 Statistical Control Limits":
             
             summary_df = pd.DataFrame(summary_data)
             
-            # Định dạng bảng: in đậm tên phương pháp, tô xanh giới hạn mới
             st.dataframe(
                 summary_df.style.format({
                     "Current Lab LSL": "{:.1f}", "Current Lab USL": "{:.1f}", 
@@ -688,10 +683,6 @@ elif view_mode == "📊 Statistical Control Limits":
                   .set_properties(**{'background-color': '#e8f5e9', 'color': '#2e7d32', 'font-weight': 'bold'}, subset=['New Lab LCL', 'New Lab UCL']),
                 use_container_width=True, hide_index=True
             )
-
-            # =========================================================
-            # VISUALIZATION
-            # =========================================================
 
             # =========================================================
             # VISUALIZATION
@@ -794,8 +785,97 @@ elif view_mode == "📊 Statistical Control Limits":
             st.warning("⚠️ Insufficient data. We need at least 5 consecutive production coils to calculate meaningful statistical control limits.")
     else:
         st.warning("No data available.")
+
 # ==========================================
-# VIEW 4: SUPPLIER COMPARISON
+# VIEW 4: PAIRED DIFFERENCE ANALYSIS (NEW)
+# ==========================================
+elif view_mode == "⚖️ Paired Difference Analysis":
+    st.info("💡 Paired Difference Analysis + Batch Aggregation: Quantifies the systematic offset between Lab and Line to redefine Lab control limits.")
+
+    list_ma_son_tab_offset = sorted(dff['Ma_Son'].dropna().unique().tolist())
+    if list_ma_son_tab_offset:
+        col_search1, col_search2 = st.columns([1, 2])
+        with col_search1:
+            search_keyword = st.text_input("🔍 Quick Search Paint Code:", "", placeholder="Type part of code (e.g., SC8...)").upper()
+
+        filtered_list = [code for code in list_ma_son_tab_offset if search_keyword in str(code).upper()]
+
+        with col_search2:
+            if filtered_list:
+                sel_ma_son_tab_offset = st.selectbox(f"🎯 Select Paint Code ({len(filtered_list)} found):", filtered_list, key="offset_select")
+            else:
+                st.warning(f"❌ No paint code found containing '{search_keyword}'")
+                st.stop()
+
+        dff_offset = dff[dff['Ma_Son'] == sel_ma_son_tab_offset].copy()
+        dff_offset = dff_offset.dropna(subset=['Online_Gloss_Top', 'Gloss_Lab', 'Ngay_SX']).sort_values(['Ngay_SX', 'Coil_No'])
+
+        # 📌 STEP 1: Batch Aggregation
+        batch_analysis = dff_offset.groupby('Batch_Lot').agg({
+            'Gloss_Lab': 'first',         # Lab value per batch
+            'Online_Gloss_Top': 'mean',   # Line mean per batch
+            'Gloss_LSL': 'first',
+            'Gloss_USL': 'first'
+        }).reset_index()
+
+        if len(batch_analysis) >= 5:
+            # 📌 STEP 2: Calculate Delta (Δ)
+            batch_analysis['Delta'] = batch_analysis['Online_Gloss_Top'] - batch_analysis['Gloss_Lab']
+
+            # 📌 STEP 3: Analyze Delta
+            mean_delta = batch_analysis['Delta'].mean()  # Systematic Offset
+            std_delta = batch_analysis['Delta'].std()    # Variation
+
+            # 📌 STEP 4: Calculate New Lab Target and Control Limits
+            target_line = (batch_analysis['Gloss_LSL'].iloc[0] + batch_analysis['Gloss_USL'].iloc[0]) / 2
+
+            # Core Formula: Lab_target = Target_Line - Mean(Δ)
+            suggested_lab_target = target_line - mean_delta
+            suggested_lab_ucl = suggested_lab_target + (3 * std_delta)
+            suggested_lab_lcl = suggested_lab_target - (3 * std_delta)
+
+            # --- DISPLAY METRICS ---
+            st.markdown("### 🔑 Recommended Parameters (Based on Systematic Offset)")
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Constant Bias (Mean Δ)", f"{mean_delta:+.2f} GU", help=">0: Line higher than Lab. <0: Line lower than Lab")
+            c2.metric("Δ Stability (Std)", f"{std_delta:.2f} GU")
+            c3.metric("🎯 Suggested Lab Target", f"{suggested_lab_target:.1f} GU")
+
+            # Display New Limits
+            c4.metric(
+                "Suggested Lab Limits (±3σ)",
+                f"{suggested_lab_lcl:.1f} - {suggested_lab_ucl:.1f}",
+                delta=f"Span: {suggested_lab_ucl - suggested_lab_lcl:.1f} GU",
+                delta_color="off"
+            )
+
+            # --- STEP 5: DISTRIBUTION CHECK ---
+            st.markdown("---")
+            st.markdown("### 📊 Delta Distribution Check (Δ Histogram)")
+            st.caption("If the distribution is approximately normal, this offset method accounts for the majority of the deviation variance.")
+
+            fig_delta, ax_delta = plt.subplots(figsize=(10, 4))
+            sns.histplot(batch_analysis['Delta'], kde=True, color='#8e44ad', ax=ax_delta, bins=10)
+
+            ax_delta.axvline(mean_delta, color='red', ls='--', lw=2, label=f'Mean Δ ({mean_delta:+.2f})')
+            ax_delta.axvline(0, color='black', ls='-', lw=1.5, alpha=0.5, label='Zero Diff (0)')
+
+            ax_delta.set_xlabel("Deviation (Δ = Line Mean - Lab)")
+            ax_delta.set_ylabel("Batch Count")
+            ax_delta.legend()
+            st.pyplot(fig_delta)
+            plt.close(fig_delta)
+
+            st.markdown("---")
+            st.success("""
+            **Executive Summary:**
+            Considering the mismatch between batch-level Lab data and coil-level Line data, a paired difference approach was applied. The systematic offset between Lab and Line was quantified and used to redefine the Lab target, ensuring better alignment with the Line process and reducing the deviation effectively.
+            """)
+        else:
+            st.warning("⚠️ Insufficient data. At least 5 batches are required to accurately calculate the systematic offset (Δ).")
+
+# ==========================================
+# VIEW 5: SUPPLIER COMPARISON
 # ==========================================
 elif view_mode == "🤝 Supplier Comparison":
     st.info("💡 Flexible Mode: Select a specific code for capability comparison (Cpk). Select 'All' to evaluate overall stability of a color group based on Target Deviation (ΔGloss).")
@@ -809,7 +889,7 @@ elif view_mode == "🤝 Supplier Comparison":
     
     if not dff_radar.empty:
         radar_summary = dff_radar.groupby(['Color_Group', 'Color_Code', 'Supplier']).agg(
-            So_Cuon=('Online_Gloss_Top', 'count'),
+            Coil_Count=('Online_Gloss_Top', 'count'),
             LSL=('Gloss_LSL', 'first'),
             USL=('Gloss_USL', 'first'),
             Mean_Line=('Online_Gloss_Top', 'mean'),
@@ -817,7 +897,7 @@ elif view_mode == "🤝 Supplier Comparison":
             dE_Max=('ΔE', 'max')
         ).reset_index()
         
-        radar_summary = radar_summary[radar_summary['So_Cuon'] >= 3]
+        radar_summary = radar_summary[radar_summary['Coil_Count'] >= 3]
         
         def calc_cpk_radar(row):
             if pd.isna(row['Std_Line']) or row['Std_Line'] == 0: return np.nan
@@ -845,29 +925,29 @@ elif view_mode == "🤝 Supplier Comparison":
 
     col_f1, col_f2 = st.columns(2)
     with col_f1:
-        list_nhom_mau = sorted(dff['Color_Group'].dropna().unique().tolist())
-        if list_nhom_mau:
-            sel_nhom_mau = st.selectbox("🎨 Step 1: Select Color Group:", list_nhom_mau)
+        list_color_group = sorted(dff['Color_Group'].dropna().unique().tolist())
+        if list_color_group:
+            sel_color_group = st.selectbox("🎨 Step 1: Select Color Group:", list_color_group)
         else:
             st.warning("No color group data available.")
-            sel_nhom_mau = None
+            sel_color_group = None
             
     with col_f2:
-        if sel_nhom_mau:
-            dff_nhom = dff[dff['Color_Group'] == sel_nhom_mau].copy()
-            list_ma_4so = ['All'] + sorted(dff_nhom['Color_Code'].dropna().unique().tolist())
-            sel_ma_4so = st.selectbox("🔢 Step 2: Select Color Code (Last 4 digits):", list_ma_4so)
+        if sel_color_group:
+            dff_nhom = dff[dff['Color_Group'] == sel_color_group].copy()
+            list_code_4digits = ['All'] + sorted(dff_nhom['Color_Code'].dropna().unique().tolist())
+            sel_code_4digits = st.selectbox("🔢 Step 2: Select Color Code (Last 4 digits):", list_code_4digits)
         else:
-            sel_ma_4so = None
+            sel_code_4digits = None
             
-    if sel_ma_4so:
-        if sel_ma_4so == 'All':
+    if sel_code_4digits:
+        if sel_code_4digits == 'All':
             dff_comp = dff_nhom.copy()
-            title_suffix = f"Group: {sel_nhom_mau} (All codes)"
+            title_suffix = f"Group: {sel_color_group} (All codes)"
             is_mixed = True
         else:
-            dff_comp = dff_nhom[dff_nhom['Color_Code'] == sel_ma_4so].copy()
-            title_suffix = f"Code: {sel_ma_4so}"
+            dff_comp = dff_nhom[dff_nhom['Color_Code'] == sel_code_4digits].copy()
+            title_suffix = f"Code: {sel_code_4digits}"
             is_mixed = False
         
         dff_comp = dff_comp.dropna(subset=['Online_Gloss_Top', 'Supplier', 'Gloss_LSL', 'Gloss_USL', 'dL_N', 'da_N', 'db_N'])
@@ -907,8 +987,8 @@ elif view_mode == "🤝 Supplier Comparison":
                     usl_val = dff_comp['Gloss_USL'].iloc[0]
                     ax_comp1.axhline(lsl_val, color='red', ls='--', lw=2, label=f'LSL ({lsl_val:.0f})')
                     ax_comp1.axhline(usl_val, color='red', ls='--', lw=2, label=f'USL ({usl_val:.0f})')
-                    tong_mean = dff_comp['Online_Gloss_Top'].mean()
-                    ax_comp1.axhline(tong_mean, color='gray', ls=':', lw=1.5, label=f'Avg Line ({tong_mean:.1f})')
+                    total_mean = dff_comp['Online_Gloss_Top'].mean()
+                    ax_comp1.axhline(total_mean, color='gray', ls=':', lw=1.5, label=f'Avg Line ({total_mean:.1f})')
                 
                 ax_comp1.set_xlabel("Supplier")
                 ax_comp1.set_ylabel(plot_ylabel)
@@ -919,7 +999,7 @@ elif view_mode == "🤝 Supplier Comparison":
                 if is_mixed:
                     st.subheader("Stability Index Table (Aggregated)")
                     comp_table = dff_comp.groupby('Supplier').agg(
-                        So_Cuon=('Batch_Lot', 'count'), Mean_Dev=('Gloss_Dev', 'mean'),
+                        Coil_Count=('Batch_Lot', 'count'), Mean_Dev=('Gloss_Dev', 'mean'),
                         Std_Dev=('Gloss_Dev', 'std'), Avg_dE=('ΔE', 'mean')
                     ).reset_index()
                     comp_table = comp_table.sort_values('Std_Dev', ascending=True)
@@ -933,7 +1013,7 @@ elif view_mode == "🤝 Supplier Comparison":
                 else:
                     st.subheader("Line Capability Table (Online Cpk)")
                     comp_table = dff_comp.groupby('Supplier').agg(
-                        So_Cuon=('Batch_Lot', 'count'), LSL=('Gloss_LSL', 'mean'), USL=('Gloss_USL', 'mean'), 
+                        Coil_Count=('Batch_Lot', 'count'), LSL=('Gloss_LSL', 'mean'), USL=('Gloss_USL', 'mean'), 
                         Mean_Gloss=('Online_Gloss_Top', 'mean'), Std_Gloss=('Online_Gloss_Top', 'std'), Avg_dE=('ΔE', 'mean')
                     ).reset_index()
                     def calc_cpk(row):
@@ -1005,7 +1085,7 @@ elif view_mode == "🤝 Supplier Comparison":
             st.caption("🔵 **Dark Blue:** Significant shift towards Darker (ΔL-), Greener (Δa-), or Bluer (Δb-).")
             
             color_drift = dff_comp.groupby(['Supplier', 'Batch_Lot']).agg(
-                Ma_Son_Full=('Ma_Son', 'first'),
+                Full_Paint_Code=('Ma_Son', 'first'),
                 Ngay_SX=('Ngay_SX', 'min'),
                 Mean_dL=('dL_N', 'mean'),
                 Mean_da=('da_N', 'mean'),
@@ -1046,7 +1126,7 @@ elif view_mode == "🤝 Supplier Comparison":
             st.warning("⚠️ Insufficient data (needs at least 2 coils/supplier with Line data) to perform comparison.")
 
 # ==========================================
-# VIEW 5: SUMMARY DATA REPORT
+# VIEW 6: SUMMARY DATA REPORT
 # ==========================================
 elif view_mode == "📋 Summary Data Report":
     st.info("Master Data table, grouped by Resin Type, Color Code, and Supplier.")
