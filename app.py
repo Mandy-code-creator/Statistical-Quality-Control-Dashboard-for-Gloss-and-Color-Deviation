@@ -99,7 +99,7 @@ with st.sidebar:
         [
             "✨ Gloss Analysis (SPC)",
             "🎨 Color & ΔE Analysis",
-            "📊 Statistical Control Limits", # ĐÃ THAY THẾ VIEW PROCESS UNIFORMITY
+            "📊 Statistical Control Limits", 
             "🤝 Supplier Comparison",
             "📋 Summary Data Report"
         ],
@@ -313,7 +313,8 @@ if view_mode == "✨ Gloss Analysis (SPC)":
             'Online_Gloss_Top': 'mean' 
         }).sort_values('Ngay_SX')
         
-        dff_batch['Label_X'] = dff_batch['Batch_Lot'].astype(str) + "\n(" + pd.to_datetime(dff_batch['Ngay_SX']).dt.strftime('%m/%d') + ")"
+        # 1. CHỈ LẤY MÃ BATCH LOT LÀM NHÃN TRỤC X
+        dff_batch['Label_X'] = dff_batch['Batch_Lot'].astype(str)
         
         fig_trend, ax_trend = plt.subplots(figsize=(14, 4.5))
         ax_trend.plot(dff_batch['Label_X'], dff_batch['Gloss_Lab'], marker='o', color='#3498db', lw=2, label='Lab Gloss')
@@ -324,14 +325,20 @@ if view_mode == "✨ Gloss Analysis (SPC)":
         ax_trend.axhline(line_lsl_val, color='orange', ls='--', lw=2, alpha=0.7, label=f'Line LSL ({line_lsl_val:.1f})')
         ax_trend.axhline(line_usl_val, color='orange', ls='--', lw=2, alpha=0.7, label=f'Line USL ({line_usl_val:.1f})')
         
-        ax_trend.set_xlabel("Batch Lot & Date")
+        # 2. CẬP NHẬT TÊN TRỤC X
+        ax_trend.set_xlabel("Batch Lot")
         ax_trend.set_ylabel("Gloss (GU)")
         
+        # 3. XOAY NHÃN VÀ GIẢM MẬT ĐỘ NẾU QUÁ NHIỀU LÔ
         plt.xticks(rotation=45, ha='right')
         locs, labels = plt.xticks()
+        
         if len(locs) > 30:
+            # Tự động tính toán khoảng cách để chỉ hiển thị tối đa khoảng 20 nhãn
+            step = max(1, len(locs) // 20) 
             for i, label in enumerate(labels):
-                if i % int(len(locs)/20) != 0: label.set_visible(False)
+                if i % step != 0: 
+                    label.set_visible(False)
         
         plt.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
         st.pyplot(fig_trend)
