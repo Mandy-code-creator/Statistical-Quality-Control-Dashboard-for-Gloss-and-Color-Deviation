@@ -822,23 +822,31 @@ elif view_mode == "⚖️ Paired Difference Analysis":
             # 📌 STEP 2: Calculate Delta (Δ)
             batch_analysis['Delta'] = batch_analysis['Online_Gloss_Top'] - batch_analysis['Gloss_Lab']
 
-            # 📌 STEP 3: Analyze Delta
+            # 📌 STEP 3: Analyze Delta & Lab Variance
             mean_delta = batch_analysis['Delta'].mean()  # Systematic Offset
-            std_delta = batch_analysis['Delta'].std()    # Variation
+            std_delta = batch_analysis['Delta'].std()    # Variation of the offset
+            std_lab = batch_analysis['Gloss_Lab'].std() if batch_analysis['Gloss_Lab'].std() > 0 else 0.5 # Baseline Lab variation
 
-            # 📌 STEP 4: Calculate New Lab Target and Control Limits
+            # 📌 STEP 4: Calculate New Lab Target and Control Limits (Option A Applied)
             target_line = (batch_analysis['Gloss_LSL'].iloc[0] + batch_analysis['Gloss_USL'].iloc[0]) / 2
 
             # Core Formula: Lab_target = Target_Line - Mean(Δ)
             suggested_lab_target = target_line - mean_delta
-            suggested_lab_ucl = suggested_lab_target + (3 * std_delta)
-            suggested_lab_lcl = suggested_lab_target - (3 * std_delta)
+            
+            # Apply historical Lab standard deviation to maintain realistic spread
+            suggested_lab_ucl = suggested_lab_target + (3 * std_lab)
+            suggested_lab_lcl = suggested_lab_target - (3 * std_lab)
 
             # --- DISPLAY METRICS ---
             st.markdown("### 🔑 Recommended Parameters (Based on Systematic Offset)")
+            
+            # Add a warning if delta variation is suspiciously high
+            if std_delta > 1.5:
+                st.warning(f"⚠️ **High Δ Variation Detected (Std: {std_delta:.2f} GU).** The relationship between Lab and Line is unstable. Applying a strict historical Lab distribution for safety.")
+            
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("Constant Bias (Mean Δ)", f"{mean_delta:+.2f} GU", help=">0: Line higher than Lab. <0: Line lower than Lab")
-            c2.metric("Δ Stability (Std)", f"{std_delta:.2f} GU")
+            c2.metric("Baseline Lab Std", f"{std_lab:.2f} GU", help="Historical standard deviation of Lab data used for calculating limits.")
             c3.metric("🎯 Suggested Lab Target", f"{suggested_lab_target:.1f} GU")
 
             # Display New Limits
