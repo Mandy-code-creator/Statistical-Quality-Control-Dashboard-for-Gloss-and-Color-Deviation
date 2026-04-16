@@ -288,13 +288,15 @@ if view_mode == "✨ Gloss Trend (SPC)":
         st.pyplot(fig_trend)
         plt.close(fig_trend)
 
-        # ── 2. BIỂU ĐỒ PHÂN PHỐI (COMPACT STYLE) ──────────────────────
+       # ── 2. BIỂU ĐỒ PHÂN PHỐI (COMPACT STYLE VỚI STD DEV) ──────────────────────
         st.write("**Gloss Distribution Analysis**")
         fig_dist, ax_dist = plt.subplots(figsize=(9, 5)) 
         
-        # Thống kê
+        # Thống kê (Cập nhật tính Std Dev)
         mean_lab = dff_g['Gloss_Lab'].mean()
+        std_lab = dff_g['Gloss_Lab'].std()
         mean_line = dff_g['Online_Gloss_Top'].mean()
+        std_line = dff_g['Online_Gloss_Top'].std()
         
         # Vẽ Histogram
         sns.histplot(dff_g['Gloss_Lab'], color='#1f77b4', alpha=0.4, label='Lab Histogram', ax=ax_dist, kde=False)
@@ -302,42 +304,42 @@ if view_mode == "✨ Gloss Trend (SPC)":
 
         # Cấu hình nhãn dán chuyên nghiệp
         y_max = ax_dist.get_ylim()[1]
-        ax_dist.set_ylim(0, y_max * 1.3) # Tạo khoảng trống cho nhãn
+        ax_dist.set_ylim(0, y_max * 1.3) 
         y_base = ax_dist.get_ylim()[1] * 0.8
 
-        def add_compact_label(x, label, color, y_offset_pct):
+        # Cập nhật hàm nhãn dán cho phép hiển thị σ
+        def add_compact_label(x, label, color, y_offset_pct, std_val=None):
             ax_dist.axvline(x, color=color, ls='--', lw=1.5)
-            # Tính toán vị trí Y dựa trên % của trục để không bị đè
             pos_y = y_base + (ax_dist.get_ylim()[1] * y_offset_pct)
-            ax_dist.text(x, pos_y, f"{label}\n{x:.1f}", 
+            
+            # Nếu có dữ liệu std_val thì ghép thêm chữ σ vào
+            if std_val is not None:
+                text_str = f"{label}\nμ: {x:.1f} | σ: {std_val:.2f}"
+            else:
+                text_str = f"{label}\n{x:.1f}"
+                
+            ax_dist.text(x, pos_y, text_str, 
                          color='white', fontweight='bold', ha='center', va='center', fontsize=7,
-                         bbox=dict(boxstyle='round,pad=0.2', fc=color, ec='none', alpha=0.9))
+                         bbox=dict(boxstyle='round,pad=0.3', fc=color, ec='none', alpha=0.9))
 
-        # Thêm nhãn Spec và Mean (Đã phân tầng độ cao để không đè nhau)
+        add_compact_label(lsl_val, "LSL", "red", 0)
+        add_compact_label(usl_val, "USL", "red", 0)
         
-        # 1. Giới hạn của Lab (Đỏ) - Tầng cơ sở (0)
-        add_compact_label(lsl_val, "Lab LSL", "red", 0)
-        add_compact_label(usl_val, "Lab USL", "red", 0)
-        
-        # 2. Giới hạn của Line (Xanh lá) - Tầng hơi cao (+0.06)
-        add_compact_label(line_lsl_val, "Line LSL", "green", 0.06)
-        add_compact_label(line_usl_val, "Line USL", "green", 0.06)
-        
-        # 3. Điểm trung bình (Mean) - Tầng cao nhất (+0.12) và tầng thấp nhất (-0.12)
-        add_compact_label(mean_lab, "Lab μ", "#1f77b4", 0.12)
-        add_compact_label(mean_line, "Line μ", "#ff7f0e", -0.12)
+        # Tăng offset_pct lên một chút để nhãn to hơn không bị đè
+        add_compact_label(mean_lab, "Lab", "#1f77b4", 0.15, std_lab)
+        add_compact_label(mean_line, "Line", "#ff7f0e", -0.15, std_line)
 
         # Vẽ đường cong chuẩn (Normal Curve)
         all_data = pd.concat([dff_g['Gloss_Lab'], dff_g['Online_Gloss_Top']])
         x_axis = np.linspace(all_data.min()-3, all_data.max()+3, 200)
         bin_width = (all_data.max() - all_data.min()) / 12
         
-        for data, color, label in [(dff_g['Gloss_Lab'], '#1f77b4', 'Lab'), 
-                                   (dff_g['Online_Gloss_Top'], '#ff7f0e', 'Line')]:
-            std = data.std()
-            if std > 0:
-                y_curve = stats.norm.pdf(x_axis, data.mean(), std) * len(data) * bin_width
-                ax_dist.plot(x_axis, y_curve, color=color, lw=2, label=f'{label} Curve')
+        # Cập nhật Legend chứa σ
+        for data, color, label, mean_val, std_val in [(dff_g['Gloss_Lab'], '#1f77b4', 'Lab', mean_lab, std_lab), 
+                                                      (dff_g['Online_Gloss_Top'], '#ff7f0e', 'Line', mean_line, std_line)]:
+            if std_val > 0:
+                y_curve = stats.norm.pdf(x_axis, mean_val, std_val) * len(data) * bin_width
+                ax_dist.plot(x_axis, y_curve, color=color, lw=2, label=f'{label} Curve (σ={std_val:.2f})')
 
         ax_dist.set_xlabel("Gloss Value (GU)", fontsize=9)
         ax_dist.set_ylabel("Number of Coils", fontsize=9)
