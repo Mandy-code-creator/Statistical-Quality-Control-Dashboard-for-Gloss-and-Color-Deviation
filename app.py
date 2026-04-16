@@ -174,7 +174,7 @@ st.markdown("---")
 # ==========================================
 # ==========================================
 # ==========================================
-# VIEW 1: GLOSS TREND (SPC) - CLEAN ANNOTATION
+# VIEW 1: GLOSS TREND (SPC) - FULL REVISED
 # ==========================================
 if view_mode == "✨ Gloss Trend (SPC)":
     st.info("💡 SPC Analysis: Monitor the actual Gloss trend (Lab vs Line) across raw production sequence.")
@@ -245,81 +245,48 @@ if view_mode == "✨ Gloss Trend (SPC)":
             return
 
         lsl_val, usl_val = dff_g['Gloss_LSL'].iloc[0], dff_g['Gloss_USL'].iloc[0]
+        line_lsl_val, line_usl_val = dff_g['Line_LSL'].iloc[0], dff_g['Line_USL'].iloc[0]
         
         st.success(f"📅 **Timeframe:** `{dff_g['Ngay_SX'].min()}` to `{dff_g['Ngay_SX'].max()}` | **Volume:** {dff_g['Batch_Lot'].nunique()} Batches ({len(dff_g)} Coils).")
 
-        # ── BIỂU ĐỒ TREND (ZIGZAG RAW DATA) ───────────────────────────────────
         fig_trend, ax_trend = plt.subplots(figsize=(14, 4.5))
+        
+        # 1. RAW DATA (ZIGZAG)
         x_axis = range(len(dff_g))
         ax_trend.plot(x_axis, dff_g['Gloss_Lab'], marker='o', color='#1f77b4', lw=1.5, label='Lab Gloss')
         ax_trend.plot(x_axis, dff_g['Online_Gloss_Top'], marker='s', color='#ff7f0e', lw=1.5, label='Line Gloss')
         
-        ax_trend.axhline(lsl_val, color='red', ls='-', lw=2, label=f'Spec LSL ({lsl_val})')
-        ax_trend.axhline(usl_val, color='red', ls='-', lw=2, label=f'Spec USL ({usl_val})')
+        # 2. LAB LIMITS - RED
+        ax_trend.axhline(lsl_val, color='red', ls='-', lw=2, label=f'Lab LSL ({lsl_val})')
+        ax_trend.axhline(usl_val, color='red', ls='-', lw=2, label=f'Lab USL ({usl_val})')
         
+        # 3. LINE LIMITS - GREEN (Updated as requested)
+        ax_trend.axhline(line_lsl_val, color='green', ls='--', lw=2, label=f'Line LSL ({line_lsl_val})')
+        ax_trend.axhline(line_usl_val, color='green', ls='--', lw=2, label=f'Line USL ({line_usl_val})')
+        
+        # X-Axis Formatting
         plt.xticks(x_axis, dff_g['Batch_Lot'].astype(str), rotation=45, ha='right')
         if len(x_axis) > 20:
             step = max(1, len(x_axis) // 15)
             for i, label in enumerate(ax_trend.xaxis.get_ticklabels()):
                 if i % step != 0: label.set_visible(False)
+                
         ax_trend.set_ylabel("Gloss (GU)")
         ax_trend.legend(bbox_to_anchor=(1.01, 1), loc='upper left', fontsize='small')
         st.pyplot(fig_trend)
         plt.close(fig_trend)
 
-        # ── BIỂU ĐỒ PHÂN PHỐI & NORMAL CURVE (CLEANED) ────────────────────────
-        st.write("**Gloss Distribution & Normal Curve Comparison**")
-        fig_dist, ax_dist = plt.subplots(figsize=(12, 6))
-        
-        mean_lab, std_lab = dff_g['Gloss_Lab'].mean(), dff_g['Gloss_Lab'].std()
-        mean_line, std_line = dff_g['Online_Gloss_Top'].mean(), dff_g['Online_Gloss_Top'].std()
-
-        # Histogram
-        sns.histplot(dff_g['Gloss_Lab'], color='#1f77b4', stat="density", alpha=0.1, ax=ax_dist)
-        sns.histplot(dff_g['Online_Gloss_Top'], color='#ff7f0e', stat="density", alpha=0.1, ax=ax_dist)
-        
-        # Normal Curves
-        all_data = pd.concat([dff_g['Gloss_Lab'], dff_g['Online_Gloss_Top']])
-        x_start, x_end = all_data.min() - 5, all_data.max() + 5
-        x_axis_dist = np.linspace(x_start, x_end, 300)
-        
-        if std_lab > 0:
-            ax_dist.plot(x_axis_dist, stats.norm.pdf(x_axis_dist, mean_lab, std_lab), color='#1f77b4', lw=2.5, label='Lab Distribution')
-        if std_line > 0:
-            ax_dist.plot(x_axis_dist, stats.norm.pdf(x_axis_dist, mean_line, std_line), color='#ff7f0e', lw=2.5, label='Line Distribution')
-
-        # Annotations - Optimized to avoid overlap
-        y_max = ax_dist.get_ylim()[1]
-        
-        # Spec Limits (Thick Red)
-        ax_dist.axvline(lsl_val, color='red', ls='-', lw=2.5)
-        ax_dist.axvline(usl_val, color='red', ls='-', lw=2.5)
-        ax_dist.text(lsl_val, y_max * 0.95, f'LSL: {lsl_val}', color='red', fontweight='bold', ha='right', va='top', rotation=90)
-        ax_dist.text(usl_val, y_max * 0.95, f'USL: {usl_val}', color='red', fontweight='bold', ha='left', va='top', rotation=90)
-
-        # Means (Solid Lines)
-        ax_dist.axvline(mean_lab, color='#1f77b4', ls='-', lw=2)
-        ax_dist.text(mean_lab, y_max * 0.85, f'Lab μ: {mean_lab:.1f}', color='#1f77b4', ha='center', va='bottom', fontsize=9, bbox=dict(facecolor='white', alpha=0.7, edgecolor='none'))
-        
-        ax_dist.axvline(mean_line, color='#ff7f0e', ls='-', lw=2)
-        ax_dist.text(mean_line, y_max * 0.70, f'Line μ: {mean_line:.1f}', color='#ff7f0e', ha='center', va='bottom', fontsize=9, bbox=dict(facecolor='white', alpha=0.7, edgecolor='none'))
-
-        # Min/Max (Dotted Lines - Tiered to avoid overlap)
-        ax_dist.axvline(dff_g['Gloss_Lab'].min(), color='#1f77b4', ls=':', lw=1)
-        ax_dist.axvline(dff_g['Gloss_Lab'].max(), color='#1f77b4', ls=':', lw=1)
-        ax_dist.axvline(dff_g['Online_Gloss_Top'].min(), color='#ff7f0e', ls=':', lw=1)
-        ax_dist.axvline(dff_g['Online_Gloss_Top'].max(), color='#ff7f0e', ls=':', lw=1)
-        
-        # Final formatting
-        ax_dist.set_xlim(x_start, x_end)
-        ax_dist.set_xlabel("Gloss Value (GU)")
-        ax_dist.set_ylabel("Density")
-        ax_dist.legend(fontsize=8, loc='upper right')
-        
+        # Distribution Chart
+        st.write("**Gloss Distribution & Normal Curve**")
+        fig_dist, ax_dist = plt.subplots(figsize=(10, 4))
+        sns.histplot(dff_g['Gloss_Lab'], color='#1f77b4', kde=True, stat="density", alpha=0.3, label='Lab', ax=ax_dist)
+        sns.histplot(dff_g['Online_Gloss_Top'], color='#ff7f0e', kde=True, stat="density", alpha=0.3, label='Line', ax=ax_dist)
+        ax_dist.axvline(lsl_val, color='red', ls='-', lw=1.5)
+        ax_dist.axvline(usl_val, color='red', ls='-', lw=1.5)
+        ax_dist.legend()
         st.pyplot(fig_dist)
         plt.close(fig_dist)
 
-    # ── TAB SELECTION ──────────────────────────────────────────────────────────
     list_ma_son_tab2 = sorted(dff['Ma_Son'].dropna().unique().tolist())
     if list_ma_son_tab2:
         tab_top_risk, tab_custom = st.tabs(["🚨 Top At-Risk Codes", "🔍 Manual Analysis"])
