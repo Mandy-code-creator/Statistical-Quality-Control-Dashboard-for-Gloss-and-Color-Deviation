@@ -172,7 +172,8 @@ st.title(view_mode)
 st.markdown("---")
 
 # ==========================================
-# VIEW 1: GLOSS TREND (SPC)
+# ==========================================
+# VIEW 1: GLOSS TREND (SPC) - UPDATED COLORS
 # ==========================================
 if view_mode == "✨ Gloss Trend (SPC)":
     st.info("💡 SPC Analysis: Monitor the actual Gloss trend (Lab vs Line) across different production batches to detect process shifts.")
@@ -241,6 +242,7 @@ if view_mode == "✨ Gloss Trend (SPC)":
     st.markdown("---")
     
     def render_spc_analysis(paint_code, data_source, key_suffix):
+        # KHÔI PHỤC LOGIC: Không dùng Groupby Batch để giữ đường zigzag từng cuộn
         dff_g = data_source[data_source['Ma_Son'] == paint_code].copy()
         dff_g = dff_g.dropna(subset=['Gloss_LSL', 'Gloss_USL', 'Gloss_Lab', 'Online_Gloss_Top'])
         dff_g = dff_g[(dff_g['Gloss_LSL'] > 0) & (dff_g['Gloss_USL'] > 0) & (dff_g['Gloss_Lab'] > 0) & (dff_g['Online_Gloss_Top'] > 0)]
@@ -258,42 +260,52 @@ if view_mode == "✨ Gloss Trend (SPC)":
         
         st.success(f"📅 **Timeframe:** `{min_date}` to `{max_date}` | **Volume:** `{batch_count}` Batches (`{coil_count}` Coils).")
 
-        dff_batch = dff_g.groupby('Batch_Lot', as_index=False).agg({
-            'Ngay_SX': 'min', 'Order_No': lambda x: ', '.join(x.dropna().astype(str).unique()),
-            'Line': 'first', 'Gloss_LSL': 'first', 'Gloss_USL': 'first', 'Line_LSL': 'first', 'Line_USL': 'first',
-            'Gloss_Lab': 'first', 'Online_Gloss_Top': 'mean' 
-        }).sort_values('Ngay_SX')
-        dff_batch['Label_X'] = dff_batch['Batch_Lot'].astype(str)
-        
+        # Vẽ biểu đồ xu hướng (Zigzag nguyên bản)
         fig_trend, ax_trend = plt.subplots(figsize=(14, 4.5))
-        ax_trend.plot(dff_batch['Label_X'], dff_batch['Gloss_Lab'], marker='o', color='#3498db', lw=2, label='Lab Gloss')
-        ax_trend.plot(dff_batch['Label_X'], dff_batch['Online_Gloss_Top'], marker='s', color='#e67e22', lw=2, label='Avg Line Gloss')
         
-        ax_trend.axhline(lsl_val, color='red', ls='-', lw=2, label=f'Lab LSL ({lsl_val:.1f})')
-        ax_trend.axhline(usl_val, color='red', ls='-', lw=2, label=f'Lab USL ({usl_val:.1f})')
-        ax_trend.axhline(line_lsl_val, color='orange', ls='--', lw=2, alpha=0.7, label=f'Line LSL ({line_lsl_val:.1f})')
-        ax_trend.axhline(line_usl_val, color='orange', ls='--', lw=2, alpha=0.7, label=f'Line USL ({line_usl_val:.1f})')
+        # MÀU MỚI TƯƠNG PHẢN CAO
+        C_LAB = "#1A5276"    # Dark Blue
+        C_LINE = "#D35400"   # Dark Orange
+        C_SPEC = "#C0392B"   # Deep Red
+        C_L_LIMIT = "#F39C12" # Amber (Line Limits)
+
+        x_axis = range(len(dff_g))
+        x_labels = dff_g['Batch_Lot'].astype(str)
+
+        ax_trend.plot(x_axis, dff_g['Gloss_Lab'], marker='o', color=C_LAB, lw=1.5, label='Lab Gloss (Raw)')
+        ax_trend.plot(x_axis, dff_g['Online_Gloss_Top'], marker='s', color=C_LINE, lw=1.5, label='Line Gloss (Zigzag)')
         
-        ax_trend.set_xlabel("Batch Lot")
+        # Giới hạn Spec khách hàng (Đỏ đậm, nét liền)
+        ax_trend.axhline(lsl_val, color=C_SPEC, ls='-', lw=2.5, label=f'Lab LSL ({lsl_val:.1f})')
+        ax_trend.axhline(usl_val, color=C_SPEC, ls='-', lw=2.5, label=f'Lab USL ({usl_val:.1f})')
+        
+        # Giới hạn Line (Vàng hổ phách, nét đứt)
+        ax_trend.axhline(line_lsl_val, color=C_L_LIMIT, ls='--', lw=2, alpha=0.8, label=f'Line LSL ({line_lsl_val:.1f})')
+        ax_trend.axhline(line_usl_val, color=C_L_LIMIT, ls='--', lw=2, alpha=0.8, label=f'Line USL ({line_usl_val:.1f})')
+        
+        ax_trend.set_xlabel("Production Sequence (Batch Lot)")
         ax_trend.set_ylabel("Gloss (GU)")
-        plt.xticks(rotation=45, ha='right')
-        locs, labels = plt.xticks()
-        if len(locs) > 30:
-            step = max(1, len(locs) // 20) 
-            for i, label in enumerate(labels):
+        
+        # Format X-axis ticks
+        plt.xticks(x_axis, x_labels, rotation=45, ha='right')
+        if len(x_axis) > 20:
+            step = max(1, len(x_axis) // 15)
+            for i, label in enumerate(ax_trend.xaxis.get_ticklabels()):
                 if i % step != 0: label.set_visible(False)
-        plt.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
+                
+        plt.legend(bbox_to_anchor=(1.01, 1), loc='upper left', fontsize='small')
         st.pyplot(fig_trend)
         plt.close(fig_trend)
 
-        ng_batches = dff_batch[
-            (dff_batch['Gloss_Lab'] < dff_batch['Gloss_LSL']) | (dff_batch['Gloss_Lab'] > dff_batch['Gloss_USL']) | 
-            (dff_batch['Online_Gloss_Top'] < dff_batch['Line_LSL']) | (dff_batch['Online_Gloss_Top'] > dff_batch['Line_USL'])
+        # Thông báo Out of Spec
+        ng_coils = dff_g[
+            (dff_g['Gloss_Lab'] < dff_g['Gloss_LSL']) | (dff_g['Gloss_Lab'] > dff_g['Gloss_USL']) | 
+            (dff_g['Online_Gloss_Top'] < dff_g['Line_LSL']) | (dff_g['Online_Gloss_Top'] > dff_g['Line_USL'])
         ].copy()
         
-        if not ng_batches.empty:
-            st.error(f"🚨 Out of Spec Batches ({len(ng_batches)} Batches)")
-            def get_batch_error(row):
+        if not ng_coils.empty:
+            st.error(f"🚨 Out of Spec Detected ({len(ng_coils)} Coils)")
+            def get_coil_error(row):
                 errs = []
                 if row['Gloss_Lab'] < row['Gloss_LSL']: errs.append(f"Lab Low (<{row['Gloss_LSL']:.1f})")
                 elif row['Gloss_Lab'] > row['Gloss_USL']: errs.append(f"Lab High (>{row['Gloss_USL']:.1f})")
@@ -301,71 +313,30 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 elif row['Online_Gloss_Top'] > row['Line_USL']: errs.append(f"Line High (>{row['Line_USL']:.1f})")
                 return " + ".join(errs)
                 
-            ng_batches['Error Details'] = ng_batches.apply(get_batch_error, axis=1)
-            ng_display = ng_batches[['Batch_Lot', 'Ngay_SX', 'Gloss_Lab', 'Online_Gloss_Top', 'Error Details']].copy()
-            ng_display.columns = ['Batch Lot', 'Production Date', 'Lab Gloss', 'Avg Line Gloss', 'Error Details']
-            st.dataframe(
-                ng_display.style.format({'Lab Gloss': '{:.1f}', 'Avg Line Gloss': '{:.1f}'})
-                .set_properties(**{'background-color': '#ffebee', 'color': '#c0392b', 'font-weight': 'bold'}, subset=['Error Details']),
-                use_container_width=True, hide_index=True
-            )
-        else:
-            st.success("✅ All batches meet gloss standards (Lab & Line).")
+            ng_coils['Error Details'] = ng_coils.apply(get_coil_error, axis=1)
+            st.dataframe(ng_coils[['Batch_Lot', 'Coil_No', 'Gloss_Lab', 'Online_Gloss_Top', 'Error Details']], use_container_width=True, hide_index=True)
 
         st.write("**Gloss Distribution (Histogram & Normal Curve)**")
-        fig_g1, ax_g1 = plt.subplots(figsize=(10, 5)) 
-        min_val = min(dff_g['Gloss_Lab'].min(), dff_g['Online_Gloss_Top'].min())
-        max_val = max(dff_g['Gloss_Lab'].max(), dff_g['Online_Gloss_Top'].max())
-        if min_val == max_val: 
-            min_val -= 1
-            max_val += 1
-            
-        bins_arr = np.linspace(min_val, max_val, 12) 
-        bin_width = bins_arr[1] - bins_arr[0]
-        sns.histplot(dff_g['Gloss_Lab'], stat="count", bins=bins_arr, color='#3498db', alpha=0.4, label='Lab Bins', ax=ax_g1)
-        sns.histplot(dff_g['Online_Gloss_Top'], stat="count", bins=bins_arr, color='#e67e22', alpha=0.4, label='Line Bins', ax=ax_g1)
+        fig_dist, ax_dist = plt.subplots(figsize=(10, 5)) 
+        sns.histplot(dff_g['Gloss_Lab'], color=C_LAB, alpha=0.3, kde=False, stat="density", label='Lab Distribution', ax=ax_dist)
+        sns.histplot(dff_g['Online_Gloss_Top'], color=C_LINE, alpha=0.3, kde=False, stat="density", label='Line Distribution', ax=ax_dist)
         
-        plot_min, plot_max = min(line_lsl_val, min_val) - 2, max(line_usl_val, max_val) + 2
-        x_axis = np.linspace(plot_min, plot_max, 200)
-        
-        if pd.notna(std_lab) and std_lab > 0:
-            y_lab_scaled = stats.norm.pdf(x_axis, mean_lab, std_lab) * len(dff_g['Gloss_Lab']) * bin_width
-            ax_g1.plot(x_axis, y_lab_scaled, color='#2980b9', lw=2.5, label=f'Lab Curve')
-        if pd.notna(std_line) and std_line > 0:
-            y_line_scaled = stats.norm.pdf(x_axis, mean_line, std_line) * len(dff_g['Online_Gloss_Top']) * bin_width
-            ax_g1.plot(x_axis, y_line_scaled, color='#d35400', lw=2.5, label=f'Line Curve')
+        # Thêm đường cong chuẩn
+        x_plot = np.linspace(min(dff_g['Gloss_Lab'].min(), dff_g['Online_Gloss_Top'].min())-2, max(dff_g['Gloss_Lab'].max(), dff_g['Online_Gloss_Top'].max())+2, 200)
+        ax_dist.plot(x_plot, stats.norm.pdf(x_plot, mean_lab, std_lab), color=C_LAB, lw=2, label='Lab Normal Curve')
+        ax_dist.plot(x_plot, stats.norm.pdf(x_plot, mean_line, std_line), color=C_LINE, lw=2, label='Line Normal Curve')
 
-        ax_g1.axvline(lsl_val, color='red', ls='-', lw=1.5)
-        ax_g1.axvline(usl_val, color='red', ls='-', lw=1.5)
-        ax_g1.axvline(line_lsl_val, color='orange', ls='--', lw=1.5, alpha=0.7)
-        ax_g1.axvline(line_usl_val, color='orange', ls='--', lw=1.5, alpha=0.7)
-        ax_g1.set_xlim(plot_min, plot_max)
-        ax_g1.set_xlabel("Gloss (GU)")
-        ax_g1.set_ylabel("Number of Coils (Count)")
-        handles, labels = ax_g1.get_legend_handles_labels()
-        ax_g1.legend(handles, labels, bbox_to_anchor=(0.5, -0.15), loc='upper center', ncol=2, fontsize=9, frameon=True)
-        plt.tight_layout() 
-        st.pyplot(fig_g1)
-        plt.close(fig_g1)
-
-        with st.expander("🔍 View Full Batch Details", expanded=False):
-            batch_table = dff_batch[['Batch_Lot', 'Order_No', 'Line', 'Ngay_SX', 'Gloss_LSL', 'Gloss_USL', 'Gloss_Lab', 'Line_LSL', 'Line_USL', 'Online_Gloss_Top']].copy()
-            batch_table['Gap (Line - Lab)'] = batch_table['Online_Gloss_Top'] - batch_table['Gloss_Lab']
-            batch_table.columns = ['Batch Lot', 'Order Number', 'Line', 'Production Date', 'Lab LSL', 'Lab USL', 'Lab Gloss', 'Line LSL', 'Line USL', 'Avg Line Gloss', 'Gap (Line - Lab)']
-            st.dataframe(
-                batch_table.style.format({
-                    'Lab LSL': '{:.0f}', 'Lab USL': '{:.0f}', 'Line LSL': '{:.0f}', 'Line USL': '{:.0f}',
-                    'Lab Gloss': '{:.1f}', 'Avg Line Gloss': '{:.1f}', 'Gap (Line - Lab)': '{:+.1f}'
-                }).background_gradient(cmap='RdYlGn_r', subset=['Gap (Line - Lab)']), 
-                use_container_width=True, hide_index=True
-            )
+        ax_dist.axvline(lsl_val, color=C_SPEC, ls='-', lw=2)
+        ax_dist.axvline(usl_val, color=C_SPEC, ls='-', lw=2)
+        ax_dist.legend(fontsize='small')
+        st.pyplot(fig_dist)
+        plt.close(fig_dist)
 
     list_ma_son_tab2 = sorted(dff['Ma_Son'].dropna().unique().tolist())
     if list_ma_son_tab2:
         tab_top_risk, tab_custom = st.tabs(["🚨 Auto-Analysis: Top 15 At-Risk Codes", "🔍 Manual Search & Analysis"])
         with tab_top_risk:
             st.markdown("### Top 15 Paint Codes Approaching or Exceeding Limits")
-            st.caption("Only displaying codes with ≥ 5 production batches.")
             if not risk_alert.empty:
                 top_15_codes = risk_alert['Paint Code'].head(15).tolist()
                 for i, code in enumerate(top_15_codes):
@@ -379,17 +350,16 @@ if view_mode == "✨ Gloss Trend (SPC)":
             st.markdown("### Manual Paint Code Analysis")
             col_search1, col_search2 = st.columns([1, 2])
             with col_search1:
-                search_keyword = st.text_input("🔍 Quick Search Paint Code:", "", placeholder="Type part of code (e.g., SC8, 14SE...)").upper()
+                search_keyword = st.text_input("🔍 Quick Search Paint Code:", "", placeholder="Type code...").upper()
             filtered_list = [code for code in list_ma_son_tab2 if search_keyword in str(code).upper()]
             with col_search2:
                 if filtered_list:
                     sel_ma_son_tab2 = st.selectbox(f"🎯 Select Paint Code ({len(filtered_list)} found):", filtered_list, key="custom_select")
                 else:
-                    st.warning(f"❌ No paint code found containing '{search_keyword}'")
+                    st.warning(f"❌ No paint code found")
                     st.stop()
             st.markdown("---")
             render_spc_analysis(sel_ma_son_tab2, dff, key_suffix="custom")
-
 # ==========================================
 # VIEW 2: COLOR SHIFT ANALYSIS
 # ==========================================
