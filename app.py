@@ -107,23 +107,6 @@ with st.sidebar:
         label_visibility="collapsed"
     )
     
-    # DYNAMIC LIMIT SETTINGS
-    st.markdown("---")
-    st.markdown("### ⚙️ Limit Settings")
-    line_offset = st.number_input("Line Offset (Line = Lab ± X)", value=2.0, step=0.5, help="Allowed deviation between Line and Lab limits")
-
-    with st.expander("🛠️ Custom Gloss Limits", expanded=False):
-        st.caption("Enter Paint Code to set custom control limits.")
-        if "custom_gloss_rules" not in st.session_state:
-            init_data = pd.DataFrame({
-                "Ma_Son": ["", "", ""], "Lab_LSL": [0.0, 0.0, 0.0], "Lab_USL": [0.0, 0.0, 0.0],
-                "Line_LSL": [0.0, 0.0, 0.0], "Line_USL": [0.0, 0.0, 0.0]
-            })
-            st.session_state["custom_gloss_rules"] = init_data
-
-        edited_rules = st.data_editor(st.session_state["custom_gloss_rules"], num_rows="dynamic", hide_index=True)
-        st.session_state["custom_gloss_rules"] = edited_rules
-
     st.markdown("---")
     st.markdown("### 🔍 Global Filters")
     min_date, max_date = df['Ngay_SX'].min(), df['Ngay_SX'].max()
@@ -138,11 +121,25 @@ with st.sidebar:
     list_col = ['All'] + sorted(df['Color_Group'].unique().tolist())
     sel_col = st.selectbox("🎨 Color Group:", list_col)
 
+    with st.expander("🛠️ Custom Paint Specs", expanded=False):
+        st.caption("Override control limits for specific paint codes.")
+        if "custom_gloss_rules" not in st.session_state:
+            init_data = pd.DataFrame({
+                "Ma_Son": ["", "", ""], "Lab_LSL": [0.0, 0.0, 0.0], "Lab_USL": [0.0, 0.0, 0.0],
+                "Line_LSL": [0.0, 0.0, 0.0], "Line_USL": [0.0, 0.0, 0.0]
+            })
+            st.session_state["custom_gloss_rules"] = init_data
+
+        edited_rules = st.data_editor(st.session_state["custom_gloss_rules"], num_rows="dynamic", hide_index=True)
+        st.session_state["custom_gloss_rules"] = edited_rules
+
 # ==============================================================================
 # APPLY LIMITS & CALC PASS/FAIL
 # ==============================================================================
-df['Line_LSL'] = df['Gloss_LSL'] - line_offset
-df['Line_USL'] = df['Gloss_USL'] + line_offset
+# Constant standard offset applied silently in background for global tracking
+STANDARD_LINE_OFFSET = 2.0 
+df['Line_LSL'] = df['Gloss_LSL'] - STANDARD_LINE_OFFSET
+df['Line_USL'] = df['Gloss_USL'] + STANDARD_LINE_OFFSET
 
 custom_df = st.session_state["custom_gloss_rules"].dropna(subset=["Ma_Son"])
 custom_df = custom_df[custom_df["Ma_Son"].str.strip() != ""]
@@ -596,7 +593,6 @@ elif view_mode == "📊 Statistical Limits (Scope Comparison)":
         st.warning("⚠️ Insufficient data (needs at least 5 coils).")
 
 # ==========================================
-# ==========================================
 # VIEW 4: PROCESS CENTERING & LIMIT DESIGN
 # ==========================================
 elif view_mode == "⚖️ Paired Difference (Lab vs Line)":
@@ -628,7 +624,6 @@ elif view_mode == "⚖️ Paired Difference (Lab vs Line)":
             center_target = (official_lsl + official_usl) / 2.0
 
             # 3. Calculate Centered Lab Target
-            # To get Line to hit 'center_target', Lab must offset by the bias
             centered_lab_target = center_target - bias
 
             # 4. Design Limits (Mill vs Release)
@@ -677,7 +672,6 @@ elif view_mode == "⚖️ Paired Difference (Lab vs Line)":
 
             fig_sim, ax_sim = plt.subplots(figsize=(14, 5))
             
-            # Current Line Distribution (Skewed)
             mean_line_current = batch_analysis['Online_Gloss_Top'].mean()
             x_min = min(mean_line_current - 4*std_line, center_target - 4*std_line, official_lsl)
             x_max = max(mean_line_current + 4*std_line, center_target + 4*std_line, official_usl)
@@ -687,13 +681,10 @@ elif view_mode == "⚖️ Paired Difference (Lab vs Line)":
             ax_sim.plot(x_axis, y_line_current, color='#e74c3c', lw=2, label=f'Current Line Output (Mean: {mean_line_current:.1f})')
             ax_sim.fill_between(x_axis, y_line_current, alpha=0.1, color='#e74c3c')
 
-            # Simulated Line Distribution (Centered)
-            # If Lab hits 'centered_lab_target', Line will hit 'center_target'
             y_line_simulated = stats.norm.pdf(x_axis, center_target, std_line)
             ax_sim.plot(x_axis, y_line_simulated, color='#27ae60', lw=2.5, ls='--', label=f'Optimized Line Output (Centered at {center_target:.1f})')
             ax_sim.fill_between(x_axis, y_line_simulated, alpha=0.2, color='#27ae60')
 
-            # Draw Specs & Ranges
             ax_sim.axvline(official_lsl, color='black', ls='-', lw=2, label='Official LSL/USL')
             ax_sim.axvline(official_usl, color='black', ls='-', lw=2)
             ax_sim.axvline(center_target, color='black', ls=':', lw=1.5, label='Ideal Center')
