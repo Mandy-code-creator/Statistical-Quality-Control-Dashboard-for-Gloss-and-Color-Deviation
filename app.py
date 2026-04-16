@@ -174,7 +174,8 @@ st.markdown("---")
 # ==========================================
 # ==========================================
 # ==========================================
-# VIEW 1: GLOSS TREND (SPC) - FINAL OPTIMIZED
+# ==========================================
+# VIEW 1: GLOSS TREND (SPC) - CLEAN ANNOTATION
 # ==========================================
 if view_mode == "✨ Gloss Trend (SPC)":
     st.info("💡 SPC Analysis: Monitor the actual Gloss trend (Lab vs Line) across raw production sequence.")
@@ -245,85 +246,59 @@ if view_mode == "✨ Gloss Trend (SPC)":
             return
 
         lsl_val, usl_val = dff_g['Gloss_LSL'].iloc[0], dff_g['Gloss_USL'].iloc[0]
+        line_lsl_val, line_usl_val = dff_g['Line_LSL'].iloc[0], dff_g['Line_USL'].iloc[0]
         
         st.success(f"📅 **Timeframe:** `{dff_g['Ngay_SX'].min()}` to `{dff_g['Ngay_SX'].max()}` | **Volume:** {dff_g['Batch_Lot'].nunique()} Batches ({len(dff_g)} Coils).")
 
-        # ── BIỂU ĐỒ TREND (ZIGZAG RAW DATA) ───────────────────────────────────
+        # ── BIỂU ĐỒ TREND ─────────────────────────────────────────────────────────
         fig_trend, ax_trend = plt.subplots(figsize=(14, 4.5))
+        
         x_axis = range(len(dff_g))
         ax_trend.plot(x_axis, dff_g['Gloss_Lab'], marker='o', color='#1f77b4', lw=1.5, label='Lab Gloss')
         ax_trend.plot(x_axis, dff_g['Online_Gloss_Top'], marker='s', color='#ff7f0e', lw=1.5, label='Line Gloss')
         
-        ax_trend.axhline(lsl_val, color='red', ls='-', lw=2, label=f'Spec LSL ({lsl_val})')
-        ax_trend.axhline(usl_val, color='red', ls='-', lw=2, label=f'Spec USL ({usl_val})')
+        ax_trend.axhline(lsl_val, color='red', ls='-', lw=2)
+        ax_trend.axhline(usl_val, color='red', ls='-', lw=2)
+        ax_trend.axhline(line_lsl_val, color='green', ls='--', lw=2)
+        ax_trend.axhline(line_usl_val, color='green', ls='--', lw=2)
         
         plt.xticks(x_axis, dff_g['Batch_Lot'].astype(str), rotation=45, ha='right')
         if len(x_axis) > 20:
             step = max(1, len(x_axis) // 15)
             for i, label in enumerate(ax_trend.xaxis.get_ticklabels()):
                 if i % step != 0: label.set_visible(False)
+                
         ax_trend.set_ylabel("Gloss (GU)")
         ax_trend.legend(bbox_to_anchor=(1.01, 1), loc='upper left', fontsize='small')
         st.pyplot(fig_trend)
         plt.close(fig_trend)
 
-        # ── BIỂU ĐỒ PHÂN PHỐI & NORMAL CURVE ───────────────────────────────────
+        # ── BIỂU ĐỒ PHÂN PHỐI (COUNT) VỚI ĐƯỜNG CONG CHUẨN ──────────────────────
         st.write("**Gloss Distribution & Normal Curve Comparison**")
-        fig_dist, ax_dist = plt.subplots(figsize=(12, 6))
-        
-        # Thống kê thực tế
-        mean_lab, std_lab = dff_g['Gloss_Lab'].mean(), dff_g['Gloss_Lab'].std()
-        mean_line, std_line = dff_g['Online_Gloss_Top'].mean(), dff_g['Online_Gloss_Top'].std()
+        fig_dist, ax_dist = plt.subplots(figsize=(10, 5))
 
-        # Histogram (Density scale để khớp với Normal Curve)
-        sns.histplot(dff_g['Gloss_Lab'], color='#1f77b4', stat="density", alpha=0.15, label='Lab Histogram', ax=ax_dist)
-        sns.histplot(dff_g['Online_Gloss_Top'], color='#ff7f0e', stat="density", alpha=0.15, label='Line Histogram', ax=ax_dist)
-        
-        # Vẽ Normal Curves
+        sns.histplot(dff_g['Gloss_Lab'], color='#1f77b4', stat="count", alpha=0.2, label='Lab Histogram', ax=ax_dist)
+        sns.histplot(dff_g['Online_Gloss_Top'], color='#ff7f0e', stat="count", alpha=0.2, label='Line Histogram', ax=ax_dist)
+
         all_data = pd.concat([dff_g['Gloss_Lab'], dff_g['Online_Gloss_Top']])
-        x_min, x_max = all_data.min() - 4, all_data.max() + 4
-        x_axis_dist = np.linspace(x_min, x_max, 250)
-        
+        x_min, x_max = all_data.min() - 3, all_data.max() + 3
+        x_curve = np.linspace(x_min, x_max, 200)
+
+        mean_lab, std_lab = dff_g['Gloss_Lab'].mean(), dff_g['Gloss_Lab'].std()
+        min_lab, max_lab = dff_g['Gloss_Lab'].min(), dff_g['Gloss_Lab'].max()
+        mean_line, std_line = dff_g['Online_Gloss_Top'].mean(), dff_g['Online_Gloss_Top'].std()
+        min_line, max_line = dff_g['Online_Gloss_Top'].min(), dff_g['Online_Gloss_Top'].max()
+
+        bin_width = (all_data.max() - all_data.min()) / 10
+
         if std_lab > 0:
-            ax_dist.plot(x_axis_dist, stats.norm.pdf(x_axis_dist, mean_lab, std_lab), color='#1f77b4', lw=2.5, label='Lab Normal Curve')
+            n_lab = len(dff_g['Gloss_Lab'])
+            ax_dist.plot(x_curve, stats.norm.pdf(x_curve, mean_lab, std_lab) * n_lab * bin_width,
+                         color='#1f77b4', lw=2.5)
+
         if std_line > 0:
-            ax_dist.plot(x_axis_dist, stats.norm.pdf(x_axis_dist, mean_line, std_line), color='#ff7f0e', lw=2.5, label='Line Normal Curve')
-
-        # Giới hạn Spec (Đỏ rực)
-        ax_dist.axvline(lsl_val, color='red', ls='-', lw=2.5)
-        ax_dist.axvline(usl_val, color='red', ls='-', lw=2.5)
-
-        # Tránh ghi chú lập lại và đè lề trái
-        y_max = ax_dist.get_ylim()[1]
-        ax_dist.text(lsl_val, y_max * 0.9, f' LSL: {lsl_val}', color='red', fontweight='bold', ha='left')
-        ax_dist.text(usl_val, y_max * 0.9, f' USL: {usl_val}', color='red', fontweight='bold', ha='left')
-        
-        # Nới rộng trục X để nhãn không bị mất
-        ax_dist.set_xlim(x_min, x_max)
-        ax_dist.set_xlabel("Gloss Value (GU)")
-        ax_dist.set_ylabel("Probability Density")
-        ax_dist.legend(fontsize=8, loc='upper right')
-        
-        st.pyplot(fig_dist)
-        plt.close(fig_dist)
-
-    # ── TAB SELECTION ──────────────────────────────────────────────────────────
-    list_ma_son_tab2 = sorted(dff['Ma_Son'].dropna().unique().tolist())
-    if list_ma_son_tab2:
-        tab_top_risk, tab_custom = st.tabs(["🚨 Top At-Risk Codes", "🔍 Manual Analysis"])
-        with tab_top_risk:
-            if not risk_alert.empty:
-                top_15 = risk_alert['Paint Code'].head(15).tolist()
-                for i, code in enumerate(top_15):
-                    st.markdown(f"#### #{i+1}: `{code}`")
-                    render_spc_analysis(code, dff, f"risk_{i}")
-                    st.markdown("---")
-            else:
-                st.success("✅ All processes are stable.")
-
-        with tab_custom:
-            sel_ma_son = st.selectbox("🎯 Select Paint Code:", list_ma_son_tab2, key="manual_sel")
-            render_spc_analysis(sel_ma_son, dff, "manual")
+            n_line = len(dff_g['Online_Gloss_Top'])
+            ax_dist.plot(x_curve, stats.norm
 # ==========================================
 # VIEW 2: COLOR SHIFT ANALYSIS
 # ==========================================
