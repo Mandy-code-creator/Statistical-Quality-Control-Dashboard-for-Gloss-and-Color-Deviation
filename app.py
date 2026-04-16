@@ -302,18 +302,28 @@ if view_mode == "✨ Gloss Trend (SPC)":
 
         # Cấu hình nhãn dán chuyên nghiệp
         y_max = ax_dist.get_ylim()[1]
-        ax_dist.set_ylim(0, y_max * 1.3) 
+        ax_dist.set_ylim(0, y_max * 1.3) # Tạo khoảng trống cho nhãn
         y_base = ax_dist.get_ylim()[1] * 0.8
 
         def add_compact_label(x, label, color, y_offset_pct):
             ax_dist.axvline(x, color=color, ls='--', lw=1.5)
+            # Tính toán vị trí Y dựa trên % của trục để không bị đè
             pos_y = y_base + (ax_dist.get_ylim()[1] * y_offset_pct)
             ax_dist.text(x, pos_y, f"{label}\n{x:.1f}", 
                          color='white', fontweight='bold', ha='center', va='center', fontsize=7,
                          bbox=dict(boxstyle='round,pad=0.2', fc=color, ec='none', alpha=0.9))
 
-        add_compact_label(lsl_val, "LSL", "red", 0)
-        add_compact_label(usl_val, "USL", "red", 0)
+        # Thêm nhãn Spec và Mean (Đã phân tầng độ cao để không đè nhau)
+        
+        # 1. Giới hạn của Lab (Đỏ) - Tầng cơ sở (0)
+        add_compact_label(lsl_val, "Lab LSL", "red", 0)
+        add_compact_label(usl_val, "Lab USL", "red", 0)
+        
+        # 2. Giới hạn của Line (Xanh lá) - Tầng hơi cao (+0.06)
+        add_compact_label(line_lsl_val, "Line LSL", "green", 0.06)
+        add_compact_label(line_usl_val, "Line USL", "green", 0.06)
+        
+        # 3. Điểm trung bình (Mean) - Tầng cao nhất (+0.12) và tầng thấp nhất (-0.12)
         add_compact_label(mean_lab, "Lab μ", "#1f77b4", 0.12)
         add_compact_label(mean_line, "Line μ", "#ff7f0e", -0.12)
 
@@ -336,7 +346,6 @@ if view_mode == "✨ Gloss Trend (SPC)":
         
         st.pyplot(fig_dist)
         plt.close('all')
-
     # ── TAB SELECTION ──────────────────────────────────────────────────────────
     list_ma_son_tab2 = sorted(dff['Ma_Son'].dropna().unique().tolist())
     if list_ma_son_tab2:
