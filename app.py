@@ -525,7 +525,9 @@ elif view_mode == "📊 Statistical Limits (Scope Comparison)":
 
         st.markdown("---")
         st.subheader("⚙️ Control Scope Settings")
-        sigma_mult = st.slider("Strictness Multiplier (Sigma)", min_value=1.5, max_value=3.0, value=2.0, step=0.5, help="2.0 covers ~95% data. 3.0 covers ~99.7%.")
+        
+        # SỬA ĐỔI 1: THAY SLIDER BẰNG NUMBER INPUT DỄ NHẬP LIỆU CHÍNH XÁC HƠN
+        sigma_mult = st.number_input("Strictness Multiplier (Sigma)", min_value=1.00, max_value=4.00, value=2.00, step=0.10, format="%.2f", help="Input the standard deviation multiplier. Example: 2.0 or 3.0")
         
         lsl_off = dff_spc['Gloss_LSL'].iloc[0]
         usl_off = dff_spc['Gloss_USL'].iloc[0]
@@ -564,23 +566,43 @@ elif view_mode == "📊 Statistical Limits (Scope Comparison)":
         st.markdown("---")
         st.subheader("📊 Distribution Overlap: Individual vs. Batch")
         
-        fig_dist, ax_dist = plt.subplots(figsize=(12, 5))
+        fig_dist, ax_dist = plt.subplots(figsize=(14, 6))
         
         # Histograms
         sns.histplot(clean_ind_data['Gloss_Lab'], color='#3498db', alpha=0.3, label='Individual Coils Distribution', stat="density", ax=ax_dist)
         if len(batch_data) > 1:
             sns.histplot(batch_data['Gloss_Mean'], color='#e67e22', alpha=0.6, label='Batch Averages Distribution', stat="density", ax=ax_dist)
         
-        # Limits Drawing
-        ax_dist.axvline(lsl_off, color='red', ls='-', lw=1.5, alpha=0.5, label='Official Spec Limit')
+        # SỬA ĐỔI 2: THÊM CÁC NHÃN (ANNOTATIONS) TRỰC TIẾP LÊN BIỂU ĐỒ
+        y_max = ax_dist.get_ylim()[1]
+        
+        # Data Min/Max
+        val_min = clean_ind_data['Gloss_Lab'].min()
+        val_max = clean_ind_data['Gloss_Lab'].max()
+        ax_dist.axvline(val_min, color='gray', ls=':', lw=1.5)
+        ax_dist.text(val_min, y_max * 0.5, f'Min\n{val_min:.1f}', color='gray', ha='center', va='top', fontsize=9, bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', pad=1))
+        ax_dist.axvline(val_max, color='gray', ls=':', lw=1.5)
+        ax_dist.text(val_max, y_max * 0.5, f'Max\n{val_max:.1f}', color='gray', ha='center', va='top', fontsize=9, bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', pad=1))
+
+        # Mean (Trung tâm)
+        ax_dist.axvline(mean_ind, color='black', ls='-', lw=2)
+        ax_dist.text(mean_ind, y_max * 0.95, f'Mean\n{mean_ind:.1f}', color='black', ha='center', va='top', fontweight='bold', bbox=dict(facecolor='white', alpha=0.8, edgecolor='none', pad=2))
+
+        # Individual Limits (Đường giới hạn)
+        ax_dist.axvline(lcl_ind, color='#2980b9', ls='--', lw=2.5, label='Ind LCL')
+        ax_dist.text(lcl_ind, y_max * 0.8, f'LCL\n{lcl_ind:.1f}', color='#2980b9', ha='center', va='top', fontweight='bold', bbox=dict(facecolor='white', alpha=0.8, edgecolor='none', pad=2))
+        
+        ax_dist.axvline(ucl_ind, color='#2980b9', ls='--', lw=2.5, label='Ind UCL')
+        ax_dist.text(ucl_ind, y_max * 0.8, f'UCL\n{ucl_ind:.1f}', color='#2980b9', ha='center', va='top', fontweight='bold', bbox=dict(facecolor='white', alpha=0.8, edgecolor='none', pad=2))
+
+        # Official Spec Limits
+        ax_dist.axvline(lsl_off, color='red', ls='-', lw=1.5, alpha=0.5, label='Official Spec LSL/USL')
         ax_dist.axvline(usl_off, color='red', ls='-', lw=1.5, alpha=0.5)
-        
-        ax_dist.axvline(lcl_ind, color='#2980b9', ls='--', lw=2.5, label=f'Individual LCL/UCL ({lcl_ind:.1f}-{ucl_ind:.1f})')
-        ax_dist.axvline(ucl_ind, color='#2980b9', ls='--', lw=2.5)
-        
+
+        # Optional: Batch limits visual lines only
         if std_batch > 0:
-            ax_dist.axvline(lcl_batch, color='#d35400', ls=':', lw=2.5, label=f'Batch LCL/UCL ({lcl_batch:.1f}-{ucl_batch:.1f})')
-            ax_dist.axvline(ucl_batch, color='#d35400', ls=':', lw=2.5)
+            ax_dist.axvline(lcl_batch, color='#d35400', ls=':', lw=2, label='Batch LCL/UCL')
+            ax_dist.axvline(ucl_batch, color='#d35400', ls=':', lw=2)
 
         ax_dist.set_xlabel("Gloss (GU)")
         ax_dist.set_ylabel("Density")
