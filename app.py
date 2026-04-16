@@ -10,7 +10,7 @@ st.set_page_config(page_title="Steel QA Master Dashboard", layout="wide", page_i
 sns.set_theme(style="whitegrid")
 
 # --- 2. DATA LOAD & PREP ---
-@st.cache_data(ttl=300) # Increased TTL to 5 minutes to improve performance
+@st.cache_data(ttl=300)
 def load_and_prep_data():
     sheet_url = "https://docs.google.com/spreadsheets/d/1ugm7G1kgGmSlk5PhoKk62h_bs5pX4bDuwUgdaELLYHE/export?format=csv&gid=0"
     try:
@@ -97,12 +97,12 @@ with st.sidebar:
     view_mode = st.radio(
         "Select Analysis View:",
         [
-            "✨ Gloss Analysis (SPC)",
-            "🎨 Color & ΔE Analysis",
-            "📊 Statistical Control Limits",
-            "⚖️ Paired Difference Analysis", 
-            "🤝 Supplier Comparison",
-            "📋 Summary Data Report"
+            "✨ Gloss Trend (SPC)",
+            "🎨 Color Shift Analysis",
+            "📊 Statistical Limits (Scope Comparison)",
+            "⚖️ Paired Difference (Lab vs Line)", 
+            "🤝 Supplier Capability",
+            "📋 Master Summary Report"
         ],
         label_visibility="collapsed"
     )
@@ -114,14 +114,10 @@ with st.sidebar:
 
     with st.expander("🛠️ Custom Gloss Limits", expanded=False):
         st.caption("Enter Paint Code to set custom control limits.")
-        
         if "custom_gloss_rules" not in st.session_state:
             init_data = pd.DataFrame({
-                "Ma_Son": ["", "", ""],
-                "Lab_LSL": [0.0, 0.0, 0.0],
-                "Lab_USL": [0.0, 0.0, 0.0],
-                "Line_LSL": [0.0, 0.0, 0.0],
-                "Line_USL": [0.0, 0.0, 0.0]
+                "Ma_Son": ["", "", ""], "Lab_LSL": [0.0, 0.0, 0.0], "Lab_USL": [0.0, 0.0, 0.0],
+                "Line_LSL": [0.0, 0.0, 0.0], "Line_USL": [0.0, 0.0, 0.0]
             })
             st.session_state["custom_gloss_rules"] = init_data
 
@@ -129,8 +125,7 @@ with st.sidebar:
         st.session_state["custom_gloss_rules"] = edited_rules
 
     st.markdown("---")
-    st.markdown("### 🔍 Data Filters")
-    
+    st.markdown("### 🔍 Global Filters")
     min_date, max_date = df['Ngay_SX'].min(), df['Ngay_SX'].max()
     date_range = st.date_input("📅 Select Date Range:", [min_date, max_date], min_value=min_date, max_value=max_date)
     
@@ -155,16 +150,11 @@ custom_df = custom_df[custom_df["Ma_Son"].str.strip() != ""]
 for _, rule in custom_df.iterrows():
     ma_son = str(rule["Ma_Son"]).strip()
     mask = df["Ma_Son"] == ma_son
-
     if mask.any():
-        if pd.notna(rule["Lab_LSL"]) and rule["Lab_LSL"] > 0:
-            df.loc[mask, 'Gloss_LSL'] = float(rule["Lab_LSL"])
-        if pd.notna(rule["Lab_USL"]) and rule["Lab_USL"] > 0:
-            df.loc[mask, 'Gloss_USL'] = float(rule["Lab_USL"])
-        if pd.notna(rule["Line_LSL"]) and rule["Line_LSL"] > 0:
-            df.loc[mask, 'Line_LSL'] = float(rule["Line_LSL"])
-        if pd.notna(rule["Line_USL"]) and rule["Line_USL"] > 0:
-            df.loc[mask, 'Line_USL'] = float(rule["Line_USL"])
+        if pd.notna(rule["Lab_LSL"]) and rule["Lab_LSL"] > 0: df.loc[mask, 'Gloss_LSL'] = float(rule["Lab_LSL"])
+        if pd.notna(rule["Lab_USL"]) and rule["Lab_USL"] > 0: df.loc[mask, 'Gloss_USL'] = float(rule["Lab_USL"])
+        if pd.notna(rule["Line_LSL"]) and rule["Line_LSL"] > 0: df.loc[mask, 'Line_LSL'] = float(rule["Line_LSL"])
+        if pd.notna(rule["Line_USL"]) and rule["Line_USL"] > 0: df.loc[mask, 'Line_USL'] = float(rule["Line_USL"])
 
 df['Lab_Pass'] = (df['Gloss_Lab'] >= df['Gloss_LSL']) & (df['Gloss_Lab'] <= df['Gloss_USL'])
 df['Line_Pass'] = (df['Online_Gloss_Top'] >= df['Line_LSL']) & (df['Online_Gloss_Top'] <= df['Line_USL'])
@@ -191,30 +181,23 @@ st.title(view_mode)
 st.markdown("---")
 
 # ==========================================
-# VIEW 1: GLOSS ANALYSIS (SPC)
+# VIEW 1: GLOSS TREND (SPC)
 # ==========================================
-if view_mode == "✨ Gloss Analysis (SPC)":
+if view_mode == "✨ Gloss Trend (SPC)":
     st.info("💡 SPC Analysis: Monitor the actual Gloss trend (Lab vs Line) across different production batches to detect process shifts.")
     
-    # EARLY WARNING RADAR
     risk_alert = pd.DataFrame()
     with st.expander("🚨 Early Warning Radar (Click to view at-risk codes)", expanded=True):
         st.caption("This table automatically scans data to identify paint codes (≥ 5 Batches produced) that are Out of Spec (NG) or approaching the control limits (Margin ≤ 1.0 GU).")
-        
         df_valid_radar = dff.dropna(subset=['Online_Gloss_Top', 'Line_LSL', 'Line_USL', 'Gloss_Lab', 'Gloss_LSL', 'Gloss_USL', 'Batch_Lot'])
         
         if not df_valid_radar.empty:
             risk_summary = df_valid_radar.groupby(['Ma_Son', 'Supplier']).agg(
-                Batches=('Batch_Lot', 'nunique'), 
-                Coils=('Online_Gloss_Top', 'count'),
-                Line_Min=('Online_Gloss_Top', 'min'),
-                Line_Max=('Online_Gloss_Top', 'max'),
-                Line_LSL=('Line_LSL', 'first'),
-                Line_USL=('Line_USL', 'first'),
-                Lab_Min=('Gloss_Lab', 'min'),
-                Lab_Max=('Gloss_Lab', 'max'),
-                Lab_LSL=('Gloss_LSL', 'first'),
-                Lab_USL=('Gloss_USL', 'first')
+                Batches=('Batch_Lot', 'nunique'), Coils=('Online_Gloss_Top', 'count'),
+                Line_Min=('Online_Gloss_Top', 'min'), Line_Max=('Online_Gloss_Top', 'max'),
+                Line_LSL=('Line_LSL', 'first'), Line_USL=('Line_USL', 'first'),
+                Lab_Min=('Gloss_Lab', 'min'), Lab_Max=('Gloss_Lab', 'max'),
+                Lab_LSL=('Gloss_LSL', 'first'), Lab_USL=('Gloss_USL', 'first')
             ).reset_index()
 
             risk_summary = risk_summary[risk_summary['Batches'] >= 5].copy()
@@ -223,7 +206,6 @@ if view_mode == "✨ Gloss Analysis (SPC)":
                 def check_risk(row):
                     line_ng = row['Line_Min'] < row['Line_LSL'] or row['Line_Max'] > row['Line_USL']
                     lab_ng = row['Lab_Min'] < row['Lab_LSL'] or row['Lab_Max'] > row['Lab_USL']
-                    
                     line_near = (row['Line_Min'] - row['Line_LSL'] <= 1.0) or (row['Line_USL'] - row['Line_Max'] <= 1.0)
                     lab_near = (row['Lab_Min'] - row['Lab_LSL'] <= 1.0) or (row['Lab_USL'] - row['Lab_Max'] <= 1.0)
                     
@@ -238,7 +220,6 @@ if view_mode == "✨ Gloss Analysis (SPC)":
                         status = '🟠 Near Limit (≤ 1.0 GU)'
                         if lab_near: source.append("Lab")
                         if line_near: source.append("Line")
-                        
                     return pd.Series([status, " + ".join(source) if source else "-"])
 
                 risk_summary[['Status', 'Issue Source']] = risk_summary.apply(check_risk, axis=1)
@@ -253,7 +234,6 @@ if view_mode == "✨ Gloss Analysis (SPC)":
                         if '🔴' in str(val): return 'color: white; background-color: #e74c3c; font-weight: bold;'
                         if '🟠' in str(val): return 'color: white; background-color: #f39c12; font-weight: bold;'
                         return ''
-                    
                     def highlight_source(val):
                         if 'Lab' in str(val) or 'Line' in str(val): return 'font-weight: bold; color: #d35400;'
                         return ''
@@ -261,8 +241,7 @@ if view_mode == "✨ Gloss Analysis (SPC)":
                     st.dataframe(
                         risk_alert.style.format({
                             'Lab Min': '{:.1f}', 'Lab Max': '{:.1f}', 'Line Min': '{:.1f}', 'Line Max': '{:.1f}'
-                        }).map(highlight_status, subset=['Status'])
-                          .map(highlight_source, subset=['Issue Source']),
+                        }).map(highlight_status, subset=['Status']).map(highlight_source, subset=['Issue Source']),
                         use_container_width=True, hide_index=True
                     )
                 else:
@@ -272,49 +251,29 @@ if view_mode == "✨ Gloss Analysis (SPC)":
 
     st.markdown("---")
     
-    # REUSABLE SPC RENDER
     def render_spc_analysis(paint_code, data_source, key_suffix):
         dff_g = data_source[data_source['Ma_Son'] == paint_code].copy()
         dff_g = dff_g.dropna(subset=['Gloss_LSL', 'Gloss_USL', 'Gloss_Lab', 'Online_Gloss_Top'])
-        dff_g = dff_g[
-            (dff_g['Gloss_LSL'] > 0) & 
-            (dff_g['Gloss_USL'] > 0) & 
-            (dff_g['Gloss_Lab'] > 0) & 
-            (dff_g['Online_Gloss_Top'] > 0)
-        ]
+        dff_g = dff_g[(dff_g['Gloss_LSL'] > 0) & (dff_g['Gloss_USL'] > 0) & (dff_g['Gloss_Lab'] > 0) & (dff_g['Online_Gloss_Top'] > 0)]
         
         if len(dff_g) <= 1:
             st.warning(f"⚠️ Insufficient data for {paint_code} (needs at least 2 valid coils) for SPC analysis.")
             return
 
-        lsl_val = dff_g['Gloss_LSL'].iloc[0]
-        usl_val = dff_g['Gloss_USL'].iloc[0]
-        line_lsl_val = dff_g['Line_LSL'].iloc[0]
-        line_usl_val = dff_g['Line_USL'].iloc[0]
-        
+        lsl_val, usl_val = dff_g['Gloss_LSL'].iloc[0], dff_g['Gloss_USL'].iloc[0]
+        line_lsl_val, line_usl_val = dff_g['Line_LSL'].iloc[0], dff_g['Line_USL'].iloc[0]
         mean_lab, std_lab = dff_g['Gloss_Lab'].mean(), dff_g['Gloss_Lab'].std()
         mean_line, std_line = dff_g['Online_Gloss_Top'].mean(), dff_g['Online_Gloss_Top'].std()
-
-        min_date = dff_g['Ngay_SX'].min()
-        max_date = dff_g['Ngay_SX'].max()
-        batch_count = dff_g['Batch_Lot'].nunique()
-        coil_count = len(dff_g)
+        min_date, max_date = dff_g['Ngay_SX'].min(), dff_g['Ngay_SX'].max()
+        batch_count, coil_count = dff_g['Batch_Lot'].nunique(), len(dff_g)
         
         st.success(f"📅 **Timeframe:** `{min_date}` to `{max_date}` | **Volume:** `{batch_count}` Batches (`{coil_count}` Coils).")
 
         dff_batch = dff_g.groupby('Batch_Lot', as_index=False).agg({
-            'Ngay_SX': 'min',
-            'Order_No': lambda x: ', '.join(x.dropna().astype(str).unique()),
-            'Line': 'first',
-            'Gloss_LSL': 'first',
-            'Gloss_USL': 'first',
-            'Line_LSL': 'first',
-            'Line_USL': 'first',
-            'Gloss_Lab': 'first', 
-            'Online_Gloss_Top': 'mean' 
+            'Ngay_SX': 'min', 'Order_No': lambda x: ', '.join(x.dropna().astype(str).unique()),
+            'Line': 'first', 'Gloss_LSL': 'first', 'Gloss_USL': 'first', 'Line_LSL': 'first', 'Line_USL': 'first',
+            'Gloss_Lab': 'first', 'Online_Gloss_Top': 'mean' 
         }).sort_values('Ngay_SX')
-        
-        # USE BATCH LOT ONLY FOR X-AXIS
         dff_batch['Label_X'] = dff_batch['Batch_Lot'].astype(str)
         
         fig_trend, ax_trend = plt.subplots(figsize=(14, 4.5))
@@ -328,26 +287,19 @@ if view_mode == "✨ Gloss Analysis (SPC)":
         
         ax_trend.set_xlabel("Batch Lot")
         ax_trend.set_ylabel("Gloss (GU)")
-        
-        # ROTATE AND REDUCE DENSITY OF LABELS
         plt.xticks(rotation=45, ha='right')
         locs, labels = plt.xticks()
-        
         if len(locs) > 30:
             step = max(1, len(locs) // 20) 
             for i, label in enumerate(labels):
-                if i % step != 0: 
-                    label.set_visible(False)
-        
+                if i % step != 0: label.set_visible(False)
         plt.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
         st.pyplot(fig_trend)
         plt.close(fig_trend)
 
         ng_batches = dff_batch[
-            (dff_batch['Gloss_Lab'] < dff_batch['Gloss_LSL']) | 
-            (dff_batch['Gloss_Lab'] > dff_batch['Gloss_USL']) | 
-            (dff_batch['Online_Gloss_Top'] < dff_batch['Line_LSL']) | 
-            (dff_batch['Online_Gloss_Top'] > dff_batch['Line_USL'])
+            (dff_batch['Gloss_Lab'] < dff_batch['Gloss_LSL']) | (dff_batch['Gloss_Lab'] > dff_batch['Gloss_USL']) | 
+            (dff_batch['Online_Gloss_Top'] < dff_batch['Line_LSL']) | (dff_batch['Online_Gloss_Top'] > dff_batch['Line_USL'])
         ].copy()
         
         if not ng_batches.empty:
@@ -363,13 +315,9 @@ if view_mode == "✨ Gloss Analysis (SPC)":
             ng_batches['Error Details'] = ng_batches.apply(get_batch_error, axis=1)
             ng_display = ng_batches[['Batch_Lot', 'Ngay_SX', 'Gloss_Lab', 'Online_Gloss_Top', 'Error Details']].copy()
             ng_display.columns = ['Batch Lot', 'Production Date', 'Lab Gloss', 'Avg Line Gloss', 'Error Details']
-            
             st.dataframe(
-                ng_display.style.format({
-                    'Lab Gloss': '{:.1f}', 'Avg Line Gloss': '{:.1f}'
-                }).set_properties(**{
-                    'background-color': '#ffebee', 'color': '#c0392b', 'font-weight': 'bold'
-                }, subset=['Error Details']),
+                ng_display.style.format({'Lab Gloss': '{:.1f}', 'Avg Line Gloss': '{:.1f}'})
+                .set_properties(**{'background-color': '#ffebee', 'color': '#c0392b', 'font-weight': 'bold'}, subset=['Error Details']),
                 use_container_width=True, hide_index=True
             )
         else:
@@ -377,7 +325,6 @@ if view_mode == "✨ Gloss Analysis (SPC)":
 
         st.write("**Gloss Distribution (Histogram & Normal Curve)**")
         fig_g1, ax_g1 = plt.subplots(figsize=(10, 5)) 
-        
         min_val = min(dff_g['Gloss_Lab'].min(), dff_g['Online_Gloss_Top'].min())
         max_val = max(dff_g['Gloss_Lab'].max(), dff_g['Online_Gloss_Top'].max())
         if min_val == max_val: 
@@ -386,18 +333,15 @@ if view_mode == "✨ Gloss Analysis (SPC)":
             
         bins_arr = np.linspace(min_val, max_val, 12) 
         bin_width = bins_arr[1] - bins_arr[0]
-        
         sns.histplot(dff_g['Gloss_Lab'], stat="count", bins=bins_arr, color='#3498db', alpha=0.4, label='Lab Bins', ax=ax_g1)
         sns.histplot(dff_g['Online_Gloss_Top'], stat="count", bins=bins_arr, color='#e67e22', alpha=0.4, label='Line Bins', ax=ax_g1)
         
-        plot_min = min(line_lsl_val, min_val) - 2
-        plot_max = max(line_usl_val, max_val) + 2
+        plot_min, plot_max = min(line_lsl_val, min_val) - 2, max(line_usl_val, max_val) + 2
         x_axis = np.linspace(plot_min, plot_max, 200)
         
         if pd.notna(std_lab) and std_lab > 0:
             y_lab_scaled = stats.norm.pdf(x_axis, mean_lab, std_lab) * len(dff_g['Gloss_Lab']) * bin_width
             ax_g1.plot(x_axis, y_lab_scaled, color='#2980b9', lw=2.5, label=f'Lab Curve')
-            
         if pd.notna(std_line) and std_line > 0:
             y_line_scaled = stats.norm.pdf(x_axis, mean_line, std_line) * len(dff_g['Online_Gloss_Top']) * bin_width
             ax_g1.plot(x_axis, y_line_scaled, color='#d35400', lw=2.5, label=f'Line Curve')
@@ -406,14 +350,11 @@ if view_mode == "✨ Gloss Analysis (SPC)":
         ax_g1.axvline(usl_val, color='red', ls='-', lw=1.5)
         ax_g1.axvline(line_lsl_val, color='orange', ls='--', lw=1.5, alpha=0.7)
         ax_g1.axvline(line_usl_val, color='orange', ls='--', lw=1.5, alpha=0.7)
-        
         ax_g1.set_xlim(plot_min, plot_max)
         ax_g1.set_xlabel("Gloss (GU)")
         ax_g1.set_ylabel("Number of Coils (Count)")
-        
         handles, labels = ax_g1.get_legend_handles_labels()
         ax_g1.legend(handles, labels, bbox_to_anchor=(0.5, -0.15), loc='upper center', ncol=2, fontsize=9, frameon=True)
-        
         plt.tight_layout() 
         st.pyplot(fig_g1)
         plt.close(fig_g1)
@@ -433,7 +374,6 @@ if view_mode == "✨ Gloss Analysis (SPC)":
     list_ma_son_tab2 = sorted(dff['Ma_Son'].dropna().unique().tolist())
     if list_ma_son_tab2:
         tab_top_risk, tab_custom = st.tabs(["🚨 Auto-Analysis: Top 15 At-Risk Codes", "🔍 Manual Search & Analysis"])
-
         with tab_top_risk:
             st.markdown("### Top 15 Paint Codes Approaching or Exceeding Limits")
             st.caption("Only displaying codes with ≥ 5 production batches.")
@@ -451,57 +391,44 @@ if view_mode == "✨ Gloss Analysis (SPC)":
             col_search1, col_search2 = st.columns([1, 2])
             with col_search1:
                 search_keyword = st.text_input("🔍 Quick Search Paint Code:", "", placeholder="Type part of code (e.g., SC8, 14SE...)").upper()
-            
             filtered_list = [code for code in list_ma_son_tab2 if search_keyword in str(code).upper()]
-            
             with col_search2:
                 if filtered_list:
                     sel_ma_son_tab2 = st.selectbox(f"🎯 Select Paint Code ({len(filtered_list)} found):", filtered_list, key="custom_select")
                 else:
                     st.warning(f"❌ No paint code found containing '{search_keyword}'")
                     st.stop()
-            
             st.markdown("---")
             render_spc_analysis(sel_ma_son_tab2, dff, key_suffix="custom")
 
 # ==========================================
-# VIEW 2: COLOR DEVIATION
+# VIEW 2: COLOR SHIFT ANALYSIS
 # ==========================================
-elif view_mode == "🎨 Color & ΔE Analysis":
+elif view_mode == "🎨 Color Shift Analysis":
     st.info("💡 Trend analysis of Total Color Difference (ΔE) and distribution of individual color components (ΔL, Δa, Δb) to detect color drift.")
     
     list_ma_son_tab3 = sorted(dff['Ma_Son'].dropna().unique().tolist())
-    
     if list_ma_son_tab3:
         sel_ma_son_tab3 = st.selectbox("🎯 Select Full Paint Code for Color Analysis:", list_ma_son_tab3, key="tab3_mason")
         dff_c = dff[dff['Ma_Son'] == sel_ma_son_tab3].copy()
         
         if not dff_c.empty:
-            dff_c_batch = dff_c.groupby('Batch_Lot', as_index=False).agg({
-                'Ngay_SX': 'min',
-                'ΔE': 'mean'
-            }).sort_values('Ngay_SX')
-            
+            dff_c_batch = dff_c.groupby('Batch_Lot', as_index=False).agg({'Ngay_SX': 'min', 'ΔE': 'mean'}).sort_values('Ngay_SX')
             dff_c_batch['Batch_Lot'] = dff_c_batch['Batch_Lot'].astype(str)
 
             st.markdown("---")
             st.subheader(f"📈 Avg Total Color Difference Trend (ΔE) - {sel_ma_son_tab3}")
             fig_c1, ax_c1 = plt.subplots(figsize=(12, 4))
-            
             ax_c1.plot(dff_c_batch['Batch_Lot'], dff_c_batch['ΔE'], marker='o', color='#e74c3c', lw=2, label='Avg ΔE')
-            
             ax_c1.axhline(1.0, color='red', ls='--', lw=2, label='Spec Limit (ΔE = 1.0)')
             ax_c1.axhline(0.8, color='orange', ls=':', lw=1.5, label='Warning Limit (ΔE = 0.8)') 
-            
             ax_c1.set_xlabel("Batch Lot")
             ax_c1.set_ylabel("Color Difference (ΔE)")
             plt.xticks(rotation=45, ha='right')
-            
             locs, labels = plt.xticks()
             if len(locs) > 40:
                 for i, label in enumerate(labels):
                     if i % 3 != 0: label.set_visible(False)
-                    
             plt.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
             st.pyplot(fig_c1)
             
@@ -510,32 +437,26 @@ elif view_mode == "🎨 Color & ΔE Analysis":
             st.caption("If the peak shifts from 0, it indicates a consistent color drift (Lighter/Darker, Redder/Greener, Yellower/Bluer).")
             
             col_L, col_a, col_b = st.columns(3)
-            
             with col_L:
                 fig_L, ax_L = plt.subplots(figsize=(5, 4))
                 sns.histplot(dff_c['dL_N'], kde=True, color='#95a5a6', ax=ax_L) 
                 ax_L.axvline(0, color='black', ls='--', lw=1.5)
                 ax_L.set_title("Lightness (ΔL)")
                 ax_L.set_xlabel("ΔL (+ Lighter / - Darker)")
-                ax_L.set_ylabel("Count")
                 st.pyplot(fig_L)
-                
             with col_a:
                 fig_a, ax_a = plt.subplots(figsize=(5, 4))
                 sns.histplot(dff_c['da_N'], kde=True, color='#e74c3c', ax=ax_a) 
                 ax_a.axvline(0, color='black', ls='--', lw=1.5)
                 ax_a.set_title("Red/Green (Δa)")
                 ax_a.set_xlabel("Δa (+ Redder / - Greener)")
-                ax_a.set_ylabel("")
                 st.pyplot(fig_a)
-                
             with col_b:
                 fig_b, ax_b = plt.subplots(figsize=(5, 4))
                 sns.histplot(dff_c['db_N'], kde=True, color='#f1c40f', ax=ax_b) 
                 ax_b.axvline(0, color='black', ls='--', lw=1.5)
                 ax_b.set_title("Yellow/Blue (Δb)")
                 ax_b.set_xlabel("Δb (+ Yellower / - Bluer)")
-                ax_b.set_ylabel("")
                 st.pyplot(fig_b)
 
             st.markdown("---")
@@ -550,7 +471,6 @@ elif view_mode == "🎨 Color & ΔE Analysis":
                 ax_s1.set_ylabel("Δb (Yellow/Blue Axis)")
                 plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
                 st.pyplot(fig_s1)
-                
             with col_s2:
                 st.subheader("Dispersion of Total Color Difference (Boxplot ΔE)")
                 fig_s2, ax_s2 = plt.subplots(figsize=(6, 5))
@@ -564,154 +484,142 @@ elif view_mode == "🎨 Color & ΔE Analysis":
             st.warning("⚠️ Insufficient data to perform color analysis for this paint code.")
 
 # ==========================================
-# VIEW 3: STATISTICAL CONTROL LIMITS (NEW LOGIC - LỌC NHIỄU & CLAMP)
+# VIEW 3: STATISTICAL LIMITS (SCOPE COMPARISON)
 # ==========================================
-elif view_mode == "📊 Statistical Control Limits":
-    st.info("💡 Strict Input Control (Updated): Thuật toán giờ đây tự động loại bỏ các điểm nhiễu (Outliers) bằng phương pháp IQR để tránh việc giới hạn bị giãn rộng vô lý. Bạn có thể tùy chỉnh hệ số Sigma, nhưng giới hạn cuối cùng sẽ luôn được 'khóa' để không vượt quá giới hạn Spec chính thức.")
-    
-    list_ma_son_tab4 = sorted(dff['Ma_Son'].dropna().unique().tolist())
-    if list_ma_son_tab4:
-        col_search1, col_search2 = st.columns([1, 2])
-        with col_search1:
-            search_keyword = st.text_input("🔍 Quick Search Paint Code:", "", placeholder="Type part of code (e.g., SC8...)").upper()
-        
-        filtered_list = [code for code in list_ma_son_tab4 if search_keyword in str(code).upper()]
-        
-        with col_search2:
-            if filtered_list:
-                sel_ma_son_tab4 = st.selectbox(f"🎯 Select Paint Code ({len(filtered_list)} found):", filtered_list, key="spc_limit_select")
-            else:
-                st.warning(f"❌ No paint code found containing '{search_keyword}'")
-                st.stop()
-        
-        # Sort data sequentially by date and coil number
-        dff_spc = dff[dff['Ma_Son'] == sel_ma_son_tab4].copy()
-        dff_spc = dff_spc.dropna(subset=['Online_Gloss_Top', 'Gloss_Lab', 'Ngay_SX']).sort_values(['Ngay_SX', 'Coil_No'])
-        
-        if len(dff_spc) >= 5:
-            # --- BƯỚC 1: LỌC NHIỄU BẰNG IQR (INTERQUARTILE RANGE) ---
-            q1 = dff_spc['Gloss_Lab'].quantile(0.25)
-            q3 = dff_spc['Gloss_Lab'].quantile(0.75)
-            iqr = q3 - q1
-            lower_bound = q1 - 1.5 * iqr
-            upper_bound = q3 + 1.5 * iqr
-            
-            # Tách dữ liệu "Sạch" và "Nhiễu"
-            clean_data = dff_spc[(dff_spc['Gloss_Lab'] >= lower_bound) & (dff_spc['Gloss_Lab'] <= upper_bound)]
-            outliers = dff_spc[(dff_spc['Gloss_Lab'] < lower_bound) | (dff_spc['Gloss_Lab'] > upper_bound)]
-            
-            # Official Limits
-            lab_lsl = dff_spc['Gloss_LSL'].iloc[0]
-            lab_usl = dff_spc['Gloss_USL'].iloc[0]
-            
-            st.success(f"📅 **Historical Volume:** `{dff_spc['Batch_Lot'].nunique()}` Batches (Tổng: `{len(dff_spc)}` Coils | Hợp lệ để tính toán: `{len(clean_data)}` Coils | Bỏ qua: `{len(outliers)}` Nhiễu).")
+elif view_mode == "📊 Statistical Limits (Scope Comparison)":
+    st.header("📊 Control Limits: Scope Comparison Analysis")
+    st.info("Compare control scopes derived from **Individual Coil Variation** (real product spread) vs. **Batch Average Variation** (process shift). Outliers are automatically removed via IQR.")
 
-            # --- BƯỚC 2: TÙY CHỈNH THÔNG SỐ VÀ TÍNH TOÁN ---
-            st.markdown("---")
-            st.subheader("⚙️ Cấu hình Giới hạn Đề xuất")
-            c_mod1, c_mod2 = st.columns(2)
-            with c_mod1:
-                sigma_mult = st.slider("Độ nghiêm ngặt (Hệ số Sigma)", min_value=1.5, max_value=3.0, value=2.0, step=0.5, help="2.0σ bao phủ ~95% dữ liệu (dùng làm Cảnh báo). 3.0σ bao phủ ~99.7% dữ liệu.")
-            
-            # Tính toán dựa trên dữ liệu Sạch
-            mean_lab = clean_data['Gloss_Lab'].mean()
-            std_lab = clean_data['Gloss_Lab'].std()
-            
-            # Tính toán giới hạn thô
-            lcl_raw = mean_lab - sigma_mult * std_lab
-            ucl_raw = mean_lab + sigma_mult * std_lab
-            
-            # APPLY BUSINESS RULE: MUST BE STRICTER THAN OFFICIAL
-            plot_lcl = max(lcl_raw, lab_lsl)
-            plot_ucl = min(ucl_raw, lab_usl)
-
-            # --- METRICS DISPLAY ---
-            st.markdown("### 📋 Kết quả Tính toán")
-            col1, col2, col3, col4 = st.columns(4)
-            col1.metric("Official Lab LSL", f"{lab_lsl:.1f}")
-            col2.metric(f"New Lab LCL", f"{plot_lcl:.2f}", delta=f"{plot_lcl - lab_lsl:+.2f} (Stricter)" if plot_lcl > lab_lsl else "Unchanged", delta_color="inverse" if plot_lcl > lab_lsl else "off")
-            col3.metric(f"New Lab UCL", f"{plot_ucl:.2f}", delta=f"{plot_ucl - lab_usl:+.2f} (Stricter)" if plot_ucl < lab_usl else "Unchanged", delta_color="inverse" if plot_ucl < lab_usl else "off")
-            col4.metric("Official Lab USL", f"{lab_usl:.1f}")
-            
-            # --- CHART 1: TREND LINE VỚI OUTLIERS ---
-            st.markdown("---")
-            st.write("**📈 Trend Line: Dữ liệu thực tế và Điểm nhiễu**")
-            fig_trend, ax_trend = plt.subplots(figsize=(14, 4.5))
-            
-            x_axis = range(len(dff_spc))
-            
-            # Vẽ toàn bộ dữ liệu Lab bằng đường mờ
-            ax_trend.plot(x_axis, dff_spc['Gloss_Lab'].values, marker='o', color='#3498db', lw=1.5, alpha=0.5, label='Lab Gloss (Tất cả)')
-            
-            # Đánh dấu các điểm Outliers bằng chấm đỏ
-            if not outliers.empty:
-                outlier_indices = [dff_spc.index.get_loc(idx) for idx in outliers.index]
-                ax_trend.scatter(outlier_indices, outliers['Gloss_Lab'].values, color='red', s=60, zorder=5, label='Điểm nhiễu (Bỏ qua)')
-            
-            # Vẽ các đường giới hạn
-            ax_trend.axhline(lab_usl, color='red', ls='-', lw=1.5, alpha=0.3, label=f'Official Lab USL ({lab_usl:.1f})')
-            ax_trend.axhline(lab_lsl, color='red', ls='-', lw=1.5, alpha=0.3, label=f'Official Lab LSL ({lab_lsl:.1f})')
-            
-            ax_trend.axhline(plot_ucl, color='green', ls='-', lw=2.5, label=f'NEW Lab UCL ({plot_ucl:.2f})')
-            ax_trend.axhline(plot_lcl, color='green', ls='-', lw=2.5, label=f'NEW Lab LCL ({plot_lcl:.2f})')
-            
-            # Tô màu vùng an toàn mới
-            ax_trend.fill_between(x_axis, plot_lcl, plot_ucl, color='green', alpha=0.05)
-
-            ax_trend.set_xlabel("Sequential Production Order (Coil Index)")
-            ax_trend.set_ylabel("Gloss (GU)")
-            ax_trend.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
-            plt.tight_layout()
-            st.pyplot(fig_trend)
-            plt.close(fig_trend)
-            
+    ma_son_list = sorted(dff['Ma_Son'].dropna().unique().tolist())
+    if not ma_son_list:
+        st.stop()
+        
+    col_s1, col_s2 = st.columns([1, 2])
+    with col_s1:
+        search_keyword = st.text_input("🔍 Search Paint Code:", "").upper()
+    filtered_list = [code for code in ma_son_list if search_keyword in code]
+    with col_s2:
+        if filtered_list:
+            sel_code = st.selectbox("🎯 Select Paint Code:", filtered_list)
         else:
-            st.warning("⚠️ Insufficient data. We need at least 5 consecutive production coils to calculate meaningful statistical control limits.")
+            st.warning("No paint code found.")
+            st.stop()
+    
+    dff_spc = dff[dff['Ma_Son'] == sel_code].copy().dropna(subset=['Gloss_Lab']).sort_values('Ngay_SX')
+    
+    if len(dff_spc) >= 5:
+        # --- LỌC NHIỄU (IQR) TRÊN DỮ LIỆU CÁ NHÂN (INDIVIDUAL) ---
+        q1 = dff_spc['Gloss_Lab'].quantile(0.25)
+        q3 = dff_spc['Gloss_Lab'].quantile(0.75)
+        iqr = q3 - q1
+        lower_limit = q1 - 1.5 * iqr
+        upper_limit = q3 + 1.5 * iqr
+        
+        clean_ind_data = dff_spc[(dff_spc['Gloss_Lab'] >= lower_limit) & (dff_spc['Gloss_Lab'] <= upper_limit)]
+        outliers = dff_spc[(dff_spc['Gloss_Lab'] < lower_limit) | (dff_spc['Gloss_Lab'] > upper_limit)]
+        
+        # --- TẠO DỮ LIỆU TRUNG BÌNH BATCH ---
+        batch_data = clean_ind_data.groupby('Batch_Lot').agg(
+            Gloss_Mean=('Gloss_Lab', 'mean'),
+            Coil_Count=('Gloss_Lab', 'count')
+        ).reset_index()
+        
+        st.success(f"📅 **Historical Data:** Total `{len(dff_spc)}` Coils analyzed across `{len(batch_data)}` Batches. (`{len(outliers)}` anomalous coils excluded).")
+
+        st.markdown("---")
+        st.subheader("⚙️ Control Scope Settings")
+        sigma_mult = st.slider("Strictness Multiplier (Sigma)", min_value=1.5, max_value=3.0, value=2.0, step=0.5, help="2.0 covers ~95% data. 3.0 covers ~99.7%.")
+        
+        lsl_off = dff_spc['Gloss_LSL'].iloc[0]
+        usl_off = dff_spc['Gloss_USL'].iloc[0]
+
+        # --- 1. SCOPE: INDIVIDUAL COILS ---
+        mean_ind = clean_ind_data['Gloss_Lab'].mean()
+        std_ind = clean_ind_data['Gloss_Lab'].std()
+        lcl_ind = max(mean_ind - sigma_mult * std_ind, lsl_off)
+        ucl_ind = min(mean_ind + sigma_mult * std_ind, usl_off)
+
+        # --- 2. SCOPE: BATCH AVERAGES ---
+        mean_batch = batch_data['Gloss_Mean'].mean()
+        std_batch = batch_data['Gloss_Mean'].std() if len(batch_data) > 1 else 0
+        lcl_batch = max(mean_batch - sigma_mult * std_batch, lsl_off)
+        ucl_batch = min(mean_batch + sigma_mult * std_batch, usl_off)
+
+        # --- DISPLAY COMPARISON METRICS ---
+        st.markdown("### 📋 Variation Comparison Matrix")
+        col_m1, col_m2 = st.columns(2)
+        
+        with col_m1:
+            st.markdown("#### 🏭 Scope 1: Individual Coils (Product Spread)")
+            st.caption("Reflects the actual coil-to-coil variation within and across batches.")
+            c1, c2 = st.columns(2)
+            c1.metric("Std Dev (σ)", f"{std_ind:.2f} GU")
+            c2.metric("Calculated Control Span", f"{lcl_ind:.1f} - {ucl_ind:.1f}")
+
+        with col_m2:
+            st.markdown("#### 📦 Scope 2: Batch Averages (Process Shift)")
+            st.caption("Reflects how the whole process average drifts from one lot to another.")
+            c3, c4 = st.columns(2)
+            c3.metric("Std Dev (σ)", f"{std_batch:.2f} GU" if std_batch > 0 else "N/A", delta=f"{(std_ind - std_batch):.2f} tighter", delta_color="normal")
+            c4.metric("Calculated Control Span", f"{lcl_batch:.1f} - {ucl_batch:.1f}" if std_batch > 0 else "N/A")
+
+        # --- VISUALIZATION: DISTRIBUTIONS OVERLAP ---
+        st.markdown("---")
+        st.subheader("📊 Distribution Overlap: Individual vs. Batch")
+        
+        fig_dist, ax_dist = plt.subplots(figsize=(12, 5))
+        
+        # Histograms
+        sns.histplot(clean_ind_data['Gloss_Lab'], color='#3498db', alpha=0.3, label='Individual Coils Distribution', stat="density", ax=ax_dist)
+        if len(batch_data) > 1:
+            sns.histplot(batch_data['Gloss_Mean'], color='#e67e22', alpha=0.6, label='Batch Averages Distribution', stat="density", ax=ax_dist)
+        
+        # Limits Drawing
+        ax_dist.axvline(lsl_off, color='red', ls='-', lw=1.5, alpha=0.5, label='Official Spec Limit')
+        ax_dist.axvline(usl_off, color='red', ls='-', lw=1.5, alpha=0.5)
+        
+        ax_dist.axvline(lcl_ind, color='#2980b9', ls='--', lw=2.5, label=f'Individual LCL/UCL ({lcl_ind:.1f}-{ucl_ind:.1f})')
+        ax_dist.axvline(ucl_ind, color='#2980b9', ls='--', lw=2.5)
+        
+        if std_batch > 0:
+            ax_dist.axvline(lcl_batch, color='#d35400', ls=':', lw=2.5, label=f'Batch LCL/UCL ({lcl_batch:.1f}-{ucl_batch:.1f})')
+            ax_dist.axvline(ucl_batch, color='#d35400', ls=':', lw=2.5)
+
+        ax_dist.set_xlabel("Gloss (GU)")
+        ax_dist.set_ylabel("Density")
+        ax_dist.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
+        plt.tight_layout()
+        st.pyplot(fig_dist)
+        plt.close(fig_dist)
+
     else:
-        st.warning("No data available.")
+        st.warning("⚠️ Insufficient data (needs at least 5 coils).")
 
 # ==========================================
-# VIEW 4: PAIRED DIFFERENCE ANALYSIS (NEW)
+# VIEW 4: PAIRED DIFFERENCE (CLAMP FIXED)
 # ==========================================
-elif view_mode == "⚖️ Paired Difference Analysis":
-    st.info("💡 Paired Difference Analysis + Batch Aggregation: Quantifies the systematic offset between Lab and Line to redefine Lab control limits.")
+elif view_mode == "⚖️ Paired Difference (Lab vs Line)":
+    st.header("⚖️ Paired Difference Analysis")
+    st.info("Quantifies the systematic offset between Lab and Line. Recommends corrected targets tightly clamped to official specs.")
 
-    list_ma_son_tab_offset = sorted(dff['Ma_Son'].dropna().unique().tolist())
-    if list_ma_son_tab_offset:
-        col_search1, col_search2 = st.columns([1, 2])
-        with col_search1:
-            search_keyword = st.text_input("🔍 Quick Search Paint Code:", "", placeholder="Type part of code (e.g., SC8...)").upper()
+    ma_son_list = sorted(dff['Ma_Son'].dropna().unique().tolist())
+    if ma_son_list:
+        sel_offset_code = st.selectbox("🎯 Select Paint Code:", ma_son_list)
 
-        filtered_list = [code for code in list_ma_son_tab_offset if search_keyword in str(code).upper()]
+        dff_offset = dff[dff['Ma_Son'] == sel_offset_code].dropna(subset=['Online_Gloss_Top', 'Gloss_Lab']).sort_values('Ngay_SX')
 
-        with col_search2:
-            if filtered_list:
-                sel_ma_son_tab_offset = st.selectbox(f"🎯 Select Paint Code ({len(filtered_list)} found):", filtered_list, key="offset_select")
-            else:
-                st.warning(f"❌ No paint code found containing '{search_keyword}'")
-                st.stop()
-
-        dff_offset = dff[dff['Ma_Son'] == sel_ma_son_tab_offset].copy()
-        dff_offset = dff_offset.dropna(subset=['Online_Gloss_Top', 'Gloss_Lab', 'Ngay_SX']).sort_values(['Ngay_SX', 'Coil_No'])
-
-        # 📌 STEP 1: Batch Aggregation
         batch_analysis = dff_offset.groupby('Batch_Lot').agg({
-            'Gloss_Lab': 'first',         # Lab value per batch
-            'Online_Gloss_Top': 'mean',   # Line mean per batch
-            'Gloss_LSL': 'first',
-            'Gloss_USL': 'first'
+            'Gloss_Lab': 'first', 'Online_Gloss_Top': 'mean',
+            'Gloss_LSL': 'first', 'Gloss_USL': 'first'
         }).reset_index()
 
         if len(batch_analysis) >= 5:
-            # 📌 STEP 2: Calculate Delta (Δ)
             batch_analysis['Delta'] = batch_analysis['Online_Gloss_Top'] - batch_analysis['Gloss_Lab']
+            mean_delta = batch_analysis['Delta'].mean() 
+            std_delta = batch_analysis['Delta'].std()    
+            std_lab = batch_analysis['Gloss_Lab'].std() if batch_analysis['Gloss_Lab'].std() > 0 else 0.5 
 
-            # 📌 STEP 3: Analyze Delta & Lab Variance
-            mean_delta = batch_analysis['Delta'].mean()  # Systematic Offset
-            std_delta = batch_analysis['Delta'].std()    # Variation of the offset
-            std_lab = batch_analysis['Gloss_Lab'].std() if batch_analysis['Gloss_Lab'].std() > 0 else 0.5 # Baseline Lab variation
-
-           # 📌 STEP 4: Calculate New Lab Target and Control Limits
+            # 📌 STEP 4: Calculate New Lab Target and Control Limits
             official_lsl = batch_analysis['Gloss_LSL'].iloc[0]
             official_usl = batch_analysis['Gloss_USL'].iloc[0]
             target_line = (official_lsl + official_usl) / 2
@@ -719,54 +627,42 @@ elif view_mode == "⚖️ Paired Difference Analysis":
             # Core Formula: Lab_target = Target_Line - Mean(Δ)
             suggested_lab_target = target_line - mean_delta
             
-            # Tính toán giới hạn trên lý thuyết
             raw_ucl = suggested_lab_target + (3 * std_lab)
             raw_lcl = suggested_lab_target - (3 * std_lab)
 
-            # ÉP GIỚI HẠN (CLAMP): Đảm bảo không vượt quá Spec chính thức
+            # 📌 CLAMP: Đảm bảo không vượt quá Spec chính thức
             suggested_lab_lcl = max(raw_lcl, official_lsl)
             suggested_lab_ucl = min(raw_ucl, official_usl)
 
-            # --- DISPLAY METRICS ---
-            st.markdown("### 🔑 Recommended Parameters (Based on Systematic Offset)")
-            
-            # Add a warning if delta variation is suspiciously high
+            st.markdown("### 🔑 Recommended Correction Parameters")
             if std_delta > 1.5:
-                st.warning(f"⚠️ **High Δ Variation Detected (Std: {std_delta:.2f} GU).** The relationship between Lab and Line is unstable. Applying a strict historical Lab distribution for safety.")
+                st.warning(f"⚠️ **High Δ Variation Detected (Std: {std_delta:.2f} GU).** The relationship between Lab and Line is unstable.")
             
             c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Constant Bias (Mean Δ)", f"{mean_delta:+.2f} GU", help=">0: Line higher than Lab. <0: Line lower than Lab")
-            c2.metric("Baseline Lab Std", f"{std_lab:.2f} GU", help="Historical standard deviation of Lab data used for calculating limits.")
+            c1.metric("Constant Bias (Mean Δ)", f"{mean_delta:+.2f} GU")
+            c2.metric("Baseline Lab Std", f"{std_lab:.2f} GU")
             c3.metric("🎯 Suggested Lab Target", f"{suggested_lab_target:.1f} GU")
-
-            # Display New Limits
             c4.metric(
                 "Suggested Lab Limits (±3σ)",
                 f"{suggested_lab_lcl:.1f} - {suggested_lab_ucl:.1f}",
                 delta=f"Span: {suggested_lab_ucl - suggested_lab_lcl:.1f} GU",
                 delta_color="off"
             )
-
+            
+            st.markdown("*(Note: Suggested limits are strictly clamped within Official Spec bounds).*")
+            
             # --- STEP 5: COMPREHENSIVE VISUAL DIAGNOSTICS (Δ ANALYSIS) ---
             st.markdown("---")
             st.markdown("### 📊 Step 3: Comprehensive Δ Analysis")
-            st.caption("Visualizing the systematic offset using Control Trends, Probability Density, and Empirical Distributions.")
-
-            # --- Chart 1: Constant vs. Drift Bias (Time-Series Control Chart) ---
+            
             st.markdown("#### 1. Bias Trend (Constant vs. Drift)")
             fig_trend, ax_trend = plt.subplots(figsize=(14, 4))
-            
-            # X-axis formatting
             batch_labels = batch_analysis['Batch_Lot'].astype(str)
             ax_trend.plot(batch_labels, batch_analysis['Delta'], marker='o', color='#2c3e50', lw=2, label='Batch Δ (Line - Lab)')
-            
-            # Draw Bias and Control Limits
             ax_trend.axhline(mean_delta, color='#e74c3c', ls='-', lw=2, label=f'Mean Bias ({mean_delta:+.2f})')
             ax_trend.axhline(mean_delta + (3 * std_delta), color='#27ae60', ls='--', lw=1.5, label='+3σ Limit')
             ax_trend.axhline(mean_delta - (3 * std_delta), color='#27ae60', ls='--', lw=1.5, label='-3σ Limit')
             ax_trend.axhline(0, color='#7f8c8d', ls=':', lw=1.5, label='Zero Offset (Ideal)')
-            
-            # Format X-axis to prevent clutter
             ax_trend.set_xlabel("Batch Lot Sequence")
             ax_trend.set_ylabel("Deviation Δ (GU)")
             plt.xticks(rotation=45, ha='right')
@@ -775,46 +671,30 @@ elif view_mode == "⚖️ Paired Difference Analysis":
                 step = max(1, len(locs) // 20) 
                 for i, label in enumerate(labels):
                     if i % step != 0: label.set_visible(False)
-                    
             ax_trend.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
             st.pyplot(fig_trend)
             plt.close(fig_trend)
 
-            # Create columns for the next two charts
             col_chart1, col_chart2 = st.columns(2)
-
-            # Setup data for distributions
             mean_lab = batch_analysis['Gloss_Lab'].mean()
-            std_lab = batch_analysis['Gloss_Lab'].std() if batch_analysis['Gloss_Lab'].std() > 0 else 0.5
             mean_line = batch_analysis['Online_Gloss_Top'].mean()
             std_line = batch_analysis['Online_Gloss_Top'].std() if batch_analysis['Online_Gloss_Top'].std() > 0 else 0.5
-
             x_min = min(mean_lab - 3.5*std_lab, mean_line - 3.5*std_line)
             x_max = max(mean_lab + 3.5*std_lab, mean_line + 3.5*std_line)
             x_axis = np.linspace(x_min, x_max, 200)
 
             with col_chart1:
-                # --- Chart 2: Assigned vs Achieved (Shifted Normal Curves) ---
                 st.markdown("#### 2. Systematic Shift (Normal Curves)")
                 fig_curve, ax_curve = plt.subplots(figsize=(6, 5))
-                
-                # Lab Curve (Assigned/Target)
                 y_lab = stats.norm.pdf(x_axis, mean_lab, std_lab)
                 ax_curve.plot(x_axis, y_lab, color='#27ae60', lw=2.5, label='Lab (Assigned)')
                 ax_curve.axvline(mean_lab, color='#27ae60', ls='--', lw=1)
-                
-                # Line Curve (Achieved)
                 y_line = stats.norm.pdf(x_axis, mean_line, std_line)
                 ax_curve.plot(x_axis, y_line, color='#c0392b', lw=2.5, label='Line (Achieved)')
                 ax_curve.axvline(mean_line, color='#c0392b', ls='--', lw=1)
-                
-                # Draw Bias Annotations
                 y_annotate = max(max(y_lab), max(y_line)) * 0.5
-                ax_curve.annotate('', xy=(mean_lab, y_annotate), xytext=(mean_line, y_annotate),
-                                  arrowprops=dict(arrowstyle='<->', color='#f39c12', lw=2))
-                ax_curve.text((mean_lab + mean_line)/2, y_annotate + 0.01, f'Bias: {mean_delta:+.2f}', 
-                              ha='center', va='bottom', color='#f39c12', fontweight='bold')
-
+                ax_curve.annotate('', xy=(mean_lab, y_annotate), xytext=(mean_line, y_annotate), arrowprops=dict(arrowstyle='<->', color='#f39c12', lw=2))
+                ax_curve.text((mean_lab + mean_line)/2, y_annotate + 0.01, f'Bias: {mean_delta:+.2f}', ha='center', va='bottom', color='#f39c12', fontweight='bold')
                 ax_curve.set_xlabel("Gloss Value (GU)")
                 ax_curve.set_ylabel("Probability Density")
                 ax_curve.legend()
@@ -822,28 +702,26 @@ elif view_mode == "⚖️ Paired Difference Analysis":
                 plt.close(fig_curve)
 
             with col_chart2:
-                # --- Chart 3: Overlap of Distributions (Histograms) ---
                 st.markdown("#### 3. Population Overlap (Histograms)")
                 fig_hist, ax_hist = plt.subplots(figsize=(6, 5))
-                
-                # Determine shared bins
                 min_bin = min(batch_analysis['Gloss_Lab'].min(), batch_analysis['Online_Gloss_Top'].min())
                 max_bin = max(batch_analysis['Gloss_Lab'].max(), batch_analysis['Online_Gloss_Top'].max())
                 bins_shared = np.linspace(min_bin - 1, max_bin + 1, 15)
-
                 sns.histplot(batch_analysis['Gloss_Lab'], bins=bins_shared, color='#27ae60', alpha=0.4, label='Lab Population', ax=ax_hist)
                 sns.histplot(batch_analysis['Online_Gloss_Top'], bins=bins_shared, color='#3498db', alpha=0.6, label='Line Population', ax=ax_hist)
-                
                 ax_hist.set_xlabel("Gloss Value Bin Range (GU)")
                 ax_hist.set_ylabel("Batch Count")
                 ax_hist.legend()
                 st.pyplot(fig_hist)
                 plt.close(fig_hist)
 
+        else:
+            st.warning("Insufficient data.")
+
 # ==========================================
-# VIEW 5: SUPPLIER COMPARISON
+# VIEW 5: SUPPLIER CAPABILITY
 # ==========================================
-elif view_mode == "🤝 Supplier Comparison":
+elif view_mode == "🤝 Supplier Capability":
     st.info("💡 Flexible Mode: Select a specific code for capability comparison (Cpk). Select 'All' to evaluate overall stability of a color group based on Target Deviation (ΔGloss).")
     
     st.markdown("---")
@@ -855,12 +733,8 @@ elif view_mode == "🤝 Supplier Comparison":
     
     if not dff_radar.empty:
         radar_summary = dff_radar.groupby(['Color_Group', 'Color_Code', 'Supplier']).agg(
-            Coil_Count=('Online_Gloss_Top', 'count'),
-            LSL=('Gloss_LSL', 'first'),
-            USL=('Gloss_USL', 'first'),
-            Mean_Line=('Online_Gloss_Top', 'mean'),
-            Std_Line=('Online_Gloss_Top', 'std'),
-            dE_Max=('ΔE', 'max')
+            Coil_Count=('Online_Gloss_Top', 'count'), LSL=('Gloss_LSL', 'first'), USL=('Gloss_USL', 'first'),
+            Mean_Line=('Online_Gloss_Top', 'mean'), Std_Line=('Online_Gloss_Top', 'std'), dE_Max=('ΔE', 'max')
         ).reset_index()
         
         radar_summary = radar_summary[radar_summary['Coil_Count'] >= 3]
@@ -879,8 +753,7 @@ elif view_mode == "🤝 Supplier Comparison":
                 radar_alert.style.format({
                     'LSL': '{:.0f}', 'USL': '{:.0f}', 'Mean (Line)': '{:.1f}',
                     'Std (Line)': '{:.2f}', 'Max ΔE': '{:.2f}', 'Cpk (Line)': '{:.2f}'
-                }).background_gradient(cmap='Reds_r', subset=['Cpk (Line)'])
-                  .background_gradient(cmap='Reds', subset=['Max ΔE']),
+                }).background_gradient(cmap='Reds_r', subset=['Cpk (Line)']).background_gradient(cmap='Reds', subset=['Max ΔE']),
                 use_container_width=True, hide_index=True
             )
         else:
@@ -918,7 +791,6 @@ elif view_mode == "🤝 Supplier Comparison":
         
         dff_comp = dff_comp.dropna(subset=['Online_Gloss_Top', 'Supplier', 'Gloss_LSL', 'Gloss_USL', 'dL_N', 'da_N', 'db_N'])
         dff_comp = dff_comp[(dff_comp['Gloss_LSL'] > 0) & (dff_comp['Gloss_USL'] > 0) & (dff_comp['Online_Gloss_Top'] > 0)]
-        
         dff_comp['Gloss_Target'] = (dff_comp['Gloss_LSL'] + dff_comp['Gloss_USL']) / 2
         dff_comp['Gloss_Dev'] = dff_comp['Online_Gloss_Top'] - dff_comp['Gloss_Target']
         
@@ -928,7 +800,6 @@ elif view_mode == "🤝 Supplier Comparison":
         
         if len(dff_comp['Supplier'].unique()) >= 1:
             st.markdown("---")
-            
             c1, c2 = st.columns([2, 2.2]) 
             plot_col = 'Gloss_Dev' if is_mixed else 'Online_Gloss_Top'
             plot_ylabel = "Deviation from Target (ΔGloss)" if is_mixed else "Online Gloss (Line Gloss)"
@@ -936,7 +807,6 @@ elif view_mode == "🤝 Supplier Comparison":
             with c1:
                 st.subheader(f"📊 Line Gloss Dispersion ({title_suffix})")
                 fig_comp1, ax_comp1 = plt.subplots(figsize=(10, 5))
-                
                 num_sups = dff_comp['Supplier'].nunique()
                 
                 if is_mixed:
@@ -948,7 +818,6 @@ elif view_mode == "🤝 Supplier Comparison":
                     b_width = 0.3 if num_sups > 1 else 0.15
                     sns.boxplot(data=dff_comp, x='Supplier', y=plot_col, color='#ecf0f1', ax=ax_comp1, showfliers=False, width=b_width, linewidth=1.5)
                     sns.stripplot(data=dff_comp, x='Supplier', y=plot_col, hue='Supplier', palette='Set1', alpha=0.85, size=7, jitter=0.15, ax=ax_comp1, legend=False)
-                    
                     lsl_val = dff_comp['Gloss_LSL'].iloc[0]
                     usl_val = dff_comp['Gloss_USL'].iloc[0]
                     ax_comp1.axhline(lsl_val, color='red', ls='--', lw=2, label=f'LSL ({lsl_val:.0f})')
@@ -971,9 +840,7 @@ elif view_mode == "🤝 Supplier Comparison":
                     comp_table = comp_table.sort_values('Std_Dev', ascending=True)
                     comp_table.columns = ['Supplier', 'Coils', 'Avg Target Dev', 'Dispersion (Std)', 'Avg ΔE']
                     st.dataframe(
-                        comp_table.style.format({
-                            'Avg Target Dev': '{:+.2f}', 'Dispersion (Std)': '{:.2f}', 'Avg ΔE': '{:.2f}'
-                        }).background_gradient(cmap='RdYlGn_r', subset=['Dispersion (Std)']), 
+                        comp_table.style.format({'Avg Target Dev': '{:+.2f}', 'Dispersion (Std)': '{:.2f}', 'Avg ΔE': '{:.2f}'}).background_gradient(cmap='RdYlGn_r', subset=['Dispersion (Std)']), 
                         use_container_width=True, hide_index=True
                     )
                 else:
@@ -989,42 +856,27 @@ elif view_mode == "🤝 Supplier Comparison":
                     comp_table = comp_table.sort_values('Cpk (Line)', ascending=False)
                     comp_table.columns = ['Supplier', 'Coils', 'LSL', 'USL', 'Mean (Line)', 'Std (Line)', 'Avg ΔE', 'Cpk (Line)']
                     st.dataframe(
-                        comp_table.style.format({
-                            'LSL': '{:.0f}', 'USL': '{:.0f}', 'Mean (Line)': '{:.1f}',
-                            'Std (Line)': '{:.2f}', 'Avg ΔE': '{:.2f}', 'Cpk (Line)': '{:.2f}'
-                        }).background_gradient(cmap='RdYlGn', subset=['Cpk (Line)']), 
+                        comp_table.style.format({'LSL': '{:.0f}', 'USL': '{:.0f}', 'Mean (Line)': '{:.1f}', 'Std (Line)': '{:.2f}', 'Avg ΔE': '{:.2f}', 'Cpk (Line)': '{:.2f}'}).background_gradient(cmap='RdYlGn', subset=['Cpk (Line)']), 
                         use_container_width=True, hide_index=True
                     )
 
-            # --- BATCH TO BATCH ---
             st.markdown("---")
             st.subheader("📉 Batch-to-Batch Gloss Variation")
             st.caption("Detailed view of the specific batches with the highest and lowest average gloss. Exposes exact lot numbers for vendor accountability.")
             
-            batch_means = dff_comp.groupby(['Supplier', 'Batch_Lot']).agg(
-                Mean_Line=('Online_Gloss_Top', 'mean'),
-                LSL=('Gloss_LSL', 'first'),
-                USL=('Gloss_USL', 'first')
-            ).reset_index()
+            batch_means = dff_comp.groupby(['Supplier', 'Batch_Lot']).agg(Mean_Line=('Online_Gloss_Top', 'mean'), LSL=('Gloss_LSL', 'first'), USL=('Gloss_USL', 'first')).reset_index()
             
             b2b_records = []
             for sup, group in batch_means.groupby('Supplier'):
                 if len(group) >= 2:
                     idx_min = group['Mean_Line'].idxmin()
                     idx_max = group['Mean_Line'].idxmax()
-                    
                     min_row = group.loc[idx_min]
                     max_row = group.loc[idx_max]
-                    
                     b2b_records.append({
-                        'Supplier': sup,
-                        'Batches': len(group),
-                        'LSL': min_row['LSL'],
-                        'USL': min_row['USL'],
-                        'Min Batch': min_row['Batch_Lot'],
-                        'Min Avg': min_row['Mean_Line'],
-                        'Max Batch': max_row['Batch_Lot'],
-                        'Max Avg': max_row['Mean_Line'],
+                        'Supplier': sup, 'Batches': len(group), 'LSL': min_row['LSL'], 'USL': min_row['USL'],
+                        'Min Batch': min_row['Batch_Lot'], 'Min Avg': min_row['Mean_Line'],
+                        'Max Batch': max_row['Batch_Lot'], 'Max Avg': max_row['Mean_Line'],
                         'Gap': max_row['Mean_Line'] - min_row['Mean_Line']
                     })
             
@@ -1032,69 +884,52 @@ elif view_mode == "🤝 Supplier Comparison":
             
             if not b2b_table.empty:
                 b2b_table = b2b_table.sort_values('Gap', ascending=False)
-                
                 st.dataframe(
-                    b2b_table.style.format({
-                        'LSL': '{:.0f}', 'USL': '{:.0f}', 
-                        'Min Avg': '{:.1f}', 'Max Avg': '{:.1f}', 'Gap': '{:.1f}'
-                    }).background_gradient(cmap='Oranges', subset=['Gap']), 
+                    b2b_table.style.format({'LSL': '{:.0f}', 'USL': '{:.0f}', 'Min Avg': '{:.1f}', 'Max Avg': '{:.1f}', 'Gap': '{:.1f}'}).background_gradient(cmap='Oranges', subset=['Gap']), 
                     use_container_width=True, hide_index=True
                 )
             else:
                 st.info("Not enough multi-batch data to compare Batch-to-Batch gloss variation.")
 
-            # --- COLOR DRIFT ---
             st.markdown("---")
             st.subheader("🎨 Batch Color Drift Detailed Analysis")
             st.caption("Table displays AVERAGE values of color components (ΔL, Δa, Δb) per batch. The **Full Paint Code** column helps Vendors trace exact formulas.")
-            st.caption("🔴 **Dark Red:** Significant shift towards Lighter (ΔL+), Redder (Δa+), or Yellower (Δb+).")
-            st.caption("🔵 **Dark Blue:** Significant shift towards Darker (ΔL-), Greener (Δa-), or Bluer (Δb-).")
             
             color_drift = dff_comp.groupby(['Supplier', 'Batch_Lot']).agg(
-                Full_Paint_Code=('Ma_Son', 'first'),
-                Ngay_SX=('Ngay_SX', 'min'),
-                Mean_dL=('dL_N', 'mean'),
-                Mean_da=('da_N', 'mean'),
-                Mean_db=('db_N', 'mean'),
-                Max_dE=('ΔE', 'max')
+                Full_Paint_Code=('Ma_Son', 'first'), Ngay_SX=('Ngay_SX', 'min'),
+                Mean_dL=('dL_N', 'mean'), Mean_da=('da_N', 'mean'), Mean_db=('db_N', 'mean'), Max_dE=('ΔE', 'max')
             ).reset_index()
             
             color_drift = color_drift.sort_values(by=['Supplier', 'Ngay_SX'])
             color_drift.columns = ['Supplier', 'Batch Lot', 'Full Paint Code', 'Production Date', 'ΔL (Avg)', 'Δa (Avg)', 'Δb (Avg)', 'Max ΔE']
             
             c_drift1, c_drift2 = st.columns(2)
-            
             with c_drift1:
                 drift_suppliers = ['All Suppliers'] + sorted(color_drift['Supplier'].unique().tolist())
                 sel_drift_sup = st.selectbox("🏭 Select Supplier:", drift_suppliers, key="drift_sup_filter")
-                
             if sel_drift_sup != 'All Suppliers':
                 color_drift = color_drift[color_drift['Supplier'] == sel_drift_sup]
-                
             with c_drift2:
                 drift_codes = ['All Paint Codes'] + sorted(color_drift['Full Paint Code'].unique().tolist())
                 sel_drift_code = st.selectbox("🎯 Select Full Paint Code:", drift_codes, key="drift_code_filter")
-                
             if sel_drift_code != 'All Paint Codes':
                 color_drift = color_drift[color_drift['Full Paint Code'] == sel_drift_code]
             
             st.dataframe(
-                color_drift.style.format({
-                    'ΔL (Avg)': '{:+.2f}', 'Δa (Avg)': '{:+.2f}', 'Δb (Avg)': '{:+.2f}', 'Max ΔE': '{:.2f}'
-                }).background_gradient(cmap='bwr', subset=['ΔL (Avg)'], vmin=-0.5, vmax=0.5) 
-                  .background_gradient(cmap='bwr', subset=['Δa (Avg)'], vmin=-0.3, vmax=0.3) 
-                  .background_gradient(cmap='bwr', subset=['Δb (Avg)'], vmin=-0.3, vmax=0.3) 
-                  .background_gradient(cmap='Reds', subset=['Max ΔE'], vmin=0, vmax=1.0),
+                color_drift.style.format({'ΔL (Avg)': '{:+.2f}', 'Δa (Avg)': '{:+.2f}', 'Δb (Avg)': '{:+.2f}', 'Max ΔE': '{:.2f}'})
+                .background_gradient(cmap='bwr', subset=['ΔL (Avg)'], vmin=-0.5, vmax=0.5) 
+                .background_gradient(cmap='bwr', subset=['Δa (Avg)'], vmin=-0.3, vmax=0.3) 
+                .background_gradient(cmap='bwr', subset=['Δb (Avg)'], vmin=-0.3, vmax=0.3) 
+                .background_gradient(cmap='Reds', subset=['Max ΔE'], vmin=0, vmax=1.0),
                 use_container_width=True, hide_index=True
             )
-
         else:
             st.warning("⚠️ Insufficient data (needs at least 2 coils/supplier with Line data) to perform comparison.")
 
 # ==========================================
-# VIEW 6: SUMMARY DATA REPORT
+# VIEW 6: MASTER SUMMARY REPORT
 # ==========================================
-elif view_mode == "📋 Summary Data Report":
+elif view_mode == "📋 Master Summary Report":
     st.info("Master Data table, grouped by Resin Type, Color Code, and Supplier.")
     
     summary_table = dff.groupby(['Coating_Type', 'Color_Code', 'Supplier']).agg({
