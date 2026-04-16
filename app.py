@@ -616,6 +616,7 @@ elif view_mode == "📊 Statistical Limits (Scope Comparison)":
     else:
         st.warning("⚠️ Insufficient data (needs at least 5 coils).")
 # ==========================================
+# ==========================================
 # VIEW 4: PREDICTIVE COMPENSATION MODEL
 # ==========================================
 elif view_mode == "⚖️ Predictive Compensation & Targeting":
@@ -677,12 +678,16 @@ elif view_mode == "⚖️ Predictive Compensation & Targeting":
                 st.metric("Specification Target (Line)", f"{target_line:.1f} GU", help="Defined explicitly by user.")
                 st.metric("Historical Process Bias", f"{mean_loss:+.2f} GU", 
                           help="Average drift caused by the production line for this specific paint.")
+                # --- THÊM HIỂN THỊ GIÁ TRỊ SIGMA Ở ĐÂY ---
+                st.metric("Standard Deviation (Sigma, σ)", f"{std_loss:.2f} GU", 
+                          help="Calculated variation (σ) of the historical bias. Used to define the Internal Control Limit.")
 
             with col_guidance:
                 st.success(f"#### Recommended Lab Input: **{optimal_lab_input:.1f} GU**")
                 st.write(f"To ensure the final product hits the exact target of **{target_line:.1f} GU** on the line, the laboratory should aim for a pre-production mix of **{optimal_lab_input:.1f} GU** to compensate for the process drift.")
                 
-                st.warning(f"**Internal Control Limit (ICL): {icl_lcl:.1f} - {icl_ucl:.1f}**")
+                # --- CẬP NHẬT CHÚ THÍCH SIGMA TRONG DẢI ICL ---
+                st.warning(f"**Internal Control Limit (ICL): {icl_lcl:.1f} - {icl_ucl:.1f}** *(±1σ, với σ = {std_loss:.2f})*")
                 st.caption("Production is only authorized if Lab testing falls within this tightened range (±1σ).")
 
             st.markdown("---")
@@ -701,12 +706,12 @@ elif view_mode == "⚖️ Predictive Compensation & Targeting":
             x_axis_bell = np.linspace(x_min_bell, x_max_bell, 300)
 
             y_lab_bell = stats.norm.pdf(x_axis_bell, mean_lab_hist, std_lab_hist)
-            ax_bell.plot(x_axis_bell, y_lab_bell, color='#27ae60', lw=2.5, label=f'Lab Input (Assigned Value)\nMean: {mean_lab_hist:.1f}')
+            ax_bell.plot(x_axis_bell, y_lab_bell, color='#27ae60', lw=2.5, label=f'Lab Input (Assigned Value)\nMean: {mean_lab_hist:.1f} | σ: {std_lab_hist:.2f}')
             ax_bell.fill_between(x_axis_bell, y_lab_bell, alpha=0.1, color='#27ae60')
             ax_bell.axvline(mean_lab_hist, color='#27ae60', ls='--', lw=1.5)
 
             y_line_bell = stats.norm.pdf(x_axis_bell, mean_line_hist, std_line_hist)
-            ax_bell.plot(x_axis_bell, y_line_bell, color='#c0392b', lw=2.5, label=f'Line Output (Achieved Value)\nMean: {mean_line_hist:.1f}')
+            ax_bell.plot(x_axis_bell, y_line_bell, color='#c0392b', lw=2.5, label=f'Line Output (Achieved Value)\nMean: {mean_line_hist:.1f} | σ: {std_line_hist:.2f}')
             ax_bell.fill_between(x_axis_bell, y_line_bell, alpha=0.1, color='#c0392b')
             ax_bell.axvline(mean_line_hist, color='#c0392b', ls='--', lw=1.5)
 
@@ -739,7 +744,7 @@ elif view_mode == "⚖️ Predictive Compensation & Targeting":
             
             ax_model.axhline(optimal_lab_input, color='#27ae60', ls='-', lw=2.5, label=f'Optimal Lab Input ({optimal_lab_input:.1f})')
             
-            ax_model.set_ylabel("Gloss (GU)")
+            ax_model.set_ylabel("Gloss Value (GU)")
             ax_model.set_xlabel("Batch Sequence")
             plt.xticks(rotation=45, ha='right')
             locs, labels = plt.xticks()
@@ -758,7 +763,6 @@ elif view_mode == "⚖️ Predictive Compensation & Targeting":
 
         else:
             st.warning("⚠️ Insufficient historical data for this paint code to build a reliable compensation model (Min. 5 coils required).")
-
 # ==========================================
 # VIEW 5: SUPPLIER CAPABILITY
 # ==========================================
