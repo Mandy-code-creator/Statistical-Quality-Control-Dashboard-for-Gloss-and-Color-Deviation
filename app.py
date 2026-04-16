@@ -516,20 +516,34 @@ elif view_mode == "📊 Statistical Limits (Scope Comparison)":
         st.markdown("---")
         st.subheader("⚙️ Control Scope Settings")
         
-        sigma_mult = st.number_input("Strictness Multiplier (Sigma)", min_value=1.00, max_value=4.00, value=2.00, step=0.10, format="%.2f", help="Input the standard deviation multiplier. Example: 2.0 or 3.0")
+        # ADDED METHOD SELECTOR FOR I-MR VS STD DEV
+        col_set1, col_set2 = st.columns(2)
+        with col_set1:
+            sigma_mult = st.number_input("Strictness Multiplier (Sigma)", min_value=1.00, max_value=4.00, value=2.00, step=0.10, format="%.2f", help="Input the standard deviation multiplier. Example: 2.0 or 3.0")
+        with col_set2:
+            calc_method = st.radio("Statistical Method", ["Standard Deviation (Overall)", "I-MR (Moving Range)"], help="Standard Deviation accounts for all variation over time. I-MR measures short-term point-to-point variation, filtering out long-term drift.")
         
         line_lsl = dff_spc['Line_LSL'].iloc[0]
         line_usl = dff_spc['Line_USL'].iloc[0]
 
         mean_ind = clean_ind_data['Online_Gloss_Top'].mean()
-        std_ind = clean_ind_data['Online_Gloss_Top'].std()
-        lcl_ind = max(mean_ind - sigma_mult * std_ind, line_lsl)
-        ucl_ind = min(mean_ind + sigma_mult * std_ind, line_usl)
-
         mean_batch = batch_data['Gloss_Mean'].mean()
-        std_batch = batch_data['Gloss_Mean'].std() if len(batch_data) > 1 else 0
-        lcl_batch = max(mean_batch - sigma_mult * std_batch, line_lsl)
-        ucl_batch = min(mean_batch + sigma_mult * std_batch, line_usl)
+
+        if "Standard Deviation" in calc_method:
+            std_ind_calc = clean_ind_data['Online_Gloss_Top'].std()
+            std_batch_calc = batch_data['Gloss_Mean'].std() if len(batch_data) > 1 else 0
+        else:
+            mr_ind = np.abs(np.diff(clean_ind_data['Online_Gloss_Top']))
+            std_ind_calc = np.mean(mr_ind) / 1.128 if len(mr_ind) > 0 else 0
+
+            mr_batch = np.abs(np.diff(batch_data['Gloss_Mean']))
+            std_batch_calc = np.mean(mr_batch) / 1.128 if len(mr_batch) > 0 else 0
+
+        lcl_ind = max(mean_ind - sigma_mult * std_ind_calc, line_lsl)
+        ucl_ind = min(mean_ind + sigma_mult * std_ind_calc, line_usl)
+
+        lcl_batch = max(mean_batch - sigma_mult * std_batch_calc, line_lsl)
+        ucl_batch = min(mean_batch + sigma_mult * std_batch_calc, line_usl)
 
         st.markdown("### 📋 Variation Comparison Matrix")
         col_m1, col_m2 = st.columns(2)
@@ -538,15 +552,15 @@ elif view_mode == "📊 Statistical Limits (Scope Comparison)":
             st.markdown("#### 🏭 Scope 1: Individual Coils (Line Spread)")
             st.caption("Reflects the actual coil-to-coil variation on the production line.")
             c1, c2 = st.columns(2)
-            c1.metric("Std Dev (σ)", f"{std_ind:.2f} GU")
+            c1.metric("Est. Std Dev (σ)", f"{std_ind_calc:.2f} GU")
             c2.metric("Calculated Control Span", f"{lcl_ind:.1f} - {ucl_ind:.1f}")
 
         with col_m2:
             st.markdown("#### 📦 Scope 2: Batch Averages (Process Shift)")
             st.caption("Reflects how the whole process average drifts from one lot to another.")
             c3, c4 = st.columns(2)
-            c3.metric("Std Dev (σ)", f"{std_batch:.2f} GU" if std_batch > 0 else "N/A", delta=f"{(std_ind - std_batch):.2f} tighter", delta_color="normal")
-            c4.metric("Calculated Control Span", f"{lcl_batch:.1f} - {ucl_batch:.1f}" if std_batch > 0 else "N/A")
+            c3.metric("Est. Std Dev (σ)", f"{std_batch_calc:.2f} GU" if std_batch_calc > 0 else "N/A", delta=f"{(std_ind_calc - std_batch_calc):.2f} tighter", delta_color="normal")
+            c4.metric("Calculated Control Span", f"{lcl_batch:.1f} - {ucl_batch:.1f}" if std_batch_calc > 0 else "N/A")
 
         st.markdown("---")
         st.subheader("📊 Distribution Overlap: Individual vs. Batch (Online Output)")
@@ -578,7 +592,7 @@ elif view_mode == "📊 Statistical Limits (Scope Comparison)":
         ax_dist.axvline(line_lsl, color='red', ls='-', lw=1.5, alpha=0.5, label=f'Line LSL/USL Limits')
         ax_dist.axvline(line_usl, color='red', ls='-', lw=1.5, alpha=0.5)
 
-        if std_batch > 0:
+        if std_batch_calc > 0:
             ax_dist.axvline(lcl_batch, color='#d35400', ls=':', lw=2, label='Batch LCL/UCL')
             ax_dist.axvline(ucl_batch, color='#d35400', ls=':', lw=2)
 
@@ -662,7 +676,6 @@ elif view_mode == "⚖️ Predictive Compensation & Targeting":
                 st.warning(f"**Internal Control Limit (ICL): {icl_lcl:.1f} - {icl_ucl:.1f}**")
                 st.caption("Production is only authorized if Lab testing falls within this tightened range (±1σ).")
 
-            # --- BIỂU ĐỒ MỚI: BIAS DISTRIBUTION SHIFT (BELL CURVES) ---
             st.markdown("---")
             st.subheader("🔔 Bias Distribution Shift (Lab vs. Line)")
             st.caption("Illustrates the systematic offset ('Absolute Bias') between the Assigned Value (Lab) and Achieved Value (Line).")
@@ -678,19 +691,16 @@ elif view_mode == "⚖️ Predictive Compensation & Targeting":
             x_max_bell = max(mean_lab_hist + 4*std_lab_hist, mean_line_hist + 4*std_line_hist)
             x_axis_bell = np.linspace(x_min_bell, x_max_bell, 300)
 
-            # Lab Curve (Assigned)
             y_lab_bell = stats.norm.pdf(x_axis_bell, mean_lab_hist, std_lab_hist)
             ax_bell.plot(x_axis_bell, y_lab_bell, color='#27ae60', lw=2.5, label=f'Lab Input (Assigned Value)\nMean: {mean_lab_hist:.1f}')
             ax_bell.fill_between(x_axis_bell, y_lab_bell, alpha=0.1, color='#27ae60')
             ax_bell.axvline(mean_lab_hist, color='#27ae60', ls='--', lw=1.5)
 
-            # Line Curve (Achieved)
             y_line_bell = stats.norm.pdf(x_axis_bell, mean_line_hist, std_line_hist)
             ax_bell.plot(x_axis_bell, y_line_bell, color='#c0392b', lw=2.5, label=f'Line Output (Achieved Value)\nMean: {mean_line_hist:.1f}')
             ax_bell.fill_between(x_axis_bell, y_line_bell, alpha=0.1, color='#c0392b')
             ax_bell.axvline(mean_line_hist, color='#c0392b', ls='--', lw=1.5)
 
-            # Draw Connecting Bias Line
             y_annotate = max(max(y_lab_bell), max(y_line_bell)) * 0.6
             ax_bell.annotate('', xy=(mean_lab_hist, y_annotate), xytext=(mean_line_hist, y_annotate),
                               arrowprops=dict(arrowstyle='<|-|>', color='#f39c12', lw=2.5, mutation_scale=15))
@@ -705,7 +715,6 @@ elif view_mode == "⚖️ Predictive Compensation & Targeting":
             st.pyplot(fig_bell)
             plt.close(fig_bell)
 
-            # --- BIỂU ĐỒ TRƯỚC ĐÓ: SYSTEMATIC DRIFT PATTERN ---
             st.markdown("---")
             st.subheader("📊 Systematic Drift Pattern (Lab vs. Line)")
             
