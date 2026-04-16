@@ -174,7 +174,6 @@ st.markdown("---")
 # ==========================================
 # ==========================================
 # ==========================================
-# ==========================================
 # VIEW 1: GLOSS TREND (SPC) - CLEAN ANNOTATION
 # ==========================================
 if view_mode == "✨ Gloss Trend (SPC)":
@@ -299,6 +298,83 @@ if view_mode == "✨ Gloss Trend (SPC)":
         if std_line > 0:
             n_line = len(dff_g['Online_Gloss_Top'])
             ax_dist.plot(x_curve, stats.norm
+                                 if std_line > 0:
+            n_line = len(dff_g['Online_Gloss_Top'])
+            ax_dist.plot(
+                x_curve,
+                stats.norm.pdf(x_curve, mean_line, std_line) * n_line * bin_width,
+                color='#ff7f0e',
+                lw=2.5
+            )
+
+        # Đặt giới hạn trục và thêm annotation
+        ax_dist.set_xlim(x_min, x_max)
+        fig_dist.canvas.draw()
+        y_top = ax_dist.get_ylim()[1]
+
+        # Mean, Min, Max Lab
+        ax_dist.axvline(mean_lab, color='#1f77b4', ls='-', lw=2)
+        ax_dist.text(mean_lab, y_top*0.95, f'Lab Mean\n{mean_lab:.1f}',
+                     fontsize=7, color='#1f77b4', ha='center', va='top')
+
+        ax_dist.axvline(min_lab, color='#1f77b4', ls=':', lw=1.5)
+        ax_dist.text(min_lab, y_top*0.85, f'Lab Min\n{min_lab:.1f}',
+                     fontsize=7, color='#1f77b4', ha='center', va='top')
+
+        ax_dist.axvline(max_lab, color='#1f77b4', ls=':', lw=1.5)
+        ax_dist.text(max_lab, y_top*0.85, f'Lab Max\n{max_lab:.1f}',
+                     fontsize=7, color='#1f77b4', ha='center', va='top')
+
+        # Mean, Min, Max Line
+        ax_dist.axvline(mean_line, color='#ff7f0e', ls='-', lw=2)
+        ax_dist.text(mean_line, y_top*0.75, f'Line Mean\n{mean_line:.1f}',
+                     fontsize=7, color='#ff7f0e', ha='center', va='top')
+
+        ax_dist.axvline(min_line, color='#ff7f0e', ls=':', lw=1.5)
+        ax_dist.text(min_line, y_top*0.65, f'Line Min\n{min_line:.1f}',
+                     fontsize=7, color='#ff7f0e', ha='center', va='top')
+
+        ax_dist.axvline(max_line, color='#ff7f0e', ls=':', lw=1.5)
+        ax_dist.text(max_line, y_top*0.65, f'Line Max\n{max_line:.1f}',
+                     fontsize=7, color='#ff7f0e', ha='center', va='top')
+
+        # Spec Limits
+        ax_dist.axvline(lsl_val, color='red', ls='-', lw=2)
+        ax_dist.axvline(usl_val, color='red', ls='-', lw=2)
+        ax_dist.text(lsl_val, y_top*0.50, f'LSL\n{lsl_val}',
+                     fontsize=7.5, color='red', ha='center', va='top', fontweight='bold')
+        ax_dist.text(usl_val, y_top*0.50, f'USL\n{usl_val}',
+                     fontsize=7.5, color='red', ha='center', va='top', fontweight='bold')
+
+        # Tô vùng NG ngoài Spec
+        ax_dist.axvspan(x_min, lsl_val, alpha=0.07, color='red')
+        ax_dist.axvspan(usl_val, x_max, alpha=0.07, color='red')
+
+        ax_dist.set_xlabel("Gloss Value (GU)")
+        ax_dist.set_ylabel("Number of Coils")
+        ax_dist.legend(fontsize=7, loc='upper right', ncol=2)
+        fig_dist.tight_layout()
+        st.pyplot(fig_dist)
+        plt.close(fig_dist)
+
+    # ── TAB SELECTION ──────────────────────────────────────────────────────────
+    list_ma_son_tab2 = sorted(dff['Ma_Son'].dropna().unique().tolist())
+    if list_ma_son_tab2:
+        tab_top_risk, tab_custom = st.tabs(["🚨 Top At-Risk Codes", "🔍 Manual Analysis"])
+        with tab_top_risk:
+            if not risk_alert.empty:
+                top_15 = risk_alert['Paint Code'].head(15).tolist()
+                for i, code in enumerate(top_15):
+                    st.markdown(f"#### #{i+1}: `{code}`")
+                    render_spc_analysis(code, dff, f"risk_{i}")
+                    st.markdown("---")
+            else:
+                st.success("✅ All processes are stable.")
+
+        with tab_custom:
+            sel_ma_son = st.selectbox("🎯 Select Paint Code:", list_ma_son_tab2, key="manual_sel")
+            render_spc_analysis(sel_ma_son, dff, "manual")
+
 # ==========================================
 # VIEW 2: COLOR SHIFT ANALYSIS
 # ==========================================
