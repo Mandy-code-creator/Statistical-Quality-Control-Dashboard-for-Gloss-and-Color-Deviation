@@ -632,13 +632,13 @@ elif view_mode == "⚖️ Paired Difference (Lab vs Line)":
             centered_lab_target = center_target - bias
 
             # 4. Design Limits (Mill vs Release)
-            # MILL RANGE: Internal strict control (+/- 2 Sigma)
-            mill_lcl = centered_lab_target - (2 * std_lab)
-            mill_ucl = centered_lab_target + (2 * std_lab)
+            # MILL RANGE: Internal strict control (+/- 1 Sigma)
+            mill_lcl = centered_lab_target - (1 * std_lab)
+            mill_ucl = centered_lab_target + (1 * std_lab)
 
-            # RELEASE RANGE: QA limits (+/- 3 Sigma, CLAMPED to Official Specs)
-            release_lcl_raw = centered_lab_target - (3 * std_lab)
-            release_ucl_raw = centered_lab_target + (3 * std_lab)
+            # RELEASE RANGE: QA limits (+/- 2 Sigma, CLAMPED to Official Specs)
+            release_lcl_raw = centered_lab_target - (2 * std_lab)
+            release_ucl_raw = centered_lab_target + (2 * std_lab)
             
             release_lcl = max(release_lcl_raw, official_lsl)
             release_ucl = min(release_ucl_raw, official_usl)
@@ -658,14 +658,14 @@ elif view_mode == "⚖️ Paired Difference (Lab vs Line)":
 
             with col_mill:
                 st.markdown("#### ⚙️ Mill Range (Internal)")
-                st.caption("Strict production window (±2σ). Ensures high Cpk.")
+                st.caption("Strict production window (±1σ). Ensures high Cpk.")
                 st.metric("Mill LCL (Lower)", f"{mill_lcl:.1f} GU")
                 st.metric("Mill UCL (Upper)", f"{mill_ucl:.1f} GU")
                 st.metric("Mill Span", f"{(mill_ucl - mill_lcl):.1f} GU", delta_color="off")
 
             with col_release:
                 st.markdown("#### 📦 Release Range (QA)")
-                st.caption("Final shipment limits (±3σ). Clamped to Customer Spec.")
+                st.caption("Final shipment limits (±2σ). Clamped to Customer Spec.")
                 st.metric("Release LCL", f"{release_lcl:.1f} GU", delta=f"Official LSL: {official_lsl}", delta_color="off")
                 st.metric("Release UCL", f"{release_ucl:.1f} GU", delta=f"Official USL: {official_usl}", delta_color="off")
                 st.metric("Release Span", f"{(release_ucl - release_lcl):.1f} GU", delta_color="off")
