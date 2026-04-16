@@ -276,14 +276,49 @@ if view_mode == "✨ Gloss Trend (SPC)":
         st.pyplot(fig_trend)
         plt.close(fig_trend)
 
-        # Distribution Chart
-        st.write("**Gloss Distribution & Normal Curve**")
-        fig_dist, ax_dist = plt.subplots(figsize=(10, 4))
-        sns.histplot(dff_g['Gloss_Lab'], color='#1f77b4', kde=True, stat="density", alpha=0.3, label='Lab', ax=ax_dist)
-        sns.histplot(dff_g['Online_Gloss_Top'], color='#ff7f0e', kde=True, stat="density", alpha=0.3, label='Line', ax=ax_dist)
-        ax_dist.axvline(lsl_val, color='red', ls='-', lw=1.5)
-        ax_dist.axvline(usl_val, color='red', ls='-', lw=1.5)
-        ax_dist.legend()
+        # ── BIỂU ĐỒ PHÂN PHỐI & NORMAL CURVE (CLEANED) ────────────────────────
+        st.write("**Gloss Distribution & Normal Curve Comparison**")
+        fig_dist, ax_dist = plt.subplots(figsize=(12, 6))
+        
+        # 1. Thống kê dữ liệu
+        mean_lab, std_lab = dff_g['Gloss_Lab'].mean(), dff_g['Gloss_Lab'].std()
+        mean_line, std_line = dff_g['Online_Gloss_Top'].mean(), dff_g['Online_Gloss_Top'].std()
+        all_vals = pd.concat([dff_g['Gloss_Lab'], dff_g['Online_Gloss_Top']])
+        
+        # 2. Histogram (Density scale)
+        sns.histplot(dff_g['Gloss_Lab'], color='#1f77b4', stat="density", alpha=0.1, label='Lab Histogram', ax=ax_dist)
+        sns.histplot(dff_g['Online_Gloss_Top'], color='#ff7f0e', stat="density", alpha=0.1, label='Line Histogram', ax=ax_dist)
+        
+        # 3. Vẽ Normal Curves chuẩn toán học
+        x_min_plot, x_max_plot = all_vals.min() - 4, all_vals.max() + 4
+        x_axis_dist = np.linspace(x_min_plot, x_max_plot, 250)
+        
+        if std_lab > 0:
+            ax_dist.plot(x_axis_dist, stats.norm.pdf(x_axis_dist, mean_lab, std_lab), color='#1f77b4', lw=2.5, label='Lab Normal Curve')
+        if std_line > 0:
+            ax_dist.plot(x_axis_dist, stats.norm.pdf(x_axis_dist, mean_line, std_line), color='#ff7f0e', lw=2.5, label='Line Normal Curve')
+
+        # 4. Giới hạn Spec (Đường đỏ dày)
+        ax_dist.axvline(lsl_val, color='red', ls='-', lw=2.5)
+        ax_dist.axvline(usl_val, color='red', ls='-', lw=2.5)
+
+        # 5. Annotations - Sắp xếp lại để không chồng chéo và không đè lề trái
+        y_lim_max = ax_dist.get_ylim()[1]
+        
+        # Đẩy nhãn LSL/USL lên cao, xoay dọc để tiết kiệm diện tích
+        ax_dist.text(lsl_val, y_lim_max * 0.95, f' LSL: {lsl_val}', color='red', fontweight='bold', ha='left', va='top', rotation=90)
+        ax_dist.text(usl_val, y_lim_max * 0.95, f' USL: {usl_val}', color='red', fontweight='bold', ha='left', va='top', rotation=90)
+
+        # Hiển thị Mean ở giữa biểu đồ
+        ax_dist.text(mean_lab, y_lim_max * 0.1, f'μ Lab: {mean_lab:.1f}', color='#1f77b4', fontweight='bold', ha='center', bbox=dict(facecolor='white', alpha=0.6, edgecolor='none'))
+        ax_dist.text(mean_line, y_lim_max * 0.2, f'μ Line: {mean_line:.1f}', color='#ff7f0e', fontweight='bold', ha='center', bbox=dict(facecolor='white', alpha=0.6, edgecolor='none'))
+
+        # 6. Định dạng trục X thoáng đãng
+        ax_dist.set_xlim(x_min_plot, x_max_plot)
+        ax_dist.set_xlabel("Gloss Value (GU)")
+        ax_dist.set_ylabel("Probability Density")
+        ax_dist.legend(fontsize=8, loc='upper right')
+        
         st.pyplot(fig_dist)
         plt.close(fig_dist)
 
