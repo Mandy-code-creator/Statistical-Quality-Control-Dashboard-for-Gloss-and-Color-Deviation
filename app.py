@@ -173,14 +173,15 @@ st.markdown("---")
 
 # ==========================================
 # ==========================================
-# VIEW 1: GLOSS TREND (SPC) - UPDATED COLORS
+# ==========================================
+# VIEW 1: GLOSS TREND (SPC) - FULL REVISED
 # ==========================================
 if view_mode == "✨ Gloss Trend (SPC)":
-    st.info("💡 SPC Analysis: Monitor the actual Gloss trend (Lab vs Line) across different production batches to detect process shifts.")
+    st.info("💡 SPC Analysis: Monitor the actual Gloss trend (Lab vs Line) across raw production sequence.")
     
     risk_alert = pd.DataFrame()
     with st.expander("🚨 Early Warning Radar (Click to view at-risk codes)", expanded=True):
-        st.caption("This table automatically scans data to identify paint codes (≥ 5 Batches produced) that are Out of Spec (NG) or approaching the control limits (Margin ≤ 1.0 GU).")
+        st.caption("This table scans paint codes (≥ 5 Batches) that are Out of Spec (NG) or approaching limits.")
         df_valid_radar = dff.dropna(subset=['Online_Gloss_Top', 'Line_LSL', 'Line_USL', 'Gloss_Lab', 'Gloss_LSL', 'Gloss_USL', 'Batch_Lot'])
         
         if not df_valid_radar.empty:
@@ -224,142 +225,84 @@ if view_mode == "✨ Gloss Trend (SPC)":
                         if '🔴' in str(val): return 'color: white; background-color: #e74c3c; font-weight: bold;'
                         if '🟠' in str(val): return 'color: white; background-color: #f39c12; font-weight: bold;'
                         return ''
-                    def highlight_source(val):
-                        if 'Lab' in str(val) or 'Line' in str(val): return 'font-weight: bold; color: #d35400;'
-                        return ''
-
                     st.dataframe(
                         risk_alert.style.format({
                             'Lab Min': '{:.1f}', 'Lab Max': '{:.1f}', 'Line Min': '{:.1f}', 'Line Max': '{:.1f}'
-                        }).map(highlight_status, subset=['Status']).map(highlight_source, subset=['Issue Source']),
+                        }).map(highlight_status, subset=['Status']),
                         use_container_width=True, hide_index=True
                     )
                 else:
-                    st.success("🎉 No paint codes (with ≥ 5 batches) are out of limits or critically near limits at this time!")
-            else:
-                st.info("Not enough data. No paint codes have reached the minimum requirement of 5 batches.")
+                    st.success("🎉 No paint codes are out of limits at this time!")
 
     st.markdown("---")
     
     def render_spc_analysis(paint_code, data_source, key_suffix):
-        # KHÔI PHỤC LOGIC: Không dùng Groupby Batch để giữ đường zigzag từng cuộn
         dff_g = data_source[data_source['Ma_Son'] == paint_code].copy()
         dff_g = dff_g.dropna(subset=['Gloss_LSL', 'Gloss_USL', 'Gloss_Lab', 'Online_Gloss_Top'])
-        dff_g = dff_g[(dff_g['Gloss_LSL'] > 0) & (dff_g['Gloss_USL'] > 0) & (dff_g['Gloss_Lab'] > 0) & (dff_g['Online_Gloss_Top'] > 0)]
         
         if len(dff_g) <= 1:
-            st.warning(f"⚠️ Insufficient data for {paint_code} (needs at least 2 valid coils) for SPC analysis.")
+            st.warning(f"⚠️ Insufficient data for {paint_code}")
             return
 
         lsl_val, usl_val = dff_g['Gloss_LSL'].iloc[0], dff_g['Gloss_USL'].iloc[0]
         line_lsl_val, line_usl_val = dff_g['Line_LSL'].iloc[0], dff_g['Line_USL'].iloc[0]
-        mean_lab, std_lab = dff_g['Gloss_Lab'].mean(), dff_g['Gloss_Lab'].std()
-        mean_line, std_line = dff_g['Online_Gloss_Top'].mean(), dff_g['Online_Gloss_Top'].std()
-        min_date, max_date = dff_g['Ngay_SX'].min(), dff_g['Ngay_SX'].max()
-        batch_count, coil_count = dff_g['Batch_Lot'].nunique(), len(dff_g)
         
-        st.success(f"📅 **Timeframe:** `{min_date}` to `{max_date}` | **Volume:** `{batch_count}` Batches (`{coil_count}` Coils).")
+        st.success(f"📅 **Timeframe:** `{dff_g['Ngay_SX'].min()}` to `{dff_g['Ngay_SX'].max()}` | **Volume:** {dff_g['Batch_Lot'].nunique()} Batches ({len(dff_g)} Coils).")
 
-        # Vẽ biểu đồ xu hướng (Zigzag nguyên bản)
         fig_trend, ax_trend = plt.subplots(figsize=(14, 4.5))
         
-        # MÀU MỚI TƯƠNG PHẢN CAO
-        C_LAB = "#1A5276"    # Dark Blue
-        C_LINE = "#D35400"   # Dark Orange
-        C_SPEC = "#C0392B"   # Deep Red
-        C_L_LIMIT = "#F39C12" # Amber (Line Limits)
-
+        # 1. RAW DATA (ZIGZAG)
         x_axis = range(len(dff_g))
-        x_labels = dff_g['Batch_Lot'].astype(str)
-
-        ax_trend.plot(x_axis, dff_g['Gloss_Lab'], marker='o', color=C_LAB, lw=1.5, label='Lab Gloss (Raw)')
-        ax_trend.plot(x_axis, dff_g['Online_Gloss_Top'], marker='s', color=C_LINE, lw=1.5, label='Line Gloss (Zigzag)')
+        ax_trend.plot(x_axis, dff_g['Gloss_Lab'], marker='o', color='#1f77b4', lw=1.5, label='Lab Gloss')
+        ax_trend.plot(x_axis, dff_g['Online_Gloss_Top'], marker='s', color='#ff7f0e', lw=1.5, label='Line Gloss')
         
-        # Giới hạn Spec khách hàng (Đỏ đậm, nét liền)
-        ax_trend.axhline(lsl_val, color=C_SPEC, ls='-', lw=2.5, label=f'Lab LSL ({lsl_val:.1f})')
-        ax_trend.axhline(usl_val, color=C_SPEC, ls='-', lw=2.5, label=f'Lab USL ({usl_val:.1f})')
+        # 2. LAB LIMITS - RED
+        ax_trend.axhline(lsl_val, color='red', ls='-', lw=2, label=f'Lab LSL ({lsl_val})')
+        ax_trend.axhline(usl_val, color='red', ls='-', lw=2, label=f'Lab USL ({usl_val})')
         
-        # Giới hạn Line (Vàng hổ phách, nét đứt)
-        ax_trend.axhline(line_lsl_val, color=C_L_LIMIT, ls='--', lw=2, alpha=0.8, label=f'Line LSL ({line_lsl_val:.1f})')
-        ax_trend.axhline(line_usl_val, color=C_L_LIMIT, ls='--', lw=2, alpha=0.8, label=f'Line USL ({line_usl_val:.1f})')
+        # 3. LINE LIMITS - GREEN (Updated as requested)
+        ax_trend.axhline(line_lsl_val, color='green', ls='--', lw=2, label=f'Line LSL ({line_lsl_val})')
+        ax_trend.axhline(line_usl_val, color='green', ls='--', lw=2, label=f'Line USL ({line_usl_val})')
         
-        ax_trend.set_xlabel("Production Sequence (Batch Lot)")
-        ax_trend.set_ylabel("Gloss (GU)")
-        
-        # Format X-axis ticks
-        plt.xticks(x_axis, x_labels, rotation=45, ha='right')
+        # X-Axis Formatting
+        plt.xticks(x_axis, dff_g['Batch_Lot'].astype(str), rotation=45, ha='right')
         if len(x_axis) > 20:
             step = max(1, len(x_axis) // 15)
             for i, label in enumerate(ax_trend.xaxis.get_ticklabels()):
                 if i % step != 0: label.set_visible(False)
                 
-        plt.legend(bbox_to_anchor=(1.01, 1), loc='upper left', fontsize='small')
+        ax_trend.set_ylabel("Gloss (GU)")
+        ax_trend.legend(bbox_to_anchor=(1.01, 1), loc='upper left', fontsize='small')
         st.pyplot(fig_trend)
         plt.close(fig_trend)
 
-        # Thông báo Out of Spec
-        ng_coils = dff_g[
-            (dff_g['Gloss_Lab'] < dff_g['Gloss_LSL']) | (dff_g['Gloss_Lab'] > dff_g['Gloss_USL']) | 
-            (dff_g['Online_Gloss_Top'] < dff_g['Line_LSL']) | (dff_g['Online_Gloss_Top'] > dff_g['Line_USL'])
-        ].copy()
-        
-        if not ng_coils.empty:
-            st.error(f"🚨 Out of Spec Detected ({len(ng_coils)} Coils)")
-            def get_coil_error(row):
-                errs = []
-                if row['Gloss_Lab'] < row['Gloss_LSL']: errs.append(f"Lab Low (<{row['Gloss_LSL']:.1f})")
-                elif row['Gloss_Lab'] > row['Gloss_USL']: errs.append(f"Lab High (>{row['Gloss_USL']:.1f})")
-                if row['Online_Gloss_Top'] < row['Line_LSL']: errs.append(f"Line Low (<{row['Line_LSL']:.1f})")
-                elif row['Online_Gloss_Top'] > row['Line_USL']: errs.append(f"Line High (>{row['Line_USL']:.1f})")
-                return " + ".join(errs)
-                
-            ng_coils['Error Details'] = ng_coils.apply(get_coil_error, axis=1)
-            st.dataframe(ng_coils[['Batch_Lot', 'Coil_No', 'Gloss_Lab', 'Online_Gloss_Top', 'Error Details']], use_container_width=True, hide_index=True)
-
-        st.write("**Gloss Distribution (Histogram & Normal Curve)**")
-        fig_dist, ax_dist = plt.subplots(figsize=(10, 5)) 
-        sns.histplot(dff_g['Gloss_Lab'], color=C_LAB, alpha=0.3, kde=False, stat="density", label='Lab Distribution', ax=ax_dist)
-        sns.histplot(dff_g['Online_Gloss_Top'], color=C_LINE, alpha=0.3, kde=False, stat="density", label='Line Distribution', ax=ax_dist)
-        
-        # Thêm đường cong chuẩn
-        x_plot = np.linspace(min(dff_g['Gloss_Lab'].min(), dff_g['Online_Gloss_Top'].min())-2, max(dff_g['Gloss_Lab'].max(), dff_g['Online_Gloss_Top'].max())+2, 200)
-        ax_dist.plot(x_plot, stats.norm.pdf(x_plot, mean_lab, std_lab), color=C_LAB, lw=2, label='Lab Normal Curve')
-        ax_dist.plot(x_plot, stats.norm.pdf(x_plot, mean_line, std_line), color=C_LINE, lw=2, label='Line Normal Curve')
-
-        ax_dist.axvline(lsl_val, color=C_SPEC, ls='-', lw=2)
-        ax_dist.axvline(usl_val, color=C_SPEC, ls='-', lw=2)
-        ax_dist.legend(fontsize='small')
+        # Distribution Chart
+        st.write("**Gloss Distribution & Normal Curve**")
+        fig_dist, ax_dist = plt.subplots(figsize=(10, 4))
+        sns.histplot(dff_g['Gloss_Lab'], color='#1f77b4', kde=True, stat="density", alpha=0.3, label='Lab', ax=ax_dist)
+        sns.histplot(dff_g['Online_Gloss_Top'], color='#ff7f0e', kde=True, stat="density", alpha=0.3, label='Line', ax=ax_dist)
+        ax_dist.axvline(lsl_val, color='red', ls='-', lw=1.5)
+        ax_dist.axvline(usl_val, color='red', ls='-', lw=1.5)
+        ax_dist.legend()
         st.pyplot(fig_dist)
         plt.close(fig_dist)
 
     list_ma_son_tab2 = sorted(dff['Ma_Son'].dropna().unique().tolist())
     if list_ma_son_tab2:
-        tab_top_risk, tab_custom = st.tabs(["🚨 Auto-Analysis: Top 15 At-Risk Codes", "🔍 Manual Search & Analysis"])
+        tab_top_risk, tab_custom = st.tabs(["🚨 Top At-Risk Codes", "🔍 Manual Analysis"])
         with tab_top_risk:
-            st.markdown("### Top 15 Paint Codes Approaching or Exceeding Limits")
             if not risk_alert.empty:
-                top_15_codes = risk_alert['Paint Code'].head(15).tolist()
-                for i, code in enumerate(top_15_codes):
-                    st.markdown(f"#### #{i+1}: Paint Code `{code}`")
-                    render_spc_analysis(code, dff, key_suffix=f"top15_{i}")
+                top_15 = risk_alert['Paint Code'].head(15).tolist()
+                for i, code in enumerate(top_15):
+                    st.markdown(f"#### #{i+1}: `{code}`")
+                    render_spc_analysis(code, dff, f"risk_{i}")
                     st.markdown("---")
             else:
-                st.success("✅ No at-risk codes found! All processes are highly stable.")
+                st.success("✅ All processes are stable.")
 
         with tab_custom:
-            st.markdown("### Manual Paint Code Analysis")
-            col_search1, col_search2 = st.columns([1, 2])
-            with col_search1:
-                search_keyword = st.text_input("🔍 Quick Search Paint Code:", "", placeholder="Type code...").upper()
-            filtered_list = [code for code in list_ma_son_tab2 if search_keyword in str(code).upper()]
-            with col_search2:
-                if filtered_list:
-                    sel_ma_son_tab2 = st.selectbox(f"🎯 Select Paint Code ({len(filtered_list)} found):", filtered_list, key="custom_select")
-                else:
-                    st.warning(f"❌ No paint code found")
-                    st.stop()
-            st.markdown("---")
-            render_spc_analysis(sel_ma_son_tab2, dff, key_suffix="custom")
+            sel_ma_son = st.selectbox("🎯 Select Paint Code:", list_ma_son_tab2, key="manual_sel")
+            render_spc_analysis(sel_ma_son, dff, "manual")
 # ==========================================
 # VIEW 2: COLOR SHIFT ANALYSIS
 # ==========================================
