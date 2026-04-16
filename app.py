@@ -86,13 +86,11 @@ if df.empty: st.stop()
 
 # --- 3. SIDEBAR: NAVIGATION & FILTERS ---
 with st.sidebar:
-    # REFRESH DATA BUTTON
     if st.button("🔄 Refresh Data", use_container_width=True, type="primary"):
         st.cache_data.clear() 
         st.rerun()            
         
     st.markdown("---")
-    
     st.markdown("### 📊 View Mode")
     view_mode = st.radio(
         "Select Analysis View:",
@@ -100,7 +98,7 @@ with st.sidebar:
             "✨ Gloss Trend (SPC)",
             "🎨 Color Shift Analysis",
             "📊 Statistical Limits (Scope Comparison)",
-            "⚖️ Paired Difference (Lab vs Line)", 
+            "⚖️ Predictive Compensation & Targeting", 
             "🤝 Supplier Capability",
             "📋 Master Summary Report"
         ],
@@ -136,7 +134,6 @@ with st.sidebar:
 # ==============================================================================
 # APPLY LIMITS & CALC PASS/FAIL
 # ==============================================================================
-# Constant standard offset applied silently in background for global tracking
 STANDARD_LINE_OFFSET = 2.0 
 df['Line_LSL'] = df['Gloss_LSL'] - STANDARD_LINE_OFFSET
 df['Line_USL'] = df['Gloss_USL'] + STANDARD_LINE_OFFSET
@@ -159,9 +156,6 @@ df['Gloss_Pass'] = df['Lab_Pass'] & df['Line_Pass']
 df['Color_Pass'] = df['ΔE'] <= 1.0
 df['Final_Status'] = np.where(df['Gloss_Pass'] & df['Color_Pass'], '✅ PASS', '❌ FAIL/NG')
 
-# ==============================================================================
-# APPLY FILTERS TO DFF
-# ==============================================================================
 dff = df.copy()
 if len(date_range) == 2:
     dff = dff[(dff['Ngay_SX'] >= date_range[0]) & (dff['Ngay_SX'] <= date_range[1])]
@@ -171,7 +165,7 @@ if sel_col != 'All': dff = dff[dff['Color_Group'] == sel_col]
 
 with st.sidebar:
     st.markdown("---")
-    st.caption(f"📦 Showing: {len(dff)} coils (Invalid codes filtered out)")
+    st.caption(f"📦 Showing: {len(dff)} coils")
 
 # --- 4. DISPLAY VIEWS ---
 st.title(view_mode)
@@ -205,10 +199,8 @@ if view_mode == "✨ Gloss Trend (SPC)":
                     lab_ng = row['Lab_Min'] < row['Lab_LSL'] or row['Lab_Max'] > row['Lab_USL']
                     line_near = (row['Line_Min'] - row['Line_LSL'] <= 1.0) or (row['Line_USL'] - row['Line_Max'] <= 1.0)
                     lab_near = (row['Lab_Min'] - row['Lab_LSL'] <= 1.0) or (row['Lab_USL'] - row['Lab_Max'] <= 1.0)
-                    
                     source = []
                     status = '🟢 Safe'
-                    
                     if line_ng or lab_ng:
                         status = '🔴 Out of Limit (NG)'
                         if lab_ng: source.append("Lab")
@@ -515,7 +507,6 @@ elif view_mode == "📊 Statistical Limits (Scope Comparison)":
         clean_ind_data = dff_spc[(dff_spc['Gloss_Lab'] >= lower_limit) & (dff_spc['Gloss_Lab'] <= upper_limit)]
         outliers = dff_spc[(dff_spc['Gloss_Lab'] < lower_limit) | (dff_spc['Gloss_Lab'] > upper_limit)]
         
-        # --- TẠO DỮ LIỆU TRUNG BÌNH BATCH ---
         batch_data = clean_ind_data.groupby('Batch_Lot').agg(
             Gloss_Mean=('Gloss_Lab', 'mean'),
             Coil_Count=('Gloss_Lab', 'count')
@@ -526,25 +517,21 @@ elif view_mode == "📊 Statistical Limits (Scope Comparison)":
         st.markdown("---")
         st.subheader("⚙️ Control Scope Settings")
         
-        # SỬA ĐỔI 1: THAY SLIDER BẰNG NUMBER INPUT DỄ NHẬP LIỆU CHÍNH XÁC HƠN
         sigma_mult = st.number_input("Strictness Multiplier (Sigma)", min_value=1.00, max_value=4.00, value=2.00, step=0.10, format="%.2f", help="Input the standard deviation multiplier. Example: 2.0 or 3.0")
         
         lsl_off = dff_spc['Gloss_LSL'].iloc[0]
         usl_off = dff_spc['Gloss_USL'].iloc[0]
 
-        # --- 1. SCOPE: INDIVIDUAL COILS ---
         mean_ind = clean_ind_data['Gloss_Lab'].mean()
         std_ind = clean_ind_data['Gloss_Lab'].std()
         lcl_ind = max(mean_ind - sigma_mult * std_ind, lsl_off)
         ucl_ind = min(mean_ind + sigma_mult * std_ind, usl_off)
 
-        # --- 2. SCOPE: BATCH AVERAGES ---
         mean_batch = batch_data['Gloss_Mean'].mean()
         std_batch = batch_data['Gloss_Mean'].std() if len(batch_data) > 1 else 0
         lcl_batch = max(mean_batch - sigma_mult * std_batch, lsl_off)
         ucl_batch = min(mean_batch + sigma_mult * std_batch, usl_off)
 
-        # --- DISPLAY COMPARISON METRICS ---
         st.markdown("### 📋 Variation Comparison Matrix")
         col_m1, col_m2 = st.columns(2)
         
@@ -562,21 +549,17 @@ elif view_mode == "📊 Statistical Limits (Scope Comparison)":
             c3.metric("Std Dev (σ)", f"{std_batch:.2f} GU" if std_batch > 0 else "N/A", delta=f"{(std_ind - std_batch):.2f} tighter", delta_color="normal")
             c4.metric("Calculated Control Span", f"{lcl_batch:.1f} - {ucl_batch:.1f}" if std_batch > 0 else "N/A")
 
-        # --- VISUALIZATION: DISTRIBUTIONS OVERLAP ---
         st.markdown("---")
         st.subheader("📊 Distribution Overlap: Individual vs. Batch")
         
         fig_dist, ax_dist = plt.subplots(figsize=(14, 6))
         
-        # Histograms
         sns.histplot(clean_ind_data['Gloss_Lab'], color='#3498db', alpha=0.3, label='Individual Coils Distribution', stat="density", ax=ax_dist)
         if len(batch_data) > 1:
             sns.histplot(batch_data['Gloss_Mean'], color='#e67e22', alpha=0.6, label='Batch Averages Distribution', stat="density", ax=ax_dist)
         
-        # SỬA ĐỔI 2: THÊM CÁC NHÃN (ANNOTATIONS) TRỰC TIẾP LÊN BIỂU ĐỒ
         y_max = ax_dist.get_ylim()[1]
         
-        # Data Min/Max
         val_min = clean_ind_data['Gloss_Lab'].min()
         val_max = clean_ind_data['Gloss_Lab'].max()
         ax_dist.axvline(val_min, color='gray', ls=':', lw=1.5)
@@ -584,22 +567,18 @@ elif view_mode == "📊 Statistical Limits (Scope Comparison)":
         ax_dist.axvline(val_max, color='gray', ls=':', lw=1.5)
         ax_dist.text(val_max, y_max * 0.5, f'Max\n{val_max:.1f}', color='gray', ha='center', va='top', fontsize=9, bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', pad=1))
 
-        # Mean (Trung tâm)
         ax_dist.axvline(mean_ind, color='black', ls='-', lw=2)
         ax_dist.text(mean_ind, y_max * 0.95, f'Mean\n{mean_ind:.1f}', color='black', ha='center', va='top', fontweight='bold', bbox=dict(facecolor='white', alpha=0.8, edgecolor='none', pad=2))
 
-        # Individual Limits (Đường giới hạn)
         ax_dist.axvline(lcl_ind, color='#2980b9', ls='--', lw=2.5, label='Ind LCL')
         ax_dist.text(lcl_ind, y_max * 0.8, f'LCL\n{lcl_ind:.1f}', color='#2980b9', ha='center', va='top', fontweight='bold', bbox=dict(facecolor='white', alpha=0.8, edgecolor='none', pad=2))
         
         ax_dist.axvline(ucl_ind, color='#2980b9', ls='--', lw=2.5, label='Ind UCL')
         ax_dist.text(ucl_ind, y_max * 0.8, f'UCL\n{ucl_ind:.1f}', color='#2980b9', ha='center', va='top', fontweight='bold', bbox=dict(facecolor='white', alpha=0.8, edgecolor='none', pad=2))
 
-        # Official Spec Limits
         ax_dist.axvline(lsl_off, color='red', ls='-', lw=1.5, alpha=0.5, label='Official Spec LSL/USL')
         ax_dist.axvline(usl_off, color='red', ls='-', lw=1.5, alpha=0.5)
 
-        # Optional: Batch limits visual lines only
         if std_batch > 0:
             ax_dist.axvline(lcl_batch, color='#d35400', ls=':', lw=2, label='Batch LCL/UCL')
             ax_dist.axvline(ucl_batch, color='#d35400', ls=':', lw=2)
@@ -615,85 +594,87 @@ elif view_mode == "📊 Statistical Limits (Scope Comparison)":
         st.warning("⚠️ Insufficient data (needs at least 5 coils).")
 
 # ==========================================
-# ==========================================
 # VIEW 4: PREDICTIVE COMPENSATION MODEL
 # ==========================================
-elif view_mode == "⚖️ Paired Difference (Lab vs Line)":
+elif view_mode == "⚖️ Predictive Compensation & Targeting":
     st.header("⚖️ Predictive Compensation & Lab Optimization")
-    st.info("Logic: App learns the historical bias (Loss) per paint code to calculate the 'Theoretical Lab Input' required to hit the 25.0 GU line target.")
+    st.info("Logic: App learns the historical bias (Loss) per paint code to calculate the 'Theoretical Lab Input' required to hit the center of the specification limits on the line.")
 
     ma_son_list = sorted(dff['Ma_Son'].dropna().unique().tolist())
     if ma_son_list:
         sel_code = st.selectbox("🎯 Select Paint Code to Optimize:", ma_son_list)
 
-        # Lọc dữ liệu theo mã sơn đã chọn
-        dff_model = dff[dff['Ma_Son'] == sel_code].dropna(subset=['Online_Gloss_Top', 'Gloss_Lab']).sort_values('Ngay_SX')
+        dff_model = dff[dff['Ma_Son'] == sel_code].dropna(subset=['Online_Gloss_Top', 'Gloss_Lab']).sort_values(['Ngay_SX', 'Coil_No'])
 
         if len(dff_model) >= 5:
-            # 1. Tính toán sai lệch thực tế (Loss/Bias)
-            # Loss = Gloss_line - Gloss_lab
-            dff_model['Loss'] = dff_model['Online_Gloss_Top'] - dff_model['Gloss_Lab']
+            # FIX 1: Group by Batch to prevent zigzag chart
+            batch_analysis = dff_model.groupby('Batch_Lot').agg({
+                'Ngay_SX': 'min',
+                'Gloss_Lab': 'first', 
+                'Online_Gloss_Top': 'mean',
+                'Gloss_LSL': 'first',
+                'Gloss_USL': 'first'
+            }).sort_values('Ngay_SX').reset_index()
+
+            batch_analysis['Loss'] = batch_analysis['Online_Gloss_Top'] - batch_analysis['Gloss_Lab']
             
-            mean_loss = dff_model['Loss'].mean()
-            std_loss = dff_model['Loss'].std()
+            mean_loss = batch_analysis['Loss'].mean()
+            std_loss = batch_analysis['Loss'].std() if batch_analysis['Loss'].std() > 0 else 0.5
             
-            # 2. Xác định mục tiêu (Mandy yêu cầu 25.0)
-            target_line = 25.0
+            # FIX 2: Dynamic target based on Official Specs
+            official_lsl = batch_analysis['Gloss_LSL'].iloc[0]
+            official_usl = batch_analysis['Gloss_USL'].iloc[0]
+            target_line = (official_lsl + official_usl) / 2.0
             
-            # 3. Tính toán GIÁ TRỊ LÝ THUYẾT cho đầu vào Lab
-            # Gloss_lab_optimal = Target - Mean_Loss
             optimal_lab_input = target_line - mean_loss
             
-            # 4. Thiết lập ICL (Internal Control Limits) +/- 1 sigma
             icl_lcl = optimal_lab_input - (1 * std_loss)
             icl_ucl = optimal_lab_input + (1 * std_loss)
 
-            # --- GIAO DIỆN HIỂN THỊ ---
             st.markdown(f"### 🚀 Optimization Guidance for `{sel_code}`")
             
             col_target, col_guidance = st.columns([1, 2])
             
             with col_target:
-                st.metric("Line Target", f"{target_line} GU")
+                st.metric("Center Line Target", f"{target_line:.1f} GU")
                 st.metric("Historical Process Bias", f"{mean_loss:+.2f} GU", 
                           help="Average drift caused by the production line for this specific paint.")
 
             with col_guidance:
                 st.success(f"#### Recommended Lab Input: **{optimal_lab_input:.1f} GU**")
-                st.write(f"To ensure the final product hits **{target_line} GU** on the line, the laboratory should aim for a pre-production mix of **{optimal_lab_input:.1f} GU** to compensate for the process drift.")
+                st.write(f"To ensure the final product hits the median target of **{target_line:.1f} GU** on the line, the laboratory should aim for a pre-production mix of **{optimal_lab_input:.1f} GU** to compensate for the process drift.")
                 
                 st.warning(f"**Internal Control Limit (ICL): {icl_lcl:.1f} - {icl_ucl:.1f}**")
-                st.caption("Production is only authorized if Lab testing falls within this tightened range.")
+                st.caption("Production is only authorized if Lab testing falls within this tightened range (±1σ).")
 
-            # --- BIỂU ĐỒ PHÂN TÍCH QUY LUẬT ---
             st.markdown("---")
             st.subheader("📊 Systematic Drift Pattern (Lab vs. Line)")
             
             fig_model, ax_model = plt.subplots(figsize=(12, 5))
             
-            # Vẽ dữ liệu Lab và Line thực tế
-            batch_labels = dff_model['Batch_Lot'].astype(str)
-            ax_model.plot(batch_labels, dff_model['Gloss_Lab'], marker='o', ls='--', color='gray', alpha=0.6, label='Actual Lab Input')
-            ax_model.plot(batch_labels, dff_model['Online_Gloss_Top'], marker='s', color='#2980b9', lw=2, label='Actual Line Output')
+            # Plot using the aggregated batch_analysis dataframe
+            batch_labels = batch_analysis['Batch_Lot'].astype(str)
+            ax_model.plot(batch_labels, batch_analysis['Gloss_Lab'], marker='o', ls='--', color='gray', alpha=0.6, label='Actual Lab Input')
+            ax_model.plot(batch_labels, batch_analysis['Online_Gloss_Top'], marker='s', color='#2980b9', lw=2, label='Actual Line Output (Avg)')
             
-            # Vẽ đường đích 25.0
-            ax_model.axhline(target_line, color='red', ls='-', lw=2, label='Final Line Target (25.0)')
-            
-            # Vẽ đường mục tiêu Lab tối ưu
+            ax_model.axhline(target_line, color='red', ls='-', lw=2, label=f'Center Line Target ({target_line:.1f})')
             ax_model.axhline(optimal_lab_input, color='#27ae60', ls=':', lw=2, label=f'Theoretical Lab Input ({optimal_lab_input:.1f})')
             
-            # Format Chart
             ax_model.set_ylabel("Gloss (GU)")
             ax_model.set_xlabel("Batch Sequence")
-            plt.xticks(rotation=45)
+            plt.xticks(rotation=45, ha='right')
+            locs, labels = plt.xticks()
+            if len(locs) > 30:
+                step = max(1, len(locs) // 20) 
+                for i, label in enumerate(labels):
+                    if i % step != 0: label.set_visible(False)
             ax_model.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
             
             plt.tight_layout()
             st.pyplot(fig_model)
 
-            # --- BẢNG DỮ LIỆU SAI LỆCH ---
             with st.expander("View Systematic Bias Data Details"):
-                st.dataframe(dff_model[['Batch_Lot', 'Coil_No', 'Gloss_Lab', 'Online_Gloss_Top', 'Loss']].tail(10))
+                st.dataframe(batch_analysis[['Batch_Lot', 'Gloss_Lab', 'Online_Gloss_Top', 'Loss']].tail(10))
 
         else:
             st.warning("⚠️ Insufficient historical data for this paint code to build a reliable compensation model (Min. 5 coils required).")
