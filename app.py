@@ -174,7 +174,7 @@ st.markdown("---")
 # ==========================================
 # ==========================================
 # ==========================================
-# VIEW 1: GLOSS TREND (SPC) - FULL FIXED
+# VIEW 1: GLOSS TREND (SPC) - FULL FIXED WITH RED NG ALERTS
 # ==========================================
 if view_mode == "✨ Gloss Trend (SPC)":
     st.info("💡 SPC Analysis: Monitor the actual Gloss trend (Lab vs Line) across raw production sequence.")
@@ -251,20 +251,38 @@ if view_mode == "✨ Gloss Trend (SPC)":
 
         # ── BIỂU ĐỒ TREND (ZIGZAG RAW DATA) ───────────────────────────────────
         fig_trend, ax_trend = plt.subplots(figsize=(14, 4.5))
-        x_axis = range(len(dff_g))
-        ax_trend.plot(x_axis, dff_g['Gloss_Lab'], marker='o', color='#1f77b4', lw=1.5, label='Lab Gloss')
-        ax_trend.plot(x_axis, dff_g['Online_Gloss_Top'], marker='s', color='#ff7f0e', lw=1.5, label='Line Gloss')
         
+        # Gắn thêm 1 cột số thứ tự an toàn để vẽ điểm NG
+        dff_g['x_seq'] = list(range(len(dff_g)))
+        
+        ax_trend.plot(dff_g['x_seq'], dff_g['Gloss_Lab'], marker='o', color='#1f77b4', lw=1.5, label='Lab Gloss')
+        ax_trend.plot(dff_g['x_seq'], dff_g['Online_Gloss_Top'], marker='s', color='#ff7f0e', lw=1.5, label='Line Gloss')
+        
+        # --- LOGIC TÔ ĐỎ ĐIỂM NG ---
+        # Lọc các điểm Lab bị NG
+        ng_lab = dff_g[(dff_g['Gloss_Lab'] < lsl_val) | (dff_g['Gloss_Lab'] > usl_val)]
+        if not ng_lab.empty:
+            ax_trend.scatter(ng_lab['x_seq'], ng_lab['Gloss_Lab'], color='red', s=100, zorder=5, label='Lab NG (Out of Spec)')
+            
+        # Lọc các điểm Line bị NG
+        ng_line = dff_g[(dff_g['Online_Gloss_Top'] < line_lsl_val) | (dff_g['Online_Gloss_Top'] > line_usl_val)]
+        if not ng_line.empty:
+            ax_trend.scatter(ng_line['x_seq'], ng_line['Online_Gloss_Top'], color='red', marker='s', s=100, zorder=5, label='Line NG (Out of Spec)')
+        # ---------------------------
+
         ax_trend.axhline(lsl_val, color='red', ls='-', lw=2, label=f'Lab LSL ({lsl_val})')
         ax_trend.axhline(usl_val, color='red', ls='-', lw=2, label=f'Lab USL ({usl_val})')
+        
         ax_trend.axhline(line_lsl_val, color='green', ls='--', lw=2, label=f'Line LSL ({line_lsl_val})')
         ax_trend.axhline(line_usl_val, color='green', ls='--', lw=2, label=f'Line USL ({line_usl_val})')
         
-        plt.xticks(x_axis, dff_g['Batch_Lot'].astype(str), rotation=45, ha='right')
-        if len(x_axis) > 20:
-            step = max(1, len(x_axis) // 15)
+        # X-Axis Formatting
+        plt.xticks(dff_g['x_seq'], dff_g['Batch_Lot'].astype(str), rotation=45, ha='right')
+        if len(dff_g['x_seq']) > 20:
+            step = max(1, len(dff_g['x_seq']) // 15)
             for i, label in enumerate(ax_trend.xaxis.get_ticklabels()):
                 if i % step != 0: label.set_visible(False)
+                
         ax_trend.set_ylabel("Gloss (GU)")
         ax_trend.legend(bbox_to_anchor=(1.01, 1), loc='upper left', fontsize='small')
         st.pyplot(fig_trend)
@@ -272,7 +290,7 @@ if view_mode == "✨ Gloss Trend (SPC)":
 
         # ── 2. BIỂU ĐỒ PHÂN PHỐI (COMPACT STYLE) ──────────────────────
         st.write("**Gloss Distribution Analysis**")
-        fig_dist, ax_dist = plt.subplots(figsize=(9, 5)) # THU NHỎ BIỂU ĐỒ THEO YÊU CẦU
+        fig_dist, ax_dist = plt.subplots(figsize=(9, 5)) 
         
         # Thống kê
         mean_lab = dff_g['Gloss_Lab'].mean()
@@ -284,18 +302,16 @@ if view_mode == "✨ Gloss Trend (SPC)":
 
         # Cấu hình nhãn dán chuyên nghiệp
         y_max = ax_dist.get_ylim()[1]
-        ax_dist.set_ylim(0, y_max * 1.3) # Tạo khoảng trống cho nhãn
+        ax_dist.set_ylim(0, y_max * 1.3) 
         y_base = ax_dist.get_ylim()[1] * 0.8
 
         def add_compact_label(x, label, color, y_offset_pct):
             ax_dist.axvline(x, color=color, ls='--', lw=1.5)
-            # Tính toán vị trí Y dựa trên % của trục để không bị đè
             pos_y = y_base + (ax_dist.get_ylim()[1] * y_offset_pct)
             ax_dist.text(x, pos_y, f"{label}\n{x:.1f}", 
                          color='white', fontweight='bold', ha='center', va='center', fontsize=7,
                          bbox=dict(boxstyle='round,pad=0.2', fc=color, ec='none', alpha=0.9))
 
-        # Thêm nhãn Spec và Mean (Không lặp lại, không che dữ liệu)
         add_compact_label(lsl_val, "LSL", "red", 0)
         add_compact_label(usl_val, "USL", "red", 0)
         add_compact_label(mean_lab, "Lab μ", "#1f77b4", 0.12)
@@ -312,8 +328,6 @@ if view_mode == "✨ Gloss Trend (SPC)":
             if std > 0:
                 y_curve = stats.norm.pdf(x_axis, data.mean(), std) * len(data) * bin_width
                 ax_dist.plot(x_axis, y_curve, color=color, lw=2, label=f'{label} Curve')
-
-        # BỎ PHẦN TÔ MÀU VÙNG NG (axvspan) THEO YÊU CẦU
 
         ax_dist.set_xlabel("Gloss Value (GU)", fontsize=9)
         ax_dist.set_ylabel("Number of Coils", fontsize=9)
