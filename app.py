@@ -615,113 +615,88 @@ elif view_mode == "📊 Statistical Limits (Scope Comparison)":
         st.warning("⚠️ Insufficient data (needs at least 5 coils).")
 
 # ==========================================
-# VIEW 4: PROCESS CENTERING & LIMIT DESIGN
+# ==========================================
+# VIEW 4: PREDICTIVE COMPENSATION MODEL
 # ==========================================
 elif view_mode == "⚖️ Paired Difference (Lab vs Line)":
-    st.header("⚖️ Process Centering & Limit Design")
-    st.info("Calculates the systematic bias between Lab and Line to mathematically center the production output. Defines strict internal 'Mill Ranges' vs. QA 'Release Ranges'.")
+    st.header("⚖️ Predictive Compensation & Lab Optimization")
+    st.info("Logic: App learns the historical bias (Loss) per paint code to calculate the 'Theoretical Lab Input' required to hit the 25.0 GU line target.")
 
     ma_son_list = sorted(dff['Ma_Son'].dropna().unique().tolist())
     if ma_son_list:
-        sel_offset_code = st.selectbox("🎯 Select Paint Code to Center:", ma_son_list)
+        sel_code = st.selectbox("🎯 Select Paint Code to Optimize:", ma_son_list)
 
-        dff_offset = dff[dff['Ma_Son'] == sel_offset_code].dropna(subset=['Online_Gloss_Top', 'Gloss_Lab']).sort_values('Ngay_SX')
+        # Lọc dữ liệu theo mã sơn đã chọn
+        dff_model = dff[dff['Ma_Son'] == sel_code].dropna(subset=['Online_Gloss_Top', 'Gloss_Lab']).sort_values('Ngay_SX')
 
-        batch_analysis = dff_offset.groupby('Batch_Lot').agg({
-            'Gloss_Lab': 'first', 'Online_Gloss_Top': 'mean',
-            'Gloss_LSL': 'first', 'Gloss_USL': 'first'
-        }).reset_index()
-
-        if len(batch_analysis) >= 5:
-            # 1. Calculate Bias & Variation
-            batch_analysis['Delta'] = batch_analysis['Online_Gloss_Top'] - batch_analysis['Gloss_Lab']
-            bias = batch_analysis['Delta'].mean() 
-            std_delta = batch_analysis['Delta'].std()    
-            std_lab = batch_analysis['Gloss_Lab'].std() if batch_analysis['Gloss_Lab'].std() > 0 else 0.5 
-            std_line = batch_analysis['Online_Gloss_Top'].std() if batch_analysis['Online_Gloss_Top'].std() > 0 else 0.5
-
-            # 2. Define the True Center Target
-            official_lsl = batch_analysis['Gloss_LSL'].iloc[0]
-            official_usl = batch_analysis['Gloss_USL'].iloc[0]
-            center_target = (official_lsl + official_usl) / 2.0
-
-            # 3. Calculate Centered Lab Target
-            centered_lab_target = center_target - bias
-
-            # 4. Design Limits (Mill vs Release)
-            # MILL RANGE: Internal strict control (+/- 1 Sigma)
-            mill_lcl = centered_lab_target - (1 * std_lab)
-            mill_ucl = centered_lab_target + (1 * std_lab)
-
-            # RELEASE RANGE: QA limits (+/- 2 Sigma, CLAMPED to Official Specs)
-            release_lcl_raw = centered_lab_target - (2 * std_lab)
-            release_ucl_raw = centered_lab_target + (2 * std_lab)
+        if len(dff_model) >= 5:
+            # 1. Tính toán sai lệch thực tế (Loss/Bias)
+            # Loss = Gloss_line - Gloss_lab
+            dff_model['Loss'] = dff_model['Online_Gloss_Top'] - dff_model['Gloss_Lab']
             
-            release_lcl = max(release_lcl_raw, official_lsl)
-            release_ucl = min(release_ucl_raw, official_usl)
-
-            # --- DISPLAY METRICS ---
-            st.markdown("### 🎯 Centering Strategy Matrix")
-            if std_delta > 1.5:
-                st.warning(f"⚠️ **High Δ Variation (Std: {std_delta:.2f} GU).** The offset between Lab and Line fluctuates. Strict adherence to Mill Range is recommended.")
+            mean_loss = dff_model['Loss'].mean()
+            std_loss = dff_model['Loss'].std()
             
-            col_target, col_mill, col_release = st.columns([1, 1.2, 1.2])
+            # 2. Xác định mục tiêu (Mandy yêu cầu 25.0)
+            target_line = 25.0
+            
+            # 3. Tính toán GIÁ TRỊ LÝ THUYẾT cho đầu vào Lab
+            # Gloss_lab_optimal = Target - Mean_Loss
+            optimal_lab_input = target_line - mean_loss
+            
+            # 4. Thiết lập ICL (Internal Control Limits) +/- 1 sigma
+            icl_lcl = optimal_lab_input - (1 * std_loss)
+            icl_ucl = optimal_lab_input + (1 * std_loss)
+
+            # --- GIAO DIỆN HIỂN THỊ ---
+            st.markdown(f"### 🚀 Optimization Guidance for `{sel_code}`")
+            
+            col_target, col_guidance = st.columns([1, 2])
             
             with col_target:
-                st.markdown("#### 📌 Key Parameters")
-                st.metric("Official Center Target", f"{center_target:.1f} GU")
-                st.metric("Systematic Bias (Line-Lab)", f"{bias:+.2f} GU", delta_color="off")
-                st.metric("🎯 Adjusted Lab Target", f"{centered_lab_target:.1f} GU", delta="Input to center production", delta_color="normal")
+                st.metric("Line Target", f"{target_line} GU")
+                st.metric("Historical Process Bias", f"{mean_loss:+.2f} GU", 
+                          help="Average drift caused by the production line for this specific paint.")
 
-            with col_mill:
-                st.markdown("#### ⚙️ Mill Range (Internal)")
-                st.caption("Strict production window (±1σ). Ensures high Cpk.")
-                st.metric("Mill LCL (Lower)", f"{mill_lcl:.1f} GU")
-                st.metric("Mill UCL (Upper)", f"{mill_ucl:.1f} GU")
-                st.metric("Mill Span", f"{(mill_ucl - mill_lcl):.1f} GU", delta_color="off")
+            with col_guidance:
+                st.success(f"#### Recommended Lab Input: **{optimal_lab_input:.1f} GU**")
+                st.write(f"To ensure the final product hits **{target_line} GU** on the line, the laboratory should aim for a pre-production mix of **{optimal_lab_input:.1f} GU** to compensate for the process drift.")
+                
+                st.warning(f"**Internal Control Limit (ICL): {icl_lcl:.1f} - {icl_ucl:.1f}**")
+                st.caption("Production is only authorized if Lab testing falls within this tightened range.")
 
-            with col_release:
-                st.markdown("#### 📦 Release Range (QA)")
-                st.caption("Final shipment limits (±2σ). Clamped to Customer Spec.")
-                st.metric("Release LCL", f"{release_lcl:.1f} GU", delta=f"Official LSL: {official_lsl}", delta_color="off")
-                st.metric("Release UCL", f"{release_ucl:.1f} GU", delta=f"Official USL: {official_usl}", delta_color="off")
-                st.metric("Release Span", f"{(release_ucl - release_lcl):.1f} GU", delta_color="off")
-
-            # --- VISUALIZATION: THE CENTERING EFFECT ---
+            # --- BIỂU ĐỒ PHÂN TÍCH QUY LUẬT ---
             st.markdown("---")
-            st.subheader("📊 Centering Simulation: Current vs. Optimized")
-            st.caption("Visualizing how applying the new Adjusted Lab Target pulls the Line output directly to the center of the Customer Specs.")
-
-            fig_sim, ax_sim = plt.subplots(figsize=(14, 5))
+            st.subheader("📊 Systematic Drift Pattern (Lab vs. Line)")
             
-            mean_line_current = batch_analysis['Online_Gloss_Top'].mean()
-            x_min = min(mean_line_current - 4*std_line, center_target - 4*std_line, official_lsl)
-            x_max = max(mean_line_current + 4*std_line, center_target + 4*std_line, official_usl)
-            x_axis = np.linspace(x_min, x_max, 300)
-
-            y_line_current = stats.norm.pdf(x_axis, mean_line_current, std_line)
-            ax_sim.plot(x_axis, y_line_current, color='#e74c3c', lw=2, label=f'Current Line Output (Mean: {mean_line_current:.1f})')
-            ax_sim.fill_between(x_axis, y_line_current, alpha=0.1, color='#e74c3c')
-
-            y_line_simulated = stats.norm.pdf(x_axis, center_target, std_line)
-            ax_sim.plot(x_axis, y_line_simulated, color='#27ae60', lw=2.5, ls='--', label=f'Optimized Line Output (Centered at {center_target:.1f})')
-            ax_sim.fill_between(x_axis, y_line_simulated, alpha=0.2, color='#27ae60')
-
-            ax_sim.axvline(official_lsl, color='black', ls='-', lw=2, label='Official LSL/USL')
-            ax_sim.axvline(official_usl, color='black', ls='-', lw=2)
-            ax_sim.axvline(center_target, color='black', ls=':', lw=1.5, label='Ideal Center')
-
-            ax_sim.set_title("Process Centering Impact", fontsize=14, fontweight='bold')
-            ax_sim.set_xlabel("Gloss Value (GU)")
-            ax_sim.set_ylabel("Probability Density")
-            ax_sim.legend(loc='upper right', framealpha=0.9)
+            fig_model, ax_model = plt.subplots(figsize=(12, 5))
+            
+            # Vẽ dữ liệu Lab và Line thực tế
+            batch_labels = dff_model['Batch_Lot'].astype(str)
+            ax_model.plot(batch_labels, dff_model['Gloss_Lab'], marker='o', ls='--', color='gray', alpha=0.6, label='Actual Lab Input')
+            ax_model.plot(batch_labels, dff_model['Online_Gloss_Top'], marker='s', color='#2980b9', lw=2, label='Actual Line Output')
+            
+            # Vẽ đường đích 25.0
+            ax_model.axhline(target_line, color='red', ls='-', lw=2, label='Final Line Target (25.0)')
+            
+            # Vẽ đường mục tiêu Lab tối ưu
+            ax_model.axhline(optimal_lab_input, color='#27ae60', ls=':', lw=2, label=f'Theoretical Lab Input ({optimal_lab_input:.1f})')
+            
+            # Format Chart
+            ax_model.set_ylabel("Gloss (GU)")
+            ax_model.set_xlabel("Batch Sequence")
+            plt.xticks(rotation=45)
+            ax_model.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
             
             plt.tight_layout()
-            st.pyplot(fig_sim)
-            plt.close(fig_sim)
+            st.pyplot(fig_model)
+
+            # --- BẢNG DỮ LIỆU SAI LỆCH ---
+            with st.expander("View Systematic Bias Data Details"):
+                st.dataframe(dff_model[['Batch_Lot', 'Coil_No', 'Gloss_Lab', 'Online_Gloss_Top', 'Loss']].tail(10))
 
         else:
-            st.warning("Insufficient data. Requires at least 5 batch records to model the centering bias reliably.")
+            st.warning("⚠️ Insufficient historical data for this paint code to build a reliable compensation model (Min. 5 coils required).")
 
 # ==========================================
 # VIEW 5: SUPPLIER CAPABILITY
