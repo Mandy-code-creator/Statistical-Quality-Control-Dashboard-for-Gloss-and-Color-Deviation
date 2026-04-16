@@ -86,13 +86,11 @@ if df.empty: st.stop()
 
 # --- 3. SIDEBAR: NAVIGATION & FILTERS ---
 with st.sidebar:
-    # REFRESH DATA BUTTON
     if st.button("🔄 Refresh Data", use_container_width=True, type="primary"):
         st.cache_data.clear() 
         st.rerun()            
         
     st.markdown("---")
-    
     st.markdown("### 📊 View Mode")
     view_mode = st.radio(
         "Select Analysis View:",
@@ -136,7 +134,6 @@ with st.sidebar:
 # ==============================================================================
 # APPLY LIMITS & CALC PASS/FAIL
 # ==============================================================================
-# Constant standard offset applied silently in background for global tracking
 STANDARD_LINE_OFFSET = 2.0 
 df['Line_LSL'] = df['Gloss_LSL'] - STANDARD_LINE_OFFSET
 df['Line_USL'] = df['Gloss_USL'] + STANDARD_LINE_OFFSET
@@ -159,9 +156,6 @@ df['Gloss_Pass'] = df['Lab_Pass'] & df['Line_Pass']
 df['Color_Pass'] = df['ΔE'] <= 1.0
 df['Final_Status'] = np.where(df['Gloss_Pass'] & df['Color_Pass'], '✅ PASS', '❌ FAIL/NG')
 
-# ==============================================================================
-# APPLY FILTERS TO DFF
-# ==============================================================================
 dff = df.copy()
 if len(date_range) == 2:
     dff = dff[(dff['Ngay_SX'] >= date_range[0]) & (dff['Ngay_SX'] <= date_range[1])]
@@ -171,7 +165,7 @@ if sel_col != 'All': dff = dff[dff['Color_Group'] == sel_col]
 
 with st.sidebar:
     st.markdown("---")
-    st.caption(f"📦 Showing: {len(dff)} coils (Invalid codes filtered out)")
+    st.caption(f"📦 Showing: {len(dff)} coils")
 
 # --- 4. DISPLAY VIEWS ---
 st.title(view_mode)
@@ -205,10 +199,8 @@ if view_mode == "✨ Gloss Trend (SPC)":
                     lab_ng = row['Lab_Min'] < row['Lab_LSL'] or row['Lab_Max'] > row['Lab_USL']
                     line_near = (row['Line_Min'] - row['Line_LSL'] <= 1.0) or (row['Line_USL'] - row['Line_Max'] <= 1.0)
                     lab_near = (row['Lab_Min'] - row['Lab_LSL'] <= 1.0) or (row['Lab_USL'] - row['Lab_Max'] <= 1.0)
-                    
                     source = []
                     status = '🟢 Safe'
-                    
                     if line_ng or lab_ng:
                         status = '🔴 Out of Limit (NG)'
                         if lab_ng: source.append("Lab")
@@ -485,7 +477,7 @@ elif view_mode == "🎨 Color Shift Analysis":
 # ==========================================
 elif view_mode == "📊 Statistical Limits (Scope Comparison)":
     st.header("📊 Control Limits: Scope Comparison Analysis")
-    st.info("Compare control scopes derived from **Individual Coil Variation** vs. **Batch Average Variation**. We use `Online_Gloss_Top` to accurately reflect line capability. Outliers are removed via IQR.")
+    st.info("Compare control scopes derived from **Individual Coil Variation** (real product spread) vs. **Batch Average Variation** (process shift). Outliers are automatically removed via IQR.")
 
     ma_son_list = sorted(dff['Ma_Son'].dropna().unique().tolist())
     if not ma_son_list:
@@ -502,11 +494,9 @@ elif view_mode == "📊 Statistical Limits (Scope Comparison)":
             st.warning("No paint code found.")
             st.stop()
     
-    # SỬA ĐỔI: Sử dụng dữ liệu Online (Dây chuyền) thay vì Lab để đánh giá đúng biến thiên của từng cuộn
     dff_spc = dff[dff['Ma_Son'] == sel_code].copy().dropna(subset=['Online_Gloss_Top']).sort_values('Ngay_SX')
     
     if len(dff_spc) >= 5:
-        # --- LỌC NHIỄU (IQR) TRÊN DỮ LIỆU CÁ NHÂN (INDIVIDUAL) ---
         q1 = dff_spc['Online_Gloss_Top'].quantile(0.25)
         q3 = dff_spc['Online_Gloss_Top'].quantile(0.75)
         iqr = q3 - q1
@@ -528,7 +518,6 @@ elif view_mode == "📊 Statistical Limits (Scope Comparison)":
         
         sigma_mult = st.number_input("Strictness Multiplier (Sigma)", min_value=1.00, max_value=4.00, value=2.00, step=0.10, format="%.2f", help="Input the standard deviation multiplier. Example: 2.0 or 3.0")
         
-        # SỬA ĐỔI: Dùng giới hạn của Line để làm mốc clamping, vì dữ liệu đang phân tích là Online
         line_lsl = dff_spc['Line_LSL'].iloc[0]
         line_usl = dff_spc['Line_USL'].iloc[0]
 
@@ -577,7 +566,6 @@ elif view_mode == "📊 Statistical Limits (Scope Comparison)":
         ax_dist.axvline(val_max, color='gray', ls=':', lw=1.5)
         ax_dist.text(val_max, y_max * 0.5, f'Max\n{val_max:.1f}', color='gray', ha='center', va='top', fontsize=9, bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', pad=1))
 
-        # Đây chính là Center Line (SPC) mà bạn nhắc đến - Trung bình của Dữ liệu thực tế
         ax_dist.axvline(mean_ind, color='black', ls='-', lw=2)
         ax_dist.text(mean_ind, y_max * 0.95, f'Empirical Mean (CL)\n{mean_ind:.1f}', color='black', ha='center', va='top', fontweight='bold', bbox=dict(facecolor='white', alpha=0.8, edgecolor='none', pad=2))
 
@@ -587,7 +575,6 @@ elif view_mode == "📊 Statistical Limits (Scope Comparison)":
         ax_dist.axvline(ucl_ind, color='#2980b9', ls='--', lw=2.5, label='Ind UCL')
         ax_dist.text(ucl_ind, y_max * 0.8, f'UCL\n{ucl_ind:.1f}', color='#2980b9', ha='center', va='top', fontweight='bold', bbox=dict(facecolor='white', alpha=0.8, edgecolor='none', pad=2))
 
-        # SỬA ĐỔI: Vẽ giới hạn của Line (không vẽ Lab Specs ở đây)
         ax_dist.axvline(line_lsl, color='red', ls='-', lw=1.5, alpha=0.5, label=f'Line LSL/USL Limits')
         ax_dist.axvline(line_usl, color='red', ls='-', lw=1.5, alpha=0.5)
 
@@ -614,7 +601,17 @@ elif view_mode == "⚖️ Predictive Compensation & Targeting":
 
     ma_son_list = sorted(dff['Ma_Son'].dropna().unique().tolist())
     if ma_son_list:
-        sel_code = st.selectbox("🎯 Select Paint Code to Optimize:", ma_son_list)
+        col_s1, col_s2 = st.columns([1, 2])
+        with col_s1:
+            search_keyword = st.text_input("🔍 Search Paint Code to Optimize:", "").upper()
+        filtered_list = [code for code in ma_son_list if search_keyword in code]
+        
+        with col_s2:
+            if filtered_list:
+                sel_code = st.selectbox("🎯 Select Paint Code:", filtered_list)
+            else:
+                st.warning("No paint code found.")
+                st.stop()
 
         dff_model = dff[dff['Ma_Son'] == sel_code].dropna(subset=['Online_Gloss_Top', 'Gloss_Lab']).sort_values(['Ngay_SX', 'Coil_No'])
 
@@ -634,13 +631,15 @@ elif view_mode == "⚖️ Predictive Compensation & Targeting":
             mean_loss = batch_analysis['Loss'].mean()
             std_loss = batch_analysis['Loss'].std() if batch_analysis['Loss'].std() > 0 else 0.5
             
-            # SỬA ĐỔI: Không cần ô nhập liệu nữa, target của Line chính là điểm giữa của Line Specs
-            lab_lsl = batch_analysis['Gloss_LSL'].iloc[0]
-            lab_usl = batch_analysis['Gloss_USL'].iloc[0]
             line_lsl = batch_analysis['Line_LSL'].iloc[0]
             line_usl = batch_analysis['Line_USL'].iloc[0]
             
-            target_line = (line_lsl + line_usl) / 2.0
+            st.markdown("---")
+            st.subheader("🎯 Center Target Definition")
+            st.info("Since tolerances can be asymmetric, the arithmetic mean (Max+Min)/2 is not always the true target. Please specify the exact target.")
+            
+            default_target = (line_lsl + line_usl) / 2.0
+            target_line = st.number_input("Specification Target (Line) [GU]:", value=float(default_target), step=0.1, help="Input the exact target requested by the customer/spec.")
             
             optimal_lab_input = target_line - mean_loss
             
@@ -652,7 +651,7 @@ elif view_mode == "⚖️ Predictive Compensation & Targeting":
             col_target, col_guidance = st.columns([1, 2])
             
             with col_target:
-                st.metric("Specification Target (Line)", f"{target_line:.1f} GU", help="Defined explicitly as the center of Line limits.")
+                st.metric("Specification Target (Line)", f"{target_line:.1f} GU", help="Defined explicitly by user.")
                 st.metric("Historical Process Bias", f"{mean_loss:+.2f} GU", 
                           help="Average drift caused by the production line for this specific paint.")
 
@@ -663,6 +662,50 @@ elif view_mode == "⚖️ Predictive Compensation & Targeting":
                 st.warning(f"**Internal Control Limit (ICL): {icl_lcl:.1f} - {icl_ucl:.1f}**")
                 st.caption("Production is only authorized if Lab testing falls within this tightened range (±1σ).")
 
+            # --- BIỂU ĐỒ MỚI: BIAS DISTRIBUTION SHIFT (BELL CURVES) ---
+            st.markdown("---")
+            st.subheader("🔔 Bias Distribution Shift (Lab vs. Line)")
+            st.caption("Illustrates the systematic offset ('Absolute Bias') between the Assigned Value (Lab) and Achieved Value (Line).")
+
+            fig_bell, ax_bell = plt.subplots(figsize=(12, 5))
+            
+            mean_lab_hist = batch_analysis['Gloss_Lab'].mean()
+            std_lab_hist = batch_analysis['Gloss_Lab'].std() if batch_analysis['Gloss_Lab'].std() > 0 else 0.5
+            mean_line_hist = batch_analysis['Online_Gloss_Top'].mean()
+            std_line_hist = batch_analysis['Online_Gloss_Top'].std() if batch_analysis['Online_Gloss_Top'].std() > 0 else 0.5
+
+            x_min_bell = min(mean_lab_hist - 4*std_lab_hist, mean_line_hist - 4*std_line_hist)
+            x_max_bell = max(mean_lab_hist + 4*std_lab_hist, mean_line_hist + 4*std_line_hist)
+            x_axis_bell = np.linspace(x_min_bell, x_max_bell, 300)
+
+            # Lab Curve (Assigned)
+            y_lab_bell = stats.norm.pdf(x_axis_bell, mean_lab_hist, std_lab_hist)
+            ax_bell.plot(x_axis_bell, y_lab_bell, color='#27ae60', lw=2.5, label=f'Lab Input (Assigned Value)\nMean: {mean_lab_hist:.1f}')
+            ax_bell.fill_between(x_axis_bell, y_lab_bell, alpha=0.1, color='#27ae60')
+            ax_bell.axvline(mean_lab_hist, color='#27ae60', ls='--', lw=1.5)
+
+            # Line Curve (Achieved)
+            y_line_bell = stats.norm.pdf(x_axis_bell, mean_line_hist, std_line_hist)
+            ax_bell.plot(x_axis_bell, y_line_bell, color='#c0392b', lw=2.5, label=f'Line Output (Achieved Value)\nMean: {mean_line_hist:.1f}')
+            ax_bell.fill_between(x_axis_bell, y_line_bell, alpha=0.1, color='#c0392b')
+            ax_bell.axvline(mean_line_hist, color='#c0392b', ls='--', lw=1.5)
+
+            # Draw Connecting Bias Line
+            y_annotate = max(max(y_lab_bell), max(y_line_bell)) * 0.6
+            ax_bell.annotate('', xy=(mean_lab_hist, y_annotate), xytext=(mean_line_hist, y_annotate),
+                              arrowprops=dict(arrowstyle='<|-|>', color='#f39c12', lw=2.5, mutation_scale=15))
+            ax_bell.text((mean_lab_hist + mean_line_hist)/2, y_annotate + 0.02, f'Absolute Bias: {mean_loss:+.2f} GU', 
+                          ha='center', va='bottom', color='#f39c12', fontweight='bold', fontsize=11, bbox=dict(facecolor='white', alpha=0.8, edgecolor='none', pad=1))
+
+            ax_bell.set_xlabel("Gloss Value (GU)")
+            ax_bell.set_ylabel("Probability Density")
+            ax_bell.legend(loc='upper right')
+            
+            plt.tight_layout()
+            st.pyplot(fig_bell)
+            plt.close(fig_bell)
+
+            # --- BIỂU ĐỒ TRƯỚC ĐÓ: SYSTEMATIC DRIFT PATTERN ---
             st.markdown("---")
             st.subheader("📊 Systematic Drift Pattern (Lab vs. Line)")
             
@@ -672,7 +715,6 @@ elif view_mode == "⚖️ Predictive Compensation & Targeting":
             ax_model.plot(batch_labels, batch_analysis['Gloss_Lab'], marker='o', ls='--', color='gray', alpha=0.6, label='Actual Lab Input')
             ax_model.plot(batch_labels, batch_analysis['Online_Gloss_Top'], marker='s', color='#2980b9', lw=2, label='Actual Line Output (Avg)')
             
-            # SỬA ĐỔI: Vẽ Target và các mốc theo chuẩn của Line (Dây chuyền), không vẽ nhầm Lab nữa
             ax_model.axhline(target_line, color='red', ls='-', lw=2.5, label=f'Line Spec Target ({target_line:.1f})')
             ax_model.axhline(line_usl, color='red', ls='--', lw=1.5, alpha=0.5, label=f'Line USL ({line_usl:.1f})')
             ax_model.axhline(line_lsl, color='red', ls='--', lw=1.5, alpha=0.5, label=f'Line LSL ({line_lsl:.1f})')
