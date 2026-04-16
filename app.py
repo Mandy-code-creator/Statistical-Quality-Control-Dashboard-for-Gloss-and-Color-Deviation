@@ -245,115 +245,77 @@ if view_mode == "✨ Gloss Trend (SPC)":
             return
 
         lsl_val, usl_val = dff_g['Gloss_LSL'].iloc[0], dff_g['Gloss_USL'].iloc[0]
-        line_lsl_val, line_usl_val = dff_g['Line_LSL'].iloc[0], dff_g['Line_USL'].iloc[0]
         
         st.success(f"📅 **Timeframe:** `{dff_g['Ngay_SX'].min()}` to `{dff_g['Ngay_SX'].max()}` | **Volume:** {dff_g['Batch_Lot'].nunique()} Batches ({len(dff_g)} Coils).")
 
-        # ── BIỂU ĐỒ TREND ─────────────────────────────────────────────────────────
+        # ── BIỂU ĐỒ TREND (ZIGZAG RAW DATA) ───────────────────────────────────
         fig_trend, ax_trend = plt.subplots(figsize=(14, 4.5))
-        
         x_axis = range(len(dff_g))
         ax_trend.plot(x_axis, dff_g['Gloss_Lab'], marker='o', color='#1f77b4', lw=1.5, label='Lab Gloss')
         ax_trend.plot(x_axis, dff_g['Online_Gloss_Top'], marker='s', color='#ff7f0e', lw=1.5, label='Line Gloss')
         
-        ax_trend.axhline(lsl_val, color='red', ls='-', lw=2)
-        ax_trend.axhline(usl_val, color='red', ls='-', lw=2)
-        ax_trend.axhline(line_lsl_val, color='green', ls='--', lw=2)
-        ax_trend.axhline(line_usl_val, color='green', ls='--', lw=2)
+        ax_trend.axhline(lsl_val, color='red', ls='-', lw=2, label=f'Spec LSL ({lsl_val})')
+        ax_trend.axhline(usl_val, color='red', ls='-', lw=2, label=f'Spec USL ({usl_val})')
         
         plt.xticks(x_axis, dff_g['Batch_Lot'].astype(str), rotation=45, ha='right')
         if len(x_axis) > 20:
             step = max(1, len(x_axis) // 15)
             for i, label in enumerate(ax_trend.xaxis.get_ticklabels()):
                 if i % step != 0: label.set_visible(False)
-                
         ax_trend.set_ylabel("Gloss (GU)")
         ax_trend.legend(bbox_to_anchor=(1.01, 1), loc='upper left', fontsize='small')
         st.pyplot(fig_trend)
         plt.close(fig_trend)
 
-        # ── BIỂU ĐỒ PHÂN PHỐI (COUNT) VỚI ĐƯỜNG CONG CHUẨN ──────────────────────
+        # ── BIỂU ĐỒ PHÂN PHỐI & NORMAL CURVE (CLEANED) ────────────────────────
         st.write("**Gloss Distribution & Normal Curve Comparison**")
-        fig_dist, ax_dist = plt.subplots(figsize=(10, 5))
-
-        sns.histplot(dff_g['Gloss_Lab'], color='#1f77b4', stat="count", alpha=0.2, label='Lab Histogram', ax=ax_dist)
-        sns.histplot(dff_g['Online_Gloss_Top'], color='#ff7f0e', stat="count", alpha=0.2, label='Line Histogram', ax=ax_dist)
-
-        all_data = pd.concat([dff_g['Gloss_Lab'], dff_g['Online_Gloss_Top']])
-        x_min, x_max = all_data.min() - 3, all_data.max() + 3
-        x_curve = np.linspace(x_min, x_max, 200)
-
+        fig_dist, ax_dist = plt.subplots(figsize=(12, 6))
+        
         mean_lab, std_lab = dff_g['Gloss_Lab'].mean(), dff_g['Gloss_Lab'].std()
-        min_lab, max_lab = dff_g['Gloss_Lab'].min(), dff_g['Gloss_Lab'].max()
         mean_line, std_line = dff_g['Online_Gloss_Top'].mean(), dff_g['Online_Gloss_Top'].std()
-        min_line, max_line = dff_g['Online_Gloss_Top'].min(), dff_g['Online_Gloss_Top'].max()
 
-        bin_width = (all_data.max() - all_data.min()) / 10
-
+        # Histogram
+        sns.histplot(dff_g['Gloss_Lab'], color='#1f77b4', stat="density", alpha=0.1, ax=ax_dist)
+        sns.histplot(dff_g['Online_Gloss_Top'], color='#ff7f0e', stat="density", alpha=0.1, ax=ax_dist)
+        
+        # Normal Curves
+        all_data = pd.concat([dff_g['Gloss_Lab'], dff_g['Online_Gloss_Top']])
+        x_start, x_end = all_data.min() - 5, all_data.max() + 5
+        x_axis_dist = np.linspace(x_start, x_end, 300)
+        
         if std_lab > 0:
-            n_lab = len(dff_g['Gloss_Lab'])
-            ax_dist.plot(x_curve, stats.norm.pdf(x_curve, mean_lab, std_lab) * n_lab * bin_width,
-                         color='#1f77b4', lw=2.5)
-
+            ax_dist.plot(x_axis_dist, stats.norm.pdf(x_axis_dist, mean_lab, std_lab), color='#1f77b4', lw=2.5, label='Lab Distribution')
         if std_line > 0:
-            n_line = len(dff_g['Online_Gloss_Top'])
-            ax_dist.plot(x_curve, stats.norm
-                                 if std_line > 0:
-            n_line = len(dff_g['Online_Gloss_Top'])
-            ax_dist.plot(
-                x_curve,
-                stats.norm.pdf(x_curve, mean_line, std_line) * n_line * bin_width,
-                color='#ff7f0e',
-                lw=2.5
-            )
+            ax_dist.plot(x_axis_dist, stats.norm.pdf(x_axis_dist, mean_line, std_line), color='#ff7f0e', lw=2.5, label='Line Distribution')
 
-        # Đặt giới hạn trục và thêm annotation
-        ax_dist.set_xlim(x_min, x_max)
-        fig_dist.canvas.draw()
-        y_top = ax_dist.get_ylim()[1]
+        # Annotations - Optimized to avoid overlap
+        y_max = ax_dist.get_ylim()[1]
+        
+        # Spec Limits (Thick Red)
+        ax_dist.axvline(lsl_val, color='red', ls='-', lw=2.5)
+        ax_dist.axvline(usl_val, color='red', ls='-', lw=2.5)
+        ax_dist.text(lsl_val, y_max * 0.95, f'LSL: {lsl_val}', color='red', fontweight='bold', ha='right', va='top', rotation=90)
+        ax_dist.text(usl_val, y_max * 0.95, f'USL: {usl_val}', color='red', fontweight='bold', ha='left', va='top', rotation=90)
 
-        # Mean, Min, Max Lab
+        # Means (Solid Lines)
         ax_dist.axvline(mean_lab, color='#1f77b4', ls='-', lw=2)
-        ax_dist.text(mean_lab, y_top*0.95, f'Lab Mean\n{mean_lab:.1f}',
-                     fontsize=7, color='#1f77b4', ha='center', va='top')
-
-        ax_dist.axvline(min_lab, color='#1f77b4', ls=':', lw=1.5)
-        ax_dist.text(min_lab, y_top*0.85, f'Lab Min\n{min_lab:.1f}',
-                     fontsize=7, color='#1f77b4', ha='center', va='top')
-
-        ax_dist.axvline(max_lab, color='#1f77b4', ls=':', lw=1.5)
-        ax_dist.text(max_lab, y_top*0.85, f'Lab Max\n{max_lab:.1f}',
-                     fontsize=7, color='#1f77b4', ha='center', va='top')
-
-        # Mean, Min, Max Line
+        ax_dist.text(mean_lab, y_max * 0.85, f'Lab μ: {mean_lab:.1f}', color='#1f77b4', ha='center', va='bottom', fontsize=9, bbox=dict(facecolor='white', alpha=0.7, edgecolor='none'))
+        
         ax_dist.axvline(mean_line, color='#ff7f0e', ls='-', lw=2)
-        ax_dist.text(mean_line, y_top*0.75, f'Line Mean\n{mean_line:.1f}',
-                     fontsize=7, color='#ff7f0e', ha='center', va='top')
+        ax_dist.text(mean_line, y_max * 0.70, f'Line μ: {mean_line:.1f}', color='#ff7f0e', ha='center', va='bottom', fontsize=9, bbox=dict(facecolor='white', alpha=0.7, edgecolor='none'))
 
-        ax_dist.axvline(min_line, color='#ff7f0e', ls=':', lw=1.5)
-        ax_dist.text(min_line, y_top*0.65, f'Line Min\n{min_line:.1f}',
-                     fontsize=7, color='#ff7f0e', ha='center', va='top')
-
-        ax_dist.axvline(max_line, color='#ff7f0e', ls=':', lw=1.5)
-        ax_dist.text(max_line, y_top*0.65, f'Line Max\n{max_line:.1f}',
-                     fontsize=7, color='#ff7f0e', ha='center', va='top')
-
-        # Spec Limits
-        ax_dist.axvline(lsl_val, color='red', ls='-', lw=2)
-        ax_dist.axvline(usl_val, color='red', ls='-', lw=2)
-        ax_dist.text(lsl_val, y_top*0.50, f'LSL\n{lsl_val}',
-                     fontsize=7.5, color='red', ha='center', va='top', fontweight='bold')
-        ax_dist.text(usl_val, y_top*0.50, f'USL\n{usl_val}',
-                     fontsize=7.5, color='red', ha='center', va='top', fontweight='bold')
-
-        # Tô vùng NG ngoài Spec
-        ax_dist.axvspan(x_min, lsl_val, alpha=0.07, color='red')
-        ax_dist.axvspan(usl_val, x_max, alpha=0.07, color='red')
-
+        # Min/Max (Dotted Lines - Tiered to avoid overlap)
+        ax_dist.axvline(dff_g['Gloss_Lab'].min(), color='#1f77b4', ls=':', lw=1)
+        ax_dist.axvline(dff_g['Gloss_Lab'].max(), color='#1f77b4', ls=':', lw=1)
+        ax_dist.axvline(dff_g['Online_Gloss_Top'].min(), color='#ff7f0e', ls=':', lw=1)
+        ax_dist.axvline(dff_g['Online_Gloss_Top'].max(), color='#ff7f0e', ls=':', lw=1)
+        
+        # Final formatting
+        ax_dist.set_xlim(x_start, x_end)
         ax_dist.set_xlabel("Gloss Value (GU)")
-        ax_dist.set_ylabel("Number of Coils")
-        ax_dist.legend(fontsize=7, loc='upper right', ncol=2)
-        fig_dist.tight_layout()
+        ax_dist.set_ylabel("Density")
+        ax_dist.legend(fontsize=8, loc='upper right')
+        
         st.pyplot(fig_dist)
         plt.close(fig_dist)
 
@@ -374,7 +336,6 @@ if view_mode == "✨ Gloss Trend (SPC)":
         with tab_custom:
             sel_ma_son = st.selectbox("🎯 Select Paint Code:", list_ma_son_tab2, key="manual_sel")
             render_spc_analysis(sel_ma_son, dff, "manual")
-
 # ==========================================
 # VIEW 2: COLOR SHIFT ANALYSIS
 # ==========================================
