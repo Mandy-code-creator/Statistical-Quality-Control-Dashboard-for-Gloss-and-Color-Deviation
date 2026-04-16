@@ -596,15 +596,16 @@ elif view_mode == "📊 Statistical Limits (Scope Comparison)":
         st.warning("⚠️ Insufficient data (needs at least 5 coils).")
 
 # ==========================================
-# VIEW 4: PAIRED DIFFERENCE (CLAMP FIXED)
+# ==========================================
+# VIEW 4: PROCESS CENTERING & LIMIT DESIGN
 # ==========================================
 elif view_mode == "⚖️ Paired Difference (Lab vs Line)":
-    st.header("⚖️ Paired Difference Analysis")
-    st.info("Quantifies the systematic offset between Lab and Line. Recommends corrected targets tightly clamped to official specs.")
+    st.header("⚖️ Process Centering & Limit Design")
+    st.info("Calculates the systematic bias between Lab and Line to mathematically center the production output. Defines strict internal 'Mill Ranges' vs. QA 'Release Ranges'.")
 
     ma_son_list = sorted(dff['Ma_Son'].dropna().unique().tolist())
     if ma_son_list:
-        sel_offset_code = st.selectbox("🎯 Select Paint Code:", ma_son_list)
+        sel_offset_code = st.selectbox("🎯 Select Paint Code to Center:", ma_son_list)
 
         dff_offset = dff[dff['Ma_Son'] == sel_offset_code].dropna(subset=['Online_Gloss_Top', 'Gloss_Lab']).sort_values('Ngay_SX')
 
@@ -614,109 +615,100 @@ elif view_mode == "⚖️ Paired Difference (Lab vs Line)":
         }).reset_index()
 
         if len(batch_analysis) >= 5:
+            # 1. Calculate Bias & Variation
             batch_analysis['Delta'] = batch_analysis['Online_Gloss_Top'] - batch_analysis['Gloss_Lab']
-            mean_delta = batch_analysis['Delta'].mean() 
+            bias = batch_analysis['Delta'].mean() 
             std_delta = batch_analysis['Delta'].std()    
             std_lab = batch_analysis['Gloss_Lab'].std() if batch_analysis['Gloss_Lab'].std() > 0 else 0.5 
+            std_line = batch_analysis['Online_Gloss_Top'].std() if batch_analysis['Online_Gloss_Top'].std() > 0 else 0.5
 
-            # 📌 STEP 4: Calculate New Lab Target and Control Limits
+            # 2. Define the True Center Target
             official_lsl = batch_analysis['Gloss_LSL'].iloc[0]
             official_usl = batch_analysis['Gloss_USL'].iloc[0]
-            target_line = (official_lsl + official_usl) / 2
+            center_target = (official_lsl + official_usl) / 2.0
 
-            # Core Formula: Lab_target = Target_Line - Mean(Δ)
-            suggested_lab_target = target_line - mean_delta
+            # 3. Calculate Centered Lab Target
+            # To get Line to hit 'center_target', Lab must offset by the bias
+            centered_lab_target = center_target - bias
+
+            # 4. Design Limits (Mill vs Release)
+            # MILL RANGE: Internal strict control (+/- 2 Sigma)
+            mill_lcl = centered_lab_target - (2 * std_lab)
+            mill_ucl = centered_lab_target + (2 * std_lab)
+
+            # RELEASE RANGE: QA limits (+/- 3 Sigma, CLAMPED to Official Specs)
+            release_lcl_raw = centered_lab_target - (3 * std_lab)
+            release_ucl_raw = centered_lab_target + (3 * std_lab)
             
-            raw_ucl = suggested_lab_target + (3 * std_lab)
-            raw_lcl = suggested_lab_target - (3 * std_lab)
+            release_lcl = max(release_lcl_raw, official_lsl)
+            release_ucl = min(release_ucl_raw, official_usl)
 
-            # 📌 CLAMP: Đảm bảo không vượt quá Spec chính thức
-            suggested_lab_lcl = max(raw_lcl, official_lsl)
-            suggested_lab_ucl = min(raw_ucl, official_usl)
-
-            st.markdown("### 🔑 Recommended Correction Parameters")
+            # --- DISPLAY METRICS ---
+            st.markdown("### 🎯 Centering Strategy Matrix")
             if std_delta > 1.5:
-                st.warning(f"⚠️ **High Δ Variation Detected (Std: {std_delta:.2f} GU).** The relationship between Lab and Line is unstable.")
+                st.warning(f"⚠️ **High Δ Variation (Std: {std_delta:.2f} GU).** The offset between Lab and Line fluctuates. Strict adherence to Mill Range is recommended.")
             
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Constant Bias (Mean Δ)", f"{mean_delta:+.2f} GU")
-            c2.metric("Baseline Lab Std", f"{std_lab:.2f} GU")
-            c3.metric("🎯 Suggested Lab Target", f"{suggested_lab_target:.1f} GU")
-            c4.metric(
-                "Suggested Lab Limits (±3σ)",
-                f"{suggested_lab_lcl:.1f} - {suggested_lab_ucl:.1f}",
-                delta=f"Span: {suggested_lab_ucl - suggested_lab_lcl:.1f} GU",
-                delta_color="off"
-            )
+            col_target, col_mill, col_release = st.columns([1, 1.2, 1.2])
             
-            st.markdown("*(Note: Suggested limits are strictly clamped within Official Spec bounds).*")
-            
-            # --- STEP 5: COMPREHENSIVE VISUAL DIAGNOSTICS (Δ ANALYSIS) ---
+            with col_target:
+                st.markdown("#### 📌 Key Parameters")
+                st.metric("Official Center Target", f"{center_target:.1f} GU")
+                st.metric("Systematic Bias (Line-Lab)", f"{bias:+.2f} GU", delta_color="off")
+                st.metric("🎯 Adjusted Lab Target", f"{centered_lab_target:.1f} GU", delta="Input to center production", delta_color="normal")
+
+            with col_mill:
+                st.markdown("#### ⚙️ Mill Range (Internal)")
+                st.caption("Strict production window (±2σ). Ensures high Cpk.")
+                st.metric("Mill LCL (Lower)", f"{mill_lcl:.1f} GU")
+                st.metric("Mill UCL (Upper)", f"{mill_ucl:.1f} GU")
+                st.metric("Mill Span", f"{(mill_ucl - mill_lcl):.1f} GU", delta_color="off")
+
+            with col_release:
+                st.markdown("#### 📦 Release Range (QA)")
+                st.caption("Final shipment limits (±3σ). Clamped to Customer Spec.")
+                st.metric("Release LCL", f"{release_lcl:.1f} GU", delta=f"Official LSL: {official_lsl}", delta_color="off")
+                st.metric("Release UCL", f"{release_ucl:.1f} GU", delta=f"Official USL: {official_usl}", delta_color="off")
+                st.metric("Release Span", f"{(release_ucl - release_lcl):.1f} GU", delta_color="off")
+
+            # --- VISUALIZATION: THE CENTERING EFFECT ---
             st.markdown("---")
-            st.markdown("### 📊 Step 3: Comprehensive Δ Analysis")
+            st.subheader("📊 Centering Simulation: Current vs. Optimized")
+            st.caption("Visualizing how applying the new Adjusted Lab Target pulls the Line output directly to the center of the Customer Specs.")
+
+            fig_sim, ax_sim = plt.subplots(figsize=(14, 5))
             
-            st.markdown("#### 1. Bias Trend (Constant vs. Drift)")
-            fig_trend, ax_trend = plt.subplots(figsize=(14, 4))
-            batch_labels = batch_analysis['Batch_Lot'].astype(str)
-            ax_trend.plot(batch_labels, batch_analysis['Delta'], marker='o', color='#2c3e50', lw=2, label='Batch Δ (Line - Lab)')
-            ax_trend.axhline(mean_delta, color='#e74c3c', ls='-', lw=2, label=f'Mean Bias ({mean_delta:+.2f})')
-            ax_trend.axhline(mean_delta + (3 * std_delta), color='#27ae60', ls='--', lw=1.5, label='+3σ Limit')
-            ax_trend.axhline(mean_delta - (3 * std_delta), color='#27ae60', ls='--', lw=1.5, label='-3σ Limit')
-            ax_trend.axhline(0, color='#7f8c8d', ls=':', lw=1.5, label='Zero Offset (Ideal)')
-            ax_trend.set_xlabel("Batch Lot Sequence")
-            ax_trend.set_ylabel("Deviation Δ (GU)")
-            plt.xticks(rotation=45, ha='right')
-            locs, labels = plt.xticks()
-            if len(locs) > 30:
-                step = max(1, len(locs) // 20) 
-                for i, label in enumerate(labels):
-                    if i % step != 0: label.set_visible(False)
-            ax_trend.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
-            st.pyplot(fig_trend)
-            plt.close(fig_trend)
+            # Current Line Distribution (Skewed)
+            mean_line_current = batch_analysis['Online_Gloss_Top'].mean()
+            x_min = min(mean_line_current - 4*std_line, center_target - 4*std_line, official_lsl)
+            x_max = max(mean_line_current + 4*std_line, center_target + 4*std_line, official_usl)
+            x_axis = np.linspace(x_min, x_max, 300)
 
-            col_chart1, col_chart2 = st.columns(2)
-            mean_lab = batch_analysis['Gloss_Lab'].mean()
-            mean_line = batch_analysis['Online_Gloss_Top'].mean()
-            std_line = batch_analysis['Online_Gloss_Top'].std() if batch_analysis['Online_Gloss_Top'].std() > 0 else 0.5
-            x_min = min(mean_lab - 3.5*std_lab, mean_line - 3.5*std_line)
-            x_max = max(mean_lab + 3.5*std_lab, mean_line + 3.5*std_line)
-            x_axis = np.linspace(x_min, x_max, 200)
+            y_line_current = stats.norm.pdf(x_axis, mean_line_current, std_line)
+            ax_sim.plot(x_axis, y_line_current, color='#e74c3c', lw=2, label=f'Current Line Output (Mean: {mean_line_current:.1f})')
+            ax_sim.fill_between(x_axis, y_line_current, alpha=0.1, color='#e74c3c')
 
-            with col_chart1:
-                st.markdown("#### 2. Systematic Shift (Normal Curves)")
-                fig_curve, ax_curve = plt.subplots(figsize=(6, 5))
-                y_lab = stats.norm.pdf(x_axis, mean_lab, std_lab)
-                ax_curve.plot(x_axis, y_lab, color='#27ae60', lw=2.5, label='Lab (Assigned)')
-                ax_curve.axvline(mean_lab, color='#27ae60', ls='--', lw=1)
-                y_line = stats.norm.pdf(x_axis, mean_line, std_line)
-                ax_curve.plot(x_axis, y_line, color='#c0392b', lw=2.5, label='Line (Achieved)')
-                ax_curve.axvline(mean_line, color='#c0392b', ls='--', lw=1)
-                y_annotate = max(max(y_lab), max(y_line)) * 0.5
-                ax_curve.annotate('', xy=(mean_lab, y_annotate), xytext=(mean_line, y_annotate), arrowprops=dict(arrowstyle='<->', color='#f39c12', lw=2))
-                ax_curve.text((mean_lab + mean_line)/2, y_annotate + 0.01, f'Bias: {mean_delta:+.2f}', ha='center', va='bottom', color='#f39c12', fontweight='bold')
-                ax_curve.set_xlabel("Gloss Value (GU)")
-                ax_curve.set_ylabel("Probability Density")
-                ax_curve.legend()
-                st.pyplot(fig_curve)
-                plt.close(fig_curve)
+            # Simulated Line Distribution (Centered)
+            # If Lab hits 'centered_lab_target', Line will hit 'center_target'
+            y_line_simulated = stats.norm.pdf(x_axis, center_target, std_line)
+            ax_sim.plot(x_axis, y_line_simulated, color='#27ae60', lw=2.5, ls='--', label=f'Optimized Line Output (Centered at {center_target:.1f})')
+            ax_sim.fill_between(x_axis, y_line_simulated, alpha=0.2, color='#27ae60')
 
-            with col_chart2:
-                st.markdown("#### 3. Population Overlap (Histograms)")
-                fig_hist, ax_hist = plt.subplots(figsize=(6, 5))
-                min_bin = min(batch_analysis['Gloss_Lab'].min(), batch_analysis['Online_Gloss_Top'].min())
-                max_bin = max(batch_analysis['Gloss_Lab'].max(), batch_analysis['Online_Gloss_Top'].max())
-                bins_shared = np.linspace(min_bin - 1, max_bin + 1, 15)
-                sns.histplot(batch_analysis['Gloss_Lab'], bins=bins_shared, color='#27ae60', alpha=0.4, label='Lab Population', ax=ax_hist)
-                sns.histplot(batch_analysis['Online_Gloss_Top'], bins=bins_shared, color='#3498db', alpha=0.6, label='Line Population', ax=ax_hist)
-                ax_hist.set_xlabel("Gloss Value Bin Range (GU)")
-                ax_hist.set_ylabel("Batch Count")
-                ax_hist.legend()
-                st.pyplot(fig_hist)
-                plt.close(fig_hist)
+            # Draw Specs & Ranges
+            ax_sim.axvline(official_lsl, color='black', ls='-', lw=2, label='Official LSL/USL')
+            ax_sim.axvline(official_usl, color='black', ls='-', lw=2)
+            ax_sim.axvline(center_target, color='black', ls=':', lw=1.5, label='Ideal Center')
+
+            ax_sim.set_title("Process Centering Impact", fontsize=14, fontweight='bold')
+            ax_sim.set_xlabel("Gloss Value (GU)")
+            ax_sim.set_ylabel("Probability Density")
+            ax_sim.legend(loc='upper right', framealpha=0.9)
+            
+            plt.tight_layout()
+            st.pyplot(fig_sim)
+            plt.close(fig_sim)
 
         else:
-            st.warning("Insufficient data.")
+            st.warning("Insufficient data. Requires at least 5 batch records to model the centering bias reliably.")
 
 # ==========================================
 # VIEW 5: SUPPLIER CAPABILITY
