@@ -173,136 +173,40 @@ st.markdown("---")
 
 # ==========================================
 # ==========================================
-# ==========================================
-# VIEW 1: GLOSS TREND (SPC) - FULL REVISED
-# ==========================================
-if view_mode == "✨ Gloss Trend (SPC)":
-    st.info("💡 SPC Analysis: Monitor the actual Gloss trend (Lab vs Line) across raw production sequence.")
-    
-    risk_alert = pd.DataFrame()
-    with st.expander("🚨 Early Warning Radar (Click to view at-risk codes)", expanded=True):
-        st.caption("This table scans paint codes (≥ 5 Batches) that are Out of Spec (NG) or approaching limits.")
-        df_valid_radar = dff.dropna(subset=['Online_Gloss_Top', 'Line_LSL', 'Line_USL', 'Gloss_Lab', 'Gloss_LSL', 'Gloss_USL', 'Batch_Lot'])
+# --- BIỂU ĐỒ PHÂN PHỐI (DISTRIBUTION) VỚI ĐƯỜNG CONG CHUẨN ---
+        st.write("**Gloss Distribution & Normal Curve Comparison**")
+        fig_dist, ax_dist = plt.subplots(figsize=(10, 5))
         
-        if not df_valid_radar.empty:
-            risk_summary = df_valid_radar.groupby(['Ma_Son', 'Supplier']).agg(
-                Batches=('Batch_Lot', 'nunique'), Coils=('Online_Gloss_Top', 'count'),
-                Line_Min=('Online_Gloss_Top', 'min'), Line_Max=('Online_Gloss_Top', 'max'),
-                Line_LSL=('Line_LSL', 'first'), Line_USL=('Line_USL', 'first'),
-                Lab_Min=('Gloss_Lab', 'min'), Lab_Max=('Gloss_Lab', 'max'),
-                Lab_LSL=('Gloss_LSL', 'first'), Lab_USL=('Gloss_USL', 'first')
-            ).reset_index()
-
-            risk_summary = risk_summary[risk_summary['Batches'] >= 5].copy()
-
-            if not risk_summary.empty:
-                def check_risk(row):
-                    line_ng = row['Line_Min'] < row['Line_LSL'] or row['Line_Max'] > row['Line_USL']
-                    lab_ng = row['Lab_Min'] < row['Lab_LSL'] or row['Lab_Max'] > row['Lab_USL']
-                    line_near = (row['Line_Min'] - row['Line_LSL'] <= 1.0) or (row['Line_USL'] - row['Line_Max'] <= 1.0)
-                    lab_near = (row['Lab_Min'] - row['Lab_LSL'] <= 1.0) or (row['Lab_USL'] - row['Lab_Max'] <= 1.0)
-                    source = []
-                    status = '🟢 Safe'
-                    if line_ng or lab_ng:
-                        status = '🔴 Out of Limit (NG)'
-                        if lab_ng: source.append("Lab")
-                        if line_ng: source.append("Line")
-                    elif line_near or lab_near:
-                        status = '🟠 Near Limit (≤ 1.0 GU)'
-                        if lab_near: source.append("Lab")
-                        if line_near: source.append("Line")
-                    return pd.Series([status, " + ".join(source) if source else "-"])
-
-                risk_summary[['Status', 'Issue Source']] = risk_summary.apply(check_risk, axis=1)
-                risk_alert = risk_summary[risk_summary['Status'] != '🟢 Safe'].copy()
-
-                if not risk_alert.empty:
-                    risk_alert = risk_alert.sort_values(by='Status', ascending=True)
-                    risk_alert = risk_alert[['Ma_Son', 'Supplier', 'Batches', 'Coils', 'Issue Source', 'Lab_Min', 'Lab_Max', 'Line_Min', 'Line_Max', 'Status']]
-                    risk_alert.columns = ['Paint Code', 'Supplier', 'Batches', 'Coils', 'Issue Source', 'Lab Min', 'Lab Max', 'Line Min', 'Line Max', 'Status']
-
-                    def highlight_status(val):
-                        if '🔴' in str(val): return 'color: white; background-color: #e74c3c; font-weight: bold;'
-                        if '🟠' in str(val): return 'color: white; background-color: #f39c12; font-weight: bold;'
-                        return ''
-                    st.dataframe(
-                        risk_alert.style.format({
-                            'Lab Min': '{:.1f}', 'Lab Max': '{:.1f}', 'Line Min': '{:.1f}', 'Line Max': '{:.1f}'
-                        }).map(highlight_status, subset=['Status']),
-                        use_container_width=True, hide_index=True
-                    )
-                else:
-                    st.success("🎉 No paint codes are out of limits at this time!")
-
-    st.markdown("---")
-    
-    def render_spc_analysis(paint_code, data_source, key_suffix):
-        dff_g = data_source[data_source['Ma_Son'] == paint_code].copy()
-        dff_g = dff_g.dropna(subset=['Gloss_LSL', 'Gloss_USL', 'Gloss_Lab', 'Online_Gloss_Top'])
+        # 1. Vẽ Histogram thô (không có đường KDE tự động)
+        sns.histplot(dff_g['Gloss_Lab'], color='#1f77b4', stat="density", alpha=0.2, label='Lab Histogram', ax=ax_dist)
+        sns.histplot(dff_g['Online_Gloss_Top'], color='#ff7f0e', stat="density", alpha=0.2, label='Line Histogram', ax=ax_dist)
         
-        if len(dff_g) <= 1:
-            st.warning(f"⚠️ Insufficient data for {paint_code}")
-            return
+        # 2. Tính toán dải trục X để vẽ đường cong
+        all_data = pd.concat([dff_g['Gloss_Lab'], dff_g['Online_Gloss_Top']])
+        x_min, x_max = all_data.min() - 3, all_data.max() + 3
+        x_axis = np.linspace(x_min, x_max, 200)
+        
+        # 3. Vẽ đường NORMAL CURVE chuẩn (Toán học)
+        # Đường chuẩn cho Lab
+        mean_lab, std_lab = dff_g['Gloss_Lab'].mean(), dff_g['Gloss_Lab'].std()
+        if std_lab > 0:
+            ax_dist.plot(x_axis, stats.norm.pdf(x_axis, mean_lab, std_lab), color='#1f77b4', lw=2.5, label=f'Lab Normal Curve (σ={std_lab:.2f})')
+            
+        # Đường chuẩn cho Line
+        mean_line, std_line = dff_g['Online_Gloss_Top'].mean(), dff_g['Online_Gloss_Top'].std()
+        if std_line > 0:
+            ax_dist.plot(x_axis, stats.norm.pdf(x_axis, mean_line, std_line), color='#ff7f0e', lw=2.5, label=f'Line Normal Curve (σ={std_line:.2f})')
 
-        lsl_val, usl_val = dff_g['Gloss_LSL'].iloc[0], dff_g['Gloss_USL'].iloc[0]
-        line_lsl_val, line_usl_val = dff_g['Line_LSL'].iloc[0], dff_g['Line_USL'].iloc[0]
+        # 4. Vẽ các đường giới hạn (Spec)
+        ax_dist.axvline(lsl_val, color='red', ls='-', lw=2, label=f'Lab LSL ({lsl_val})')
+        ax_dist.axvline(usl_val, color='red', ls='-', lw=2, label=f'Lab USL ({usl_val})')
         
-        st.success(f"📅 **Timeframe:** `{dff_g['Ngay_SX'].min()}` to `{dff_g['Ngay_SX'].max()}` | **Volume:** {dff_g['Batch_Lot'].nunique()} Batches ({len(dff_g)} Coils).")
-
-        fig_trend, ax_trend = plt.subplots(figsize=(14, 4.5))
+        ax_dist.set_xlabel("Gloss Value (GU)")
+        ax_dist.set_ylabel("Probability Density")
+        ax_dist.legend(fontsize='small', loc='upper right')
         
-        # 1. RAW DATA (ZIGZAG)
-        x_axis = range(len(dff_g))
-        ax_trend.plot(x_axis, dff_g['Gloss_Lab'], marker='o', color='#1f77b4', lw=1.5, label='Lab Gloss')
-        ax_trend.plot(x_axis, dff_g['Online_Gloss_Top'], marker='s', color='#ff7f0e', lw=1.5, label='Line Gloss')
-        
-        # 2. LAB LIMITS - RED
-        ax_trend.axhline(lsl_val, color='red', ls='-', lw=2, label=f'Lab LSL ({lsl_val})')
-        ax_trend.axhline(usl_val, color='red', ls='-', lw=2, label=f'Lab USL ({usl_val})')
-        
-        # 3. LINE LIMITS - GREEN (Updated as requested)
-        ax_trend.axhline(line_lsl_val, color='green', ls='--', lw=2, label=f'Line LSL ({line_lsl_val})')
-        ax_trend.axhline(line_usl_val, color='green', ls='--', lw=2, label=f'Line USL ({line_usl_val})')
-        
-        # X-Axis Formatting
-        plt.xticks(x_axis, dff_g['Batch_Lot'].astype(str), rotation=45, ha='right')
-        if len(x_axis) > 20:
-            step = max(1, len(x_axis) // 15)
-            for i, label in enumerate(ax_trend.xaxis.get_ticklabels()):
-                if i % step != 0: label.set_visible(False)
-                
-        ax_trend.set_ylabel("Gloss (GU)")
-        ax_trend.legend(bbox_to_anchor=(1.01, 1), loc='upper left', fontsize='small')
-        st.pyplot(fig_trend)
-        plt.close(fig_trend)
-
-        # Distribution Chart
-        st.write("**Gloss Distribution & Normal Curve**")
-        fig_dist, ax_dist = plt.subplots(figsize=(10, 4))
-        sns.histplot(dff_g['Gloss_Lab'], color='#1f77b4', kde=True, stat="density", alpha=0.3, label='Lab', ax=ax_dist)
-        sns.histplot(dff_g['Online_Gloss_Top'], color='#ff7f0e', kde=True, stat="density", alpha=0.3, label='Line', ax=ax_dist)
-        ax_dist.axvline(lsl_val, color='red', ls='-', lw=1.5)
-        ax_dist.axvline(usl_val, color='red', ls='-', lw=1.5)
-        ax_dist.legend()
         st.pyplot(fig_dist)
         plt.close(fig_dist)
-
-    list_ma_son_tab2 = sorted(dff['Ma_Son'].dropna().unique().tolist())
-    if list_ma_son_tab2:
-        tab_top_risk, tab_custom = st.tabs(["🚨 Top At-Risk Codes", "🔍 Manual Analysis"])
-        with tab_top_risk:
-            if not risk_alert.empty:
-                top_15 = risk_alert['Paint Code'].head(15).tolist()
-                for i, code in enumerate(top_15):
-                    st.markdown(f"#### #{i+1}: `{code}`")
-                    render_spc_analysis(code, dff, f"risk_{i}")
-                    st.markdown("---")
-            else:
-                st.success("✅ All processes are stable.")
-
-        with tab_custom:
-            sel_ma_son = st.selectbox("🎯 Select Paint Code:", list_ma_son_tab2, key="manual_sel")
-            render_spc_analysis(sel_ma_son, dff, "manual")
 # ==========================================
 # VIEW 2: COLOR SHIFT ANALYSIS
 # ==========================================
