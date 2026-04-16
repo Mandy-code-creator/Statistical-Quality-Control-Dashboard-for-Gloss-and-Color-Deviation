@@ -711,15 +711,21 @@ elif view_mode == "⚖️ Paired Difference Analysis":
             std_delta = batch_analysis['Delta'].std()    # Variation of the offset
             std_lab = batch_analysis['Gloss_Lab'].std() if batch_analysis['Gloss_Lab'].std() > 0 else 0.5 # Baseline Lab variation
 
-            # 📌 STEP 4: Calculate New Lab Target and Control Limits (Option A Applied)
-            target_line = (batch_analysis['Gloss_LSL'].iloc[0] + batch_analysis['Gloss_USL'].iloc[0]) / 2
+           # 📌 STEP 4: Calculate New Lab Target and Control Limits
+            official_lsl = batch_analysis['Gloss_LSL'].iloc[0]
+            official_usl = batch_analysis['Gloss_USL'].iloc[0]
+            target_line = (official_lsl + official_usl) / 2
 
             # Core Formula: Lab_target = Target_Line - Mean(Δ)
             suggested_lab_target = target_line - mean_delta
             
-            # Apply historical Lab standard deviation to maintain realistic spread
-            suggested_lab_ucl = suggested_lab_target + (3 * std_lab)
-            suggested_lab_lcl = suggested_lab_target - (3 * std_lab)
+            # Tính toán giới hạn trên lý thuyết
+            raw_ucl = suggested_lab_target + (3 * std_lab)
+            raw_lcl = suggested_lab_target - (3 * std_lab)
+
+            # ÉP GIỚI HẠN (CLAMP): Đảm bảo không vượt quá Spec chính thức
+            suggested_lab_lcl = max(raw_lcl, official_lsl)
+            suggested_lab_ucl = min(raw_ucl, official_usl)
 
             # --- DISPLAY METRICS ---
             st.markdown("### 🔑 Recommended Parameters (Based on Systematic Offset)")
