@@ -446,11 +446,12 @@ elif view_mode == "🎨 Color Shift Analysis":
             st.warning("⚠️ Insufficient data to perform color analysis for this paint code.")
 
 # ==========================================
+# ==========================================
 # VIEW 3: STATISTICAL LIMITS (SCOPE COMPARISON)
 # ==========================================
 elif view_mode == "📊 Statistical Limits (Scope Comparison)":
-    st.header("📊 Control Limits: Scope Comparison Analysis")
-    st.info("Compare control scopes derived from **Individual Coil Variation** (real product spread) vs. **Batch Average Variation** (process shift). Outliers are automatically removed via IQR.")
+    st.header("📊 Control Limits: IQR & Sigma Scopes")
+    st.info("💡 Determine dynamic control limits based on **Standard Deviation**. Outliers are automatically filtered using the **IQR Method** to ensure accurate baseline calculations.")
 
     ma_son_list = sorted(dff['Ma_Son'].dropna().unique().tolist())
     if not ma_son_list:
@@ -464,168 +465,156 @@ elif view_mode == "📊 Statistical Limits (Scope Comparison)":
         if filtered_list:
             sel_code = st.selectbox("🎯 Select Paint Code:", filtered_list)
         else:
-            st.warning("No paint code found.")
+            st.warning("❌ No paint code found.")
             st.stop()
-    
+            
+    # Lấy dữ liệu cơ bản
     dff_spc = dff[dff['Ma_Son'] == sel_code].copy().dropna(subset=['Online_Gloss_Top']).sort_values('Ngay_SX')
     
     if len(dff_spc) >= 5:
-        q1 = dff_spc['Online_Gloss_Top'].quantile(0.25)
-        q3 = dff_spc['Online_Gloss_Top'].quantile(0.75)
-        iqr = q3 - q1
-        lower_limit = q1 - 1.5 * iqr
-        upper_limit = q3 + 1.5 * iqr
-        
-        clean_ind_data = dff_spc[(dff_spc['Online_Gloss_Top'] >= lower_limit) & (dff_spc['Online_Gloss_Top'] <= upper_limit)]
-        outliers = dff_spc[(dff_spc['Online_Gloss_Top'] < lower_limit) | (dff_spc['Online_Gloss_Top'] > upper_limit)]
-        
-        batch_data = clean_ind_data.groupby('Batch_Lot').agg(
-            Gloss_Mean=('Online_Gloss_Top', 'mean'),
-            Coil_Count=('Online_Gloss_Top', 'count')
-        ).reset_index()
-        
-        st.success(f"📅 **Historical Data:** Total `{len(dff_spc)}` Coils analyzed across `{len(batch_data)}` Batches. (`{len(outliers)}` anomalous coils excluded).")
-
-        st.markdown("---")
-        st.subheader("⚙️ Control Scope Settings")
-        
-        col_set1, col_set2 = st.columns(2)
-        with col_set1:
-            sigma_mult = st.number_input("Strictness Multiplier (Sigma)", min_value=1.00, max_value=4.00, value=2.00, step=0.10, format="%.2f", help="Input the standard deviation multiplier. Example: 2.0 or 3.0")
-        with col_set2:
-            calc_method = st.radio("Statistical Method", ["Standard Deviation (Overall)", "I-MR (Moving Range)"], help="Standard Deviation accounts for all variation over time. I-MR measures short-term point-to-point variation, filtering out long-term drift.")
-        
         line_lsl = dff_spc['Line_LSL'].iloc[0]
         line_usl = dff_spc['Line_USL'].iloc[0]
 
-        mean_ind = clean_ind_data['Online_Gloss_Top'].mean()
-        mean_batch = batch_data['Gloss_Mean'].mean()
-
-        if "Standard Deviation" in calc_method:
-            std_ind_calc = clean_ind_data['Online_Gloss_Top'].std()
-            std_batch_calc = batch_data['Gloss_Mean'].std() if len(batch_data) > 1 else 0
-        else:
-            mr_ind = np.abs(np.diff(clean_ind_data['Online_Gloss_Top']))
-            std_ind_calc = np.mean(mr_ind) / 1.128 if len(mr_ind) > 0 else 0
-
-            mr_batch = np.abs(np.diff(batch_data['Gloss_Mean']))
-            std_batch_calc = np.mean(mr_batch) / 1.128 if len(mr_batch) > 0 else 0
-
-        lcl_ind = max(mean_ind - sigma_mult * std_ind_calc, line_lsl)
-        ucl_ind = min(mean_ind + sigma_mult * std_ind_calc, line_usl)
-
-        lcl_batch = max(mean_batch - sigma_mult * std_batch_calc, line_lsl)
-        ucl_batch = min(mean_batch + sigma_mult * std_batch_calc, line_usl)
-
-        st.markdown("### 📋 Variation Comparison Matrix")
-        col_m1, col_m2 = st.columns(2)
+        st.markdown("---")
+        st.subheader("⚙️ Parameter Settings (K-Factor & Sigma)")
         
+        # Form nhập liệu cho người dùng tùy chỉnh K và Sigma
+        col_k, col_mill, col_rel = st.columns(3)
+        with col_k:
+            k_factor = st.number_input("📏 IQR K-Factor (Outlier Filter)", min_value=0.5, max_value=4.0, value=1.5, step=0.1, format="%.1f", help="Standard is 1.5. Increase to keep more data, decrease to strict filter.")
+        with col_mill:
+            sigma_mill = st.number_input("🏭 Mill Range (Sigma)", min_value=0.5, max_value=3.0, value=1.0, step=0.1, format="%.1f", help="Internal target control limit. Default 1 Sigma.")
+        with col_rel:
+            sigma_release = st.number_input("📦 Release Range (Sigma)", min_value=1.0, max_value=4.0, value=2.0, step=0.1, format="%.1f", help="External delivery control limit. Default 2 Sigma.")
+
+        # 1. Tính toán IQR và lọc Outlier
+        q1 = dff_spc['Online_Gloss_Top'].quantile(0.25)
+        q3 = dff_spc['Online_Gloss_Top'].quantile(0.75)
+        iqr = q3 - q1
+        lower_limit_iqr = q1 - k_factor * iqr
+        upper_limit_iqr = q3 + k_factor * iqr
+        
+        clean_data = dff_spc[(dff_spc['Online_Gloss_Top'] >= lower_limit_iqr) & (dff_spc['Online_Gloss_Top'] <= upper_limit_iqr)]
+        outliers = dff_spc[(dff_spc['Online_Gloss_Top'] < lower_limit_iqr) | (dff_spc['Online_Gloss_Top'] > upper_limit_iqr)]
+        
+        # 2. Tính toán thống kê trên dữ liệu sạch
+        mean_clean = clean_data['Online_Gloss_Top'].mean()
+        std_clean = clean_data['Online_Gloss_Top'].std()
+
+        # 3. Tính toán 2 giới hạn kiểm soát
+        lcl_mill = mean_clean - sigma_mill * std_clean
+        ucl_mill = mean_clean + sigma_mill * std_clean
+        
+        lcl_release = mean_clean - sigma_release * std_clean
+        ucl_release = mean_clean + sigma_release * std_clean
+
+        # Hiển thị thông báo dữ liệu
+        st.success(f"📅 **Historical Data:** Total `{len(dff_spc)}` Coils analyzed. Outlier filter removed `{len(outliers)}` coils. Clean baseline uses `{len(clean_data)}` coils.")
+
+        st.markdown("### 📋 Computed Limits Matrix")
+        col_m1, col_m2, col_m3 = st.columns(3)
         with col_m1:
-            st.markdown("#### 🏭 Scope 1: Individual Coils (Line Spread)")
-            st.caption("Reflects the actual coil-to-coil variation on the production line.")
-            c1, c2 = st.columns(2)
-            c1.metric("Est. Std Dev (σ)", f"{std_ind_calc:.2f} GU")
-            c2.metric("Calculated Control Span", f"{lcl_ind:.1f} - {ucl_ind:.1f}")
-
+            st.markdown("#### 📊 Base Statistics")
+            st.metric("Empirical Mean (μ)", f"{mean_clean:.2f} GU")
+            st.metric("Standard Deviation (σ)", f"{std_clean:.2f} GU")
         with col_m2:
-            st.markdown("#### 📦 Scope 2: Batch Averages (Process Shift)")
-            st.caption("Reflects how the whole process average drifts from one lot to another.")
-            c3, c4 = st.columns(2)
-            c3.metric("Est. Std Dev (σ)", f"{std_batch_calc:.2f} GU" if std_batch_calc > 0 else "N/A", delta=f"{(std_ind_calc - std_batch_calc):.2f} tighter", delta_color="normal")
-            c4.metric("Calculated Control Span", f"{lcl_batch:.1f} - {ucl_batch:.1f}" if std_batch_calc > 0 else "N/A")
+            st.markdown(f"#### 🏭 Mill Range (±{sigma_mill}σ)")
+            st.metric("Lower Control Limit (LCL)", f"{lcl_mill:.1f}")
+            st.metric("Upper Control Limit (UCL)", f"{ucl_mill:.1f}")
+        with col_m3:
+            st.markdown(f"#### 📦 Release Range (±{sigma_release}σ)")
+            st.metric("Lower Control Limit (LCL)", f"{lcl_release:.1f}")
+            st.metric("Upper Control Limit (UCL)", f"{ucl_release:.1f}")
 
-        # --- ADDING THE TRENDING LINE CHART HERE ---
+        # --- BIỂU ĐỒ 1: SPC TRENDING ---
         st.markdown("---")
-        st.subheader("📈 SPC Trending Line: Individual vs. Batch Averages")
-        st.caption("Displays sequential data points to monitor stability and drift over time.")
-        fig_trend_spc, ax_trend_spc = plt.subplots(figsize=(14, 5))
+        st.subheader("📈 SPC Trending: Outliers, Mill & Release Ranges")
+        fig_trend, ax_trend = plt.subplots(figsize=(14, 5))
 
-        # We plot against a sequential index
-        seq_index = range(len(clean_ind_data))
-        ax_trend_spc.plot(seq_index, clean_ind_data['Online_Gloss_Top'], marker='o', color='#3498db', alpha=0.5, ls='-', label='Individual Coils')
-
-        # Map batch means back to individual points to show the step-changes
-        batch_mean_dict = dict(zip(batch_data['Batch_Lot'], batch_data['Gloss_Mean']))
-        mapped_means = clean_ind_data['Batch_Lot'].map(batch_mean_dict)
-        ax_trend_spc.plot(seq_index, mapped_means, marker='s', color='#e67e22', lw=2, label='Batch Averages')
-
-        # Control Limits
-        ax_trend_spc.axhline(mean_ind, color='black', lw=2, label=f'Mean ({mean_ind:.1f})')
-        ax_trend_spc.axhline(ucl_ind, color='#2980b9', ls='--', lw=2, label=f'Ind UCL ({ucl_ind:.1f})')
-        ax_trend_spc.axhline(lcl_ind, color='#2980b9', ls='--', lw=2, label=f'Ind LCL ({lcl_ind:.1f})')
+        seq_index = range(len(dff_spc))
         
-        if std_batch_calc > 0:
-            ax_trend_spc.axhline(ucl_batch, color='#d35400', ls=':', lw=2, label=f'Batch UCL ({ucl_batch:.1f})')
-            ax_trend_spc.axhline(lcl_batch, color='#d35400', ls=':', lw=2, label=f'Batch LCL ({lcl_batch:.1f})')
+        # Vẽ dữ liệu sạch và dữ liệu outlier
+        clean_idx = clean_data.index.map(lambda x: dff_spc.index.get_loc(x))
+        outlier_idx = outliers.index.map(lambda x: dff_spc.index.get_loc(x))
+        
+        ax_trend.plot(seq_index, dff_spc['Online_Gloss_Top'], color='gray', alpha=0.3, ls='-') # Đường nối mờ
+        ax_trend.scatter(clean_idx, clean_data['Online_Gloss_Top'], color='#3498db', label='Clean Coils', zorder=3)
+        if not outliers.empty:
+            ax_trend.scatter(outlier_idx, outliers['Online_Gloss_Top'], color='red', marker='x', s=60, lw=2, label='Filtered Outliers (IQR)', zorder=4)
 
-        ax_trend_spc.axhline(line_usl, color='red', ls='-', lw=1.5, alpha=0.5, label='Line USL')
-        ax_trend_spc.axhline(line_lsl, color='red', ls='-', lw=1.5, alpha=0.5, label='Line LSL')
+        # Vẽ các giới hạn
+        ax_trend.axhline(mean_clean, color='black', lw=2, label=f'Mean ({mean_clean:.1f})')
+        
+        ax_trend.axhline(ucl_mill, color='#27ae60', ls='--', lw=2, label=f'Mill UCL ({ucl_mill:.1f})')
+        ax_trend.axhline(lcl_mill, color='#27ae60', ls='--', lw=2, label=f'Mill LCL ({lcl_mill:.1f})')
+        
+        ax_trend.axhline(ucl_release, color='#e67e22', ls='-.', lw=2, label=f'Release UCL ({ucl_release:.1f})')
+        ax_trend.axhline(lcl_release, color='#e67e22', ls='-.', lw=2, label=f'Release LCL ({lcl_release:.1f})')
 
-        ax_trend_spc.set_xlabel("Sequential Coil Index")
-        ax_trend_spc.set_ylabel("Online Gloss Top (GU)")
-        ax_trend_spc.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
-        plt.tight_layout()
-        st.pyplot(fig_trend_spc)
-        plt.close(fig_trend_spc)
+        ax_trend.axhline(line_usl, color='red', ls='-', lw=1.5, alpha=0.5, label='Spec USL')
+        ax_trend.axhline(line_lsl, color='red', ls='-', lw=1.5, alpha=0.5, label='Spec LSL')
 
+        ax_trend.set_xlabel("Production Sequence")
+        ax_trend.set_ylabel("Online Gloss Top (GU)")
+        
+        # Tối ưu nhãn trục X
+        plt.xticks(seq_index, dff_spc['Batch_Lot'].astype(str), rotation=45, ha='right')
+        if len(seq_index) > 20:
+            step = max(1, len(seq_index) // 15)
+            for i, label in enumerate(ax_trend.xaxis.get_ticklabels()):
+                if i % step != 0: label.set_visible(False)
+                
+        ax_trend.legend(bbox_to_anchor=(1.01, 1), loc='upper left', fontsize='small')
+        st.pyplot(fig_trend)
+        plt.close(fig_trend)
 
+        # --- BIỂU ĐỒ 2: DISTRIBUTION ---
         st.markdown("---")
-        st.subheader("📊 Distribution Overlap: Individual vs. Batch (Online Output)")
-        
+        st.subheader("📊 Distribution: Mill vs. Release Capabilities")
         fig_dist, ax_dist = plt.subplots(figsize=(14, 6))
         
-        sns.histplot(clean_ind_data['Online_Gloss_Top'], color='#3498db', alpha=0.3, label='Individual Coils Distribution', stat="density", ax=ax_dist)
-        if len(batch_data) > 1:
-            sns.histplot(batch_data['Gloss_Mean'], color='#e67e22', alpha=0.6, label='Batch Averages Distribution', stat="density", ax=ax_dist)
+        sns.histplot(clean_data['Online_Gloss_Top'], color='#3498db', alpha=0.4, label='Clean Data Distribution', stat="density", ax=ax_dist)
         
-        # --- ADDING NORMAL CURVES ---
-        x_min_dist = min(clean_ind_data['Online_Gloss_Top'].min(), line_lsl) - 2
-        x_max_dist = max(clean_ind_data['Online_Gloss_Top'].max(), line_usl) + 2
+        x_min_dist = min(clean_data['Online_Gloss_Top'].min(), line_lsl) - 2
+        x_max_dist = max(clean_data['Online_Gloss_Top'].max(), line_usl) + 2
         x_axis_dist = np.linspace(x_min_dist, x_max_dist, 300)
 
-        if std_ind_calc > 0:
-            y_ind_norm = stats.norm.pdf(x_axis_dist, mean_ind, std_ind_calc)
-            ax_dist.plot(x_axis_dist, y_ind_norm, color='#2980b9', lw=2.5, label='Ind Normal Curve')
-
-        if std_batch_calc > 0:
-            y_batch_norm = stats.norm.pdf(x_axis_dist, mean_batch, std_batch_calc)
-            ax_dist.plot(x_axis_dist, y_batch_norm, color='#d35400', lw=2.5, ls='--', label='Batch Normal Curve')
+        if std_clean > 0:
+            y_norm = stats.norm.pdf(x_axis_dist, mean_clean, std_clean)
+            ax_dist.plot(x_axis_dist, y_norm, color='#2980b9', lw=2.5, label='Normal Curve')
 
         y_max = ax_dist.get_ylim()[1]
         
-        val_min = clean_ind_data['Online_Gloss_Top'].min()
-        val_max = clean_ind_data['Online_Gloss_Top'].max()
-        ax_dist.axvline(val_min, color='gray', ls=':', lw=1.5)
-        ax_dist.text(val_min, y_max * 0.5, f'Min\n{val_min:.1f}', color='gray', ha='center', va='top', fontsize=9, bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', pad=1))
-        ax_dist.axvline(val_max, color='gray', ls=':', lw=1.5)
-        ax_dist.text(val_max, y_max * 0.5, f'Max\n{val_max:.1f}', color='gray', ha='center', va='top', fontsize=9, bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', pad=1))
+        # Vẽ các vạch giới hạn
+        ax_dist.axvline(mean_clean, color='black', ls='-', lw=2)
+        ax_dist.text(mean_clean, y_max * 0.95, f'μ: {mean_clean:.1f}', color='black', ha='center', va='top', fontweight='bold', bbox=dict(facecolor='white', alpha=0.8, edgecolor='none'))
 
-        ax_dist.axvline(mean_ind, color='black', ls='-', lw=2)
-        ax_dist.text(mean_ind, y_max * 0.95, f'Empirical Mean (CL)\n{mean_ind:.1f}', color='black', ha='center', va='top', fontweight='bold', bbox=dict(facecolor='white', alpha=0.8, edgecolor='none', pad=2))
+        ax_dist.axvline(lcl_mill, color='#27ae60', ls='--', lw=2.5, label='Mill Limits')
+        ax_dist.text(lcl_mill, y_max * 0.85, f'Mill LCL\n{lcl_mill:.1f}', color='#27ae60', ha='center', va='top', fontweight='bold', bbox=dict(facecolor='white', alpha=0.8, edgecolor='none'))
+        ax_dist.axvline(ucl_mill, color='#27ae60', ls='--', lw=2.5)
+        ax_dist.text(ucl_mill, y_max * 0.85, f'Mill UCL\n{ucl_mill:.1f}', color='#27ae60', ha='center', va='top', fontweight='bold', bbox=dict(facecolor='white', alpha=0.8, edgecolor='none'))
 
-        ax_dist.axvline(lcl_ind, color='#2980b9', ls='--', lw=2.5, label='Ind LCL')
-        ax_dist.text(lcl_ind, y_max * 0.8, f'LCL\n{lcl_ind:.1f}', color='#2980b9', ha='center', va='top', fontweight='bold', bbox=dict(facecolor='white', alpha=0.8, edgecolor='none', pad=2))
-        
-        ax_dist.axvline(ucl_ind, color='#2980b9', ls='--', lw=2.5, label='Ind UCL')
-        ax_dist.text(ucl_ind, y_max * 0.8, f'UCL\n{ucl_ind:.1f}', color='#2980b9', ha='center', va='top', fontweight='bold', bbox=dict(facecolor='white', alpha=0.8, edgecolor='none', pad=2))
+        ax_dist.axvline(lcl_release, color='#e67e22', ls='-.', lw=2.5, label='Release Limits')
+        ax_dist.text(lcl_release, y_max * 0.75, f'Rel LCL\n{lcl_release:.1f}', color='#e67e22', ha='center', va='top', fontweight='bold', bbox=dict(facecolor='white', alpha=0.8, edgecolor='none'))
+        ax_dist.axvline(ucl_release, color='#e67e22', ls='-.', lw=2.5)
+        ax_dist.text(ucl_release, y_max * 0.75, f'Rel UCL\n{ucl_release:.1f}', color='#e67e22', ha='center', va='top', fontweight='bold', bbox=dict(facecolor='white', alpha=0.8, edgecolor='none'))
 
-        ax_dist.axvline(line_lsl, color='red', ls='-', lw=1.5, alpha=0.5, label=f'Line LSL/USL Limits')
+        ax_dist.axvline(line_lsl, color='red', ls='-', lw=1.5, alpha=0.5, label='Spec Limits')
         ax_dist.axvline(line_usl, color='red', ls='-', lw=1.5, alpha=0.5)
 
-        if std_batch_calc > 0:
-            ax_dist.axvline(lcl_batch, color='#d35400', ls=':', lw=2, label='Batch LCL/UCL')
-            ax_dist.axvline(ucl_batch, color='#d35400', ls=':', lw=2)
+        # Tô màu vùng giữa Mill và Release để dễ hình dung
+        ax_dist.axvspan(lcl_release, lcl_mill, alpha=0.1, color='#e67e22')
+        ax_dist.axvspan(ucl_mill, ucl_release, alpha=0.1, color='#e67e22')
 
         ax_dist.set_xlabel("Online Gloss Top (GU)")
-        ax_dist.set_ylabel("Density")
+        ax_dist.set_ylabel("Probability Density")
         ax_dist.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
-        plt.tight_layout()
+        
         st.pyplot(fig_dist)
         plt.close(fig_dist)
 
     else:
         st.warning("⚠️ Insufficient data (needs at least 5 coils).")
-
 # ==========================================
 # VIEW 4: PREDICTIVE COMPENSATION MODEL
 # ==========================================
