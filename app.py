@@ -249,22 +249,18 @@ if view_mode == "✨ Gloss Trend (SPC)":
         
         st.success(f"📅 **Timeframe:** `{dff_g['Ngay_SX'].min()}` to `{dff_g['Ngay_SX'].max()}` | **Volume:** {dff_g['Batch_Lot'].nunique()} Batches ({len(dff_g)} Coils).")
 
+        # ── BIỂU ĐỒ TREND ─────────────────────────────────────────────────────────
         fig_trend, ax_trend = plt.subplots(figsize=(14, 4.5))
         
-        # 1. RAW DATA (ZIGZAG)
         x_axis = range(len(dff_g))
         ax_trend.plot(x_axis, dff_g['Gloss_Lab'], marker='o', color='#1f77b4', lw=1.5, label='Lab Gloss')
         ax_trend.plot(x_axis, dff_g['Online_Gloss_Top'], marker='s', color='#ff7f0e', lw=1.5, label='Line Gloss')
         
-        # 2. LAB LIMITS - RED
         ax_trend.axhline(lsl_val, color='red', ls='-', lw=2, label=f'Lab LSL ({lsl_val})')
         ax_trend.axhline(usl_val, color='red', ls='-', lw=2, label=f'Lab USL ({usl_val})')
-        
-        # 3. LINE LIMITS - GREEN (Updated as requested)
         ax_trend.axhline(line_lsl_val, color='green', ls='--', lw=2, label=f'Line LSL ({line_lsl_val})')
         ax_trend.axhline(line_usl_val, color='green', ls='--', lw=2, label=f'Line USL ({line_usl_val})')
         
-        # X-Axis Formatting
         plt.xticks(x_axis, dff_g['Batch_Lot'].astype(str), rotation=45, ha='right')
         if len(x_axis) > 20:
             step = max(1, len(x_axis) // 15)
@@ -276,41 +272,119 @@ if view_mode == "✨ Gloss Trend (SPC)":
         st.pyplot(fig_trend)
         plt.close(fig_trend)
 
-       # --- BIỂU ĐỒ PHÂN PHỐI (DISTRIBUTION) VỚI ĐƯỜNG CONG CHUẨN ---
+        # ── BIỂU ĐỒ PHÂN PHỐI (COUNT) VỚI ĐƯỜNG CONG CHUẨN ──────────────────────
         st.write("**Gloss Distribution & Normal Curve Comparison**")
         fig_dist, ax_dist = plt.subplots(figsize=(10, 5))
-        
-        # 1. Vẽ Histogram thô (không có đường KDE tự động)
-        sns.histplot(dff_g['Gloss_Lab'], color='#1f77b4', stat="density", alpha=0.2, label='Lab Histogram', ax=ax_dist)
-        sns.histplot(dff_g['Online_Gloss_Top'], color='#ff7f0e', stat="density", alpha=0.2, label='Line Histogram', ax=ax_dist)
-        
-        # 2. Tính toán dải trục X để vẽ đường cong
+
+        # 1. Histogram - trục Y = số cuộn thực tế
+        sns.histplot(dff_g['Gloss_Lab'],        color='#1f77b4', stat="count",
+                     alpha=0.2, label='Lab Histogram',  ax=ax_dist)
+        sns.histplot(dff_g['Online_Gloss_Top'], color='#ff7f0e', stat="count",
+                     alpha=0.2, label='Line Histogram', ax=ax_dist)
+
+        # 2. Dải trục X
         all_data = pd.concat([dff_g['Gloss_Lab'], dff_g['Online_Gloss_Top']])
         x_min, x_max = all_data.min() - 3, all_data.max() + 3
-        x_axis = np.linspace(x_min, x_max, 200)
-        
-        # 3. Vẽ đường NORMAL CURVE chuẩn (Toán học)
-        # Đường chuẩn cho Lab
-        mean_lab, std_lab = dff_g['Gloss_Lab'].mean(), dff_g['Gloss_Lab'].std()
-        if std_lab > 0:
-            ax_dist.plot(x_axis, stats.norm.pdf(x_axis, mean_lab, std_lab), color='#1f77b4', lw=2.5, label=f'Lab Normal Curve (σ={std_lab:.2f})')
-            
-        # Đường chuẩn cho Line
-        mean_line, std_line = dff_g['Online_Gloss_Top'].mean(), dff_g['Online_Gloss_Top'].std()
-        if std_line > 0:
-            ax_dist.plot(x_axis, stats.norm.pdf(x_axis, mean_line, std_line), color='#ff7f0e', lw=2.5, label=f'Line Normal Curve (σ={std_line:.2f})')
+        x_curve = np.linspace(x_min, x_max, 200)
 
-        # 4. Vẽ các đường giới hạn (Spec)
-        ax_dist.axvline(lsl_val, color='red', ls='-', lw=2, label=f'Lab LSL ({lsl_val})')
-        ax_dist.axvline(usl_val, color='red', ls='-', lw=2, label=f'Lab USL ({usl_val})')
-        
+        # 3. Tính thống kê
+        mean_lab,  std_lab  = dff_g['Gloss_Lab'].mean(),        dff_g['Gloss_Lab'].std()
+        min_lab,   max_lab  = dff_g['Gloss_Lab'].min(),         dff_g['Gloss_Lab'].max()
+        mean_line, std_line = dff_g['Online_Gloss_Top'].mean(), dff_g['Online_Gloss_Top'].std()
+        min_line,  max_line = dff_g['Online_Gloss_Top'].min(),  dff_g['Online_Gloss_Top'].max()
+
+        # 4. Normal Curve scaled theo COUNT
+        bin_width = (all_data.max() - all_data.min()) / 10
+
+        if std_lab > 0:
+            n_lab = len(dff_g['Gloss_Lab'])
+            ax_dist.plot(x_curve,
+                         stats.norm.pdf(x_curve, mean_lab, std_lab) * n_lab * bin_width,
+                         color='#1f77b4', lw=2.5,
+                         label=f'Lab Normal Curve (μ={mean_lab:.1f}, σ={std_lab:.2f})')
+
+        if std_line > 0:
+            n_line = len(dff_g['Online_Gloss_Top'])
+            ax_dist.plot(x_curve,
+                         stats.norm.pdf(x_curve, mean_line, std_line) * n_line * bin_width,
+                         color='#ff7f0e', lw=2.5,
+                         label=f'Line Normal Curve (μ={mean_line:.1f}, σ={std_line:.2f})')
+
+        # 5. Lấy y_top sau khi vẽ histogram + curve
+        ax_dist.set_xlim(x_min, x_max)
+        fig_dist.canvas.draw()
+        y_top = ax_dist.get_ylim()[1]
+
+        # ── Mean Lab ──
+        ax_dist.axvline(mean_lab, color='#1f77b4', ls='-', lw=2,
+                        label=f'Lab Mean ({mean_lab:.1f})')
+        ax_dist.annotate(f'Lab Mean\n{mean_lab:.1f}',
+                         xy=(mean_lab, y_top * 0.97),
+                         xytext=(mean_lab + 0.4, y_top * 0.97),
+                         fontsize=7.5, color='#1f77b4', va='top',
+                         arrowprops=dict(arrowstyle='->', color='#1f77b4', lw=1))
+
+        # ── Min / Max Lab ──
+        ax_dist.axvline(min_lab, color='#1f77b4', ls=':', lw=1.5,
+                        label=f'Lab Min ({min_lab:.1f})')
+        ax_dist.text(min_lab, y_top * 0.75, f'Lab Min\n{min_lab:.1f}',
+                     fontsize=7, color='#1f77b4', ha='center', va='top',
+                     bbox=dict(boxstyle='round,pad=0.2', fc='white', alpha=0.7))
+
+        ax_dist.axvline(max_lab, color='#1f77b4', ls=':', lw=1.5,
+                        label=f'Lab Max ({max_lab:.1f})')
+        ax_dist.text(max_lab, y_top * 0.75, f'Lab Max\n{max_lab:.1f}',
+                     fontsize=7, color='#1f77b4', ha='center', va='top',
+                     bbox=dict(boxstyle='round,pad=0.2', fc='white', alpha=0.7))
+
+        # ── Mean Line ──
+        ax_dist.axvline(mean_line, color='#ff7f0e', ls='-', lw=2,
+                        label=f'Line Mean ({mean_line:.1f})')
+        ax_dist.annotate(f'Line Mean\n{mean_line:.1f}',
+                         xy=(mean_line, y_top * 0.85),
+                         xytext=(mean_line - 0.4, y_top * 0.85),
+                         fontsize=7.5, color='#ff7f0e', va='top',
+                         arrowprops=dict(arrowstyle='->', color='#ff7f0e', lw=1))
+
+        # ── Min / Max Line ──
+        ax_dist.axvline(min_line, color='#ff7f0e', ls=':', lw=1.5,
+                        label=f'Line Min ({min_line:.1f})')
+        ax_dist.text(min_line, y_top * 0.60, f'Line Min\n{min_line:.1f}',
+                     fontsize=7, color='#ff7f0e', ha='center', va='top',
+                     bbox=dict(boxstyle='round,pad=0.2', fc='white', alpha=0.7))
+
+        ax_dist.axvline(max_line, color='#ff7f0e', ls=':', lw=1.5,
+                        label=f'Line Max ({max_line:.1f})')
+        ax_dist.text(max_line, y_top * 0.60, f'Line Max\n{max_line:.1f}',
+                     fontsize=7, color='#ff7f0e', ha='center', va='top',
+                     bbox=dict(boxstyle='round,pad=0.2', fc='white', alpha=0.7))
+
+        # ── Spec Limits LSL / USL ──
+        ax_dist.axvline(lsl_val, color='red', ls='-', lw=2,
+                        label=f'Lab LSL ({lsl_val})')
+        ax_dist.axvline(usl_val, color='red', ls='-', lw=2,
+                        label=f'Lab USL ({usl_val})')
+        ax_dist.text(lsl_val, y_top * 0.50, f'LSL\n{lsl_val}',
+                     fontsize=7.5, color='red', ha='center', va='top', fontweight='bold',
+                     bbox=dict(boxstyle='round,pad=0.2', fc='white', alpha=0.8))
+        ax_dist.text(usl_val, y_top * 0.50, f'USL\n{usl_val}',
+                     fontsize=7.5, color='red', ha='center', va='top', fontweight='bold',
+                     bbox=dict(boxstyle='round,pad=0.2', fc='white', alpha=0.8))
+
+        # ── Tô vùng NG ngoài Spec ──
+        ax_dist.axvspan(x_min, lsl_val, alpha=0.07, color='red')
+        ax_dist.axvspan(usl_val, x_max, alpha=0.07, color='red')
+
+        # ── Layout ──
         ax_dist.set_xlabel("Gloss Value (GU)")
-        ax_dist.set_ylabel("Probability Density")
-        ax_dist.legend(fontsize='small', loc='upper right')
-        
+        ax_dist.set_ylabel("Number of Coils")
+        ax_dist.legend(fontsize=7, loc='upper right', ncol=2)
+        ax_dist.set_xlim(x_min, x_max)
+        fig_dist.tight_layout()
         st.pyplot(fig_dist)
         plt.close(fig_dist)
 
+    # ── TAB SELECTION ──────────────────────────────────────────────────────────
     list_ma_son_tab2 = sorted(dff['Ma_Son'].dropna().unique().tolist())
     if list_ma_son_tab2:
         tab_top_risk, tab_custom = st.tabs(["🚨 Top At-Risk Codes", "🔍 Manual Analysis"])
