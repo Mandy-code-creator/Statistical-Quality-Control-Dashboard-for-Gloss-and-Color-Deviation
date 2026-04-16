@@ -516,7 +516,6 @@ elif view_mode == "📊 Statistical Limits (Scope Comparison)":
         st.markdown("---")
         st.subheader("⚙️ Control Scope Settings")
         
-        # ADDED METHOD SELECTOR FOR I-MR VS STD DEV
         col_set1, col_set2 = st.columns(2)
         with col_set1:
             sigma_mult = st.number_input("Strictness Multiplier (Sigma)", min_value=1.00, max_value=4.00, value=2.00, step=0.10, format="%.2f", help="Input the standard deviation multiplier. Example: 2.0 or 3.0")
@@ -562,6 +561,41 @@ elif view_mode == "📊 Statistical Limits (Scope Comparison)":
             c3.metric("Est. Std Dev (σ)", f"{std_batch_calc:.2f} GU" if std_batch_calc > 0 else "N/A", delta=f"{(std_ind_calc - std_batch_calc):.2f} tighter", delta_color="normal")
             c4.metric("Calculated Control Span", f"{lcl_batch:.1f} - {ucl_batch:.1f}" if std_batch_calc > 0 else "N/A")
 
+        # --- ADDING THE TRENDING LINE CHART HERE ---
+        st.markdown("---")
+        st.subheader("📈 SPC Trending Line: Individual vs. Batch Averages")
+        st.caption("Displays sequential data points to monitor stability and drift over time.")
+        fig_trend_spc, ax_trend_spc = plt.subplots(figsize=(14, 5))
+
+        # We plot against a sequential index
+        seq_index = range(len(clean_ind_data))
+        ax_trend_spc.plot(seq_index, clean_ind_data['Online_Gloss_Top'], marker='o', color='#3498db', alpha=0.5, ls='-', label='Individual Coils')
+
+        # Map batch means back to individual points to show the step-changes
+        batch_mean_dict = dict(zip(batch_data['Batch_Lot'], batch_data['Gloss_Mean']))
+        mapped_means = clean_ind_data['Batch_Lot'].map(batch_mean_dict)
+        ax_trend_spc.plot(seq_index, mapped_means, marker='s', color='#e67e22', lw=2, label='Batch Averages')
+
+        # Control Limits
+        ax_trend_spc.axhline(mean_ind, color='black', lw=2, label=f'Mean ({mean_ind:.1f})')
+        ax_trend_spc.axhline(ucl_ind, color='#2980b9', ls='--', lw=2, label=f'Ind UCL ({ucl_ind:.1f})')
+        ax_trend_spc.axhline(lcl_ind, color='#2980b9', ls='--', lw=2, label=f'Ind LCL ({lcl_ind:.1f})')
+        
+        if std_batch_calc > 0:
+            ax_trend_spc.axhline(ucl_batch, color='#d35400', ls=':', lw=2, label=f'Batch UCL ({ucl_batch:.1f})')
+            ax_trend_spc.axhline(lcl_batch, color='#d35400', ls=':', lw=2, label=f'Batch LCL ({lcl_batch:.1f})')
+
+        ax_trend_spc.axhline(line_usl, color='red', ls='-', lw=1.5, alpha=0.5, label='Line USL')
+        ax_trend_spc.axhline(line_lsl, color='red', ls='-', lw=1.5, alpha=0.5, label='Line LSL')
+
+        ax_trend_spc.set_xlabel("Sequential Coil Index")
+        ax_trend_spc.set_ylabel("Online Gloss Top (GU)")
+        ax_trend_spc.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
+        plt.tight_layout()
+        st.pyplot(fig_trend_spc)
+        plt.close(fig_trend_spc)
+
+
         st.markdown("---")
         st.subheader("📊 Distribution Overlap: Individual vs. Batch (Online Output)")
         
@@ -571,6 +605,19 @@ elif view_mode == "📊 Statistical Limits (Scope Comparison)":
         if len(batch_data) > 1:
             sns.histplot(batch_data['Gloss_Mean'], color='#e67e22', alpha=0.6, label='Batch Averages Distribution', stat="density", ax=ax_dist)
         
+        # --- ADDING NORMAL CURVES ---
+        x_min_dist = min(clean_ind_data['Online_Gloss_Top'].min(), line_lsl) - 2
+        x_max_dist = max(clean_ind_data['Online_Gloss_Top'].max(), line_usl) + 2
+        x_axis_dist = np.linspace(x_min_dist, x_max_dist, 300)
+
+        if std_ind_calc > 0:
+            y_ind_norm = stats.norm.pdf(x_axis_dist, mean_ind, std_ind_calc)
+            ax_dist.plot(x_axis_dist, y_ind_norm, color='#2980b9', lw=2.5, label='Ind Normal Curve')
+
+        if std_batch_calc > 0:
+            y_batch_norm = stats.norm.pdf(x_axis_dist, mean_batch, std_batch_calc)
+            ax_dist.plot(x_axis_dist, y_batch_norm, color='#d35400', lw=2.5, ls='--', label='Batch Normal Curve')
+
         y_max = ax_dist.get_ylim()[1]
         
         val_min = clean_ind_data['Online_Gloss_Top'].min()
