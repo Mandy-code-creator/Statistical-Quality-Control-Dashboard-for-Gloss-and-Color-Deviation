@@ -564,10 +564,10 @@ elif view_mode == "🎨 Color & ΔE Analysis":
             st.warning("⚠️ Insufficient data to perform color analysis for this paint code.")
 
 # ==========================================
-# VIEW 3: STATISTICAL CONTROL LIMITS
+# VIEW 3: STATISTICAL CONTROL LIMITS (NEW LOGIC - LỌC NHIỄU & CLAMP)
 # ==========================================
 elif view_mode == "📊 Statistical Control Limits":
-    st.info("💡 Strict Input Control: Calculates dynamic process limits for Lab Gloss based on production history. To reduce downstream variation, new Lab limits are constrained so they NEVER exceed current official specs.")
+    st.info("💡 Strict Input Control (Updated): Thuật toán giờ đây tự động loại bỏ các điểm nhiễu (Outliers) bằng phương pháp IQR để tránh việc giới hạn bị giãn rộng vô lý. Bạn có thể tùy chỉnh hệ số Sigma, nhưng giới hạn cuối cùng sẽ luôn được 'khóa' để không vượt quá giới hạn Spec chính thức.")
     
     list_ma_son_tab4 = sorted(dff['Ma_Son'].dropna().unique().tolist())
     if list_ma_son_tab4:
@@ -589,143 +589,73 @@ elif view_mode == "📊 Statistical Control Limits":
         dff_spc = dff_spc.dropna(subset=['Online_Gloss_Top', 'Gloss_Lab', 'Ngay_SX']).sort_values(['Ngay_SX', 'Coil_No'])
         
         if len(dff_spc) >= 5:
-            lab_data = dff_spc['Gloss_Lab'].values
-            line_data = dff_spc['Online_Gloss_Top'].values
+            # --- BƯỚC 1: LỌC NHIỄU BẰNG IQR (INTERQUARTILE RANGE) ---
+            q1 = dff_spc['Gloss_Lab'].quantile(0.25)
+            q3 = dff_spc['Gloss_Lab'].quantile(0.75)
+            iqr = q3 - q1
+            lower_bound = q1 - 1.5 * iqr
+            upper_bound = q3 + 1.5 * iqr
+            
+            # Tách dữ liệu "Sạch" và "Nhiễu"
+            clean_data = dff_spc[(dff_spc['Gloss_Lab'] >= lower_bound) & (dff_spc['Gloss_Lab'] <= upper_bound)]
+            outliers = dff_spc[(dff_spc['Gloss_Lab'] < lower_bound) | (dff_spc['Gloss_Lab'] > upper_bound)]
             
             # Official Limits
             lab_lsl = dff_spc['Gloss_LSL'].iloc[0]
             lab_usl = dff_spc['Gloss_USL'].iloc[0]
-            line_lsl = dff_spc['Line_LSL'].iloc[0]
-            line_usl = dff_spc['Line_USL'].iloc[0]
             
-            st.success(f"📅 **Historical Volume:** `{dff_spc['Batch_Lot'].nunique()}` Batches (`{len(lab_data)}` Coils).")
+            st.success(f"📅 **Historical Volume:** `{dff_spc['Batch_Lot'].nunique()}` Batches (Tổng: `{len(dff_spc)}` Coils | Hợp lệ để tính toán: `{len(clean_data)}` Coils | Bỏ qua: `{len(outliers)}` Nhiễu).")
 
-            # =========================================================
-            # ADJUSTABLE MULTIPLIERS
-            # =========================================================
+            # --- BƯỚC 2: TÙY CHỈNH THÔNG SỐ VÀ TÍNH TOÁN ---
             st.markdown("---")
-            st.subheader("⚙️ Adjust Statistical Multipliers")
+            st.subheader("⚙️ Cấu hình Giới hạn Đề xuất")
             c_mod1, c_mod2 = st.columns(2)
             with c_mod1:
-                sigma_mult = st.number_input("Sigma Multiplier (Standard Deviation)", value=3.0, step=0.5, help="Standard is 3.0. Lower values (e.g. 2.0) will make limits stricter.")
-            with c_mod2:
-                k_mult = st.number_input("K Multiplier (IQR Method)", value=1.5, step=0.1, help="Standard is 1.5. Higher values (e.g. 3.0) allow more variation before flagging as outlier.")
+                sigma_mult = st.slider("Độ nghiêm ngặt (Hệ số Sigma)", min_value=1.5, max_value=3.0, value=2.0, step=0.5, help="2.0σ bao phủ ~95% dữ liệu (dùng làm Cảnh báo). 3.0σ bao phủ ~99.7% dữ liệu.")
             
-            # --- 1. Standard Deviation Method ---
-            mean_lab = np.mean(lab_data)
-            std_lab = np.std(lab_data, ddof=1)
-            lcl_std_raw = mean_lab - sigma_mult * std_lab
-            ucl_std_raw = mean_lab + sigma_mult * std_lab
+            # Tính toán dựa trên dữ liệu Sạch
+            mean_lab = clean_data['Gloss_Lab'].mean()
+            std_lab = clean_data['Gloss_Lab'].std()
             
-            # --- 2. IQR Method ---
-            q1 = np.percentile(lab_data, 25)
-            q3 = np.percentile(lab_data, 75)
-            iqr_val = q3 - q1
-            lcl_iqr_raw = q1 - k_mult * iqr_val
-            ucl_iqr_raw = q3 + k_mult * iqr_val
+            # Tính toán giới hạn thô
+            lcl_raw = mean_lab - sigma_mult * std_lab
+            ucl_raw = mean_lab + sigma_mult * std_lab
             
-            # --- 3. I-MR Method (Individuals-Moving Range) ---
-            mr = np.abs(np.diff(lab_data))
-            mean_mr = np.mean(mr) if len(mr) > 0 else 0
-            lcl_imr_raw = mean_lab - 2.66 * mean_mr
-            ucl_imr_raw = mean_lab + 2.66 * mean_mr
-            
-            # --- APPLY BUSINESS RULE: MUST BE STRICTER THAN OFFICIAL ---
-            lcl_std, ucl_std = max(lcl_std_raw, lab_lsl), min(ucl_std_raw, lab_usl)
-            lcl_iqr, ucl_iqr = max(lcl_iqr_raw, lab_lsl), min(ucl_iqr_raw, lab_usl)
-            lcl_imr, ucl_imr = max(lcl_imr_raw, lab_lsl), min(ucl_imr_raw, lab_usl)
-            
-            # =========================================================
-            # METHODS COMPARISON SUMMARY TABLE
-            # =========================================================
-            st.markdown("---")
-            st.subheader("📋 Methods Comparison Summary")
-            st.caption(f"Comparing the new calculated limits against current official specs. (New limits are constrained to never exceed Official Lab Limits).")
-            
-            summary_data = [
-                {
-                    "Method": f"Standard Deviation ({sigma_mult}σ)", 
-                    "Current Lab LSL": lab_lsl, 
-                    "Current Lab USL": lab_usl, 
-                    "New Lab LCL": lcl_std, 
-                    "New Lab UCL": ucl_std,
-                    "Mean": mean_lab,
-                    "Std Dev (s)": std_lab
-                },
-                {
-                    "Method": f"Interquartile Range (K={k_mult})", 
-                    "Current Lab LSL": lab_lsl, 
-                    "Current Lab USL": lab_usl, 
-                    "New Lab LCL": lcl_iqr, 
-                    "New Lab UCL": ucl_iqr,
-                    "Mean": mean_lab,
-                    "Std Dev (s)": std_lab
-                },
-                {
-                    "Method": "Individuals-Moving Range (I-MR)", 
-                    "Current Lab LSL": lab_lsl, 
-                    "Current Lab USL": lab_usl, 
-                    "New Lab LCL": lcl_imr, 
-                    "New Lab UCL": ucl_imr,
-                    "Mean": mean_lab,
-                    "Std Dev (s)": std_lab
-                }
-            ]
-            
-            summary_df = pd.DataFrame(summary_data)
-            
-            st.dataframe(
-                summary_df.style.format({
-                    "Current Lab LSL": "{:.1f}", "Current Lab USL": "{:.1f}", 
-                    "New Lab LCL": "{:.2f}", "New Lab UCL": "{:.2f}",
-                    "Mean": "{:.2f}", "Std Dev (s)": "{:.2f}"
-                }).set_properties(**{'font-weight': 'bold'}, subset=['Method'])
-                  .set_properties(**{'background-color': '#e8f5e9', 'color': '#2e7d32', 'font-weight': 'bold'}, subset=['New Lab LCL', 'New Lab UCL']),
-                use_container_width=True, hide_index=True
-            )
-
-            # =========================================================
-            # VISUALIZATION
-            # =========================================================
-            st.markdown("---")
-            sel_method = st.radio("🧮 Select Statistical Method to Visualize:", 
-                                  [f"Standard Deviation ({sigma_mult}σ)", f"Interquartile Range (K={k_mult})", "Individuals-Moving Range (I-MR)"], 
-                                  horizontal=True)
-            
-            if "Standard Deviation" in sel_method:
-                plot_lcl, plot_ucl, plot_center = lcl_std, ucl_std, mean_lab
-            elif "Interquartile Range" in sel_method:
-                plot_lcl, plot_ucl, plot_center = lcl_iqr, ucl_iqr, np.median(lab_data)
-            else:
-                plot_lcl, plot_ucl, plot_center = lcl_imr, ucl_imr, mean_lab
+            # APPLY BUSINESS RULE: MUST BE STRICTER THAN OFFICIAL
+            plot_lcl = max(lcl_raw, lab_lsl)
+            plot_ucl = min(ucl_raw, lab_usl)
 
             # --- METRICS DISPLAY ---
+            st.markdown("### 📋 Kết quả Tính toán")
             col1, col2, col3, col4 = st.columns(4)
             col1.metric("Official Lab LSL", f"{lab_lsl:.1f}")
             col2.metric(f"New Lab LCL", f"{plot_lcl:.2f}", delta=f"{plot_lcl - lab_lsl:+.2f} (Stricter)" if plot_lcl > lab_lsl else "Unchanged", delta_color="inverse" if plot_lcl > lab_lsl else "off")
             col3.metric(f"New Lab UCL", f"{plot_ucl:.2f}", delta=f"{plot_ucl - lab_usl:+.2f} (Stricter)" if plot_ucl < lab_usl else "Unchanged", delta_color="inverse" if plot_ucl < lab_usl else "off")
             col4.metric("Official Lab USL", f"{lab_usl:.1f}")
             
-            # --- CHART 1: TREND LINE ---
+            # --- CHART 1: TREND LINE VỚI OUTLIERS ---
             st.markdown("---")
-            st.write("**📈 Trend Line: Sequential Production (Lab & Line)**")
+            st.write("**📈 Trend Line: Dữ liệu thực tế và Điểm nhiễu**")
             fig_trend, ax_trend = plt.subplots(figsize=(14, 4.5))
             
-            x_axis = range(len(lab_data))
-            ax_trend.plot(x_axis, lab_data, marker='o', color='#3498db', lw=2, label='Lab Gloss')
-            ax_trend.plot(x_axis, line_data, marker='s', color='#e67e22', lw=2, label='Line Gloss')
+            x_axis = range(len(dff_spc))
             
-            # Draw Limits
+            # Vẽ toàn bộ dữ liệu Lab bằng đường mờ
+            ax_trend.plot(x_axis, dff_spc['Gloss_Lab'].values, marker='o', color='#3498db', lw=1.5, alpha=0.5, label='Lab Gloss (Tất cả)')
+            
+            # Đánh dấu các điểm Outliers bằng chấm đỏ
+            if not outliers.empty:
+                outlier_indices = [dff_spc.index.get_loc(idx) for idx in outliers.index]
+                ax_trend.scatter(outlier_indices, outliers['Gloss_Lab'].values, color='red', s=60, zorder=5, label='Điểm nhiễu (Bỏ qua)')
+            
+            # Vẽ các đường giới hạn
             ax_trend.axhline(lab_usl, color='red', ls='-', lw=1.5, alpha=0.3, label=f'Official Lab USL ({lab_usl:.1f})')
             ax_trend.axhline(lab_lsl, color='red', ls='-', lw=1.5, alpha=0.3, label=f'Official Lab LSL ({lab_lsl:.1f})')
-            
-            ax_trend.axhline(line_usl, color='orange', ls='--', lw=1.5, alpha=0.4, label=f'Official Line USL ({line_usl:.1f})')
-            ax_trend.axhline(line_lsl, color='orange', ls='--', lw=1.5, alpha=0.4, label=f'Official Line LSL ({line_lsl:.1f})')
             
             ax_trend.axhline(plot_ucl, color='green', ls='-', lw=2.5, label=f'NEW Lab UCL ({plot_ucl:.2f})')
             ax_trend.axhline(plot_lcl, color='green', ls='-', lw=2.5, label=f'NEW Lab LCL ({plot_lcl:.2f})')
             
-            # Shade the "safe" new Lab zone
+            # Tô màu vùng an toàn mới
             ax_trend.fill_between(x_axis, plot_lcl, plot_ucl, color='green', alpha=0.05)
 
             ax_trend.set_xlabel("Sequential Production Order (Coil Index)")
@@ -734,52 +664,6 @@ elif view_mode == "📊 Statistical Control Limits":
             plt.tight_layout()
             st.pyplot(fig_trend)
             plt.close(fig_trend)
-            
-            # --- CHART 2: NORMAL DISTRIBUTION ---
-            st.markdown("---")
-            st.write("**📊 Data Distribution & Normal Curve (Lab & Line)**")
-            fig_dist, ax_dist = plt.subplots(figsize=(14, 4.5))
-            
-            min_val = min(np.min(lab_data), np.min(line_data), lab_lsl, line_lsl) - 2
-            max_val = max(np.max(lab_data), np.max(line_data), lab_usl, line_usl) + 2
-            bins_arr = np.linspace(min_val, max_val, 15)
-            bin_width = bins_arr[1] - bins_arr[0]
-            
-            sns.histplot(lab_data, stat="count", bins=bins_arr, color='#3498db', alpha=0.4, label='Lab Bins', ax=ax_dist)
-            sns.histplot(line_data, stat="count", bins=bins_arr, color='#e67e22', alpha=0.4, label='Line Bins', ax=ax_dist)
-            
-            x_axis_dist = np.linspace(min_val, max_val, 200)
-            
-            # Lab Curve
-            if std_lab > 0:
-                y_lab_scaled = stats.norm.pdf(x_axis_dist, mean_lab, std_lab) * len(lab_data) * bin_width
-                ax_dist.plot(x_axis_dist, y_lab_scaled, color='#2980b9', lw=2.5, label='Lab Normal Curve')
-            
-            # Line Curve
-            mean_line = np.mean(line_data)
-            std_line = np.std(line_data, ddof=1)
-            if std_line > 0:
-                y_line_scaled = stats.norm.pdf(x_axis_dist, mean_line, std_line) * len(line_data) * bin_width
-                ax_dist.plot(x_axis_dist, y_line_scaled, color='#d35400', lw=2.5, label='Line Normal Curve')
-                
-            # Draw Limits on Distribution Chart
-            ax_dist.axvline(lab_usl, color='red', ls='-', lw=1.5, alpha=0.3)
-            ax_dist.axvline(lab_lsl, color='red', ls='-', lw=1.5, alpha=0.3)
-            ax_dist.axvline(line_usl, color='orange', ls='--', lw=1.5, alpha=0.4)
-            ax_dist.axvline(line_lsl, color='orange', ls='--', lw=1.5, alpha=0.4)
-            
-            ax_dist.axvline(plot_ucl, color='green', ls='-', lw=2.5, label=f'NEW Lab UCL ({plot_ucl:.2f})')
-            ax_dist.axvline(plot_lcl, color='green', ls='-', lw=2.5, label=f'NEW Lab LCL ({plot_lcl:.2f})')
-            
-            # Shade the safe zone
-            ax_dist.axvspan(plot_lcl, plot_ucl, color='green', alpha=0.05)
-            
-            ax_dist.set_xlabel("Gloss (GU)")
-            ax_dist.set_ylabel("Number of Coils (Count)")
-            ax_dist.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
-            plt.tight_layout()
-            st.pyplot(fig_dist)
-            plt.close(fig_dist)
             
         else:
             st.warning("⚠️ Insufficient data. We need at least 5 consecutive production coils to calculate meaningful statistical control limits.")
