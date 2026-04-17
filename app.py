@@ -173,7 +173,6 @@ st.markdown("---")
 
 # ==========================================
 # ==========================================
-# ==========================================
 # VIEW 1: GLOSS TREND (SPC)
 # ==========================================
 if view_mode == "✨ Gloss Trend (SPC)":
@@ -249,7 +248,7 @@ if view_mode == "✨ Gloss Trend (SPC)":
         
         st.success(f"📅 **Timeframe:** `{dff_g['Ngay_SX'].min()}` to `{dff_g['Ngay_SX'].max()}` | **Volume:** {dff_g['Batch_Lot'].nunique()} Batches ({len(dff_g)} Coils).")
 
-        # ── BIỂU ĐỒ TREND (ZIGZAG RAW DATA) ───────────────────────────────────
+        # ── BIỂU ĐỒ 1: TREND (ZIGZAG RAW DATA) ───────────────────────────────────
         fig_trend, ax_trend = plt.subplots(figsize=(14, 4.5))
         dff_g['x_seq'] = list(range(len(dff_g)))
         
@@ -269,7 +268,7 @@ if view_mode == "✨ Gloss Trend (SPC)":
         ax_trend.axhline(line_lsl_val, color='green', ls='--', lw=2, label=f'Line LSL ({line_lsl_val})')
         ax_trend.axhline(line_usl_val, color='green', ls='--', lw=2, label=f'Line USL ({line_usl_val})')
         
-        # --- BẮT ĐẦU ĐOẠN FIX NHÃN TRỤC X CHUẨN SPC (NÂNG CẤP CHỐNG ĐÈ CHỮ) ---
+        # --- NHÃN TRỤC X CHUẨN SPC (NÂNG CẤP CHỐNG ĐÈ CHỮ) ---
         ax_trend.set_xlabel("Production Sequence (Coils grouped by Batch)")
         
         batch_info = dff_g.groupby('Batch_Lot', sort=False)['x_seq'].agg(['min', 'max', 'mean']).reset_index()
@@ -298,16 +297,13 @@ if view_mode == "✨ Gloss Trend (SPC)":
 
         ax_trend.set_xticks(kept_ticks)
         ax_trend.set_xticklabels(kept_labels, rotation=45, ha='right', fontsize=8)
-        # --- KẾT THÚC ĐOẠN FIX NHÃN TRỤC X ---
         
-        # --- ĐÂY LÀ PHẦN BẠN XÓA NHẦM, MÌNH ĐÃ THÊM LẠI ---
         ax_trend.set_ylabel("Gloss (GU)")
         ax_trend.legend(bbox_to_anchor=(1.01, 1), loc='upper left', fontsize='small')
         st.pyplot(fig_trend)
         plt.close(fig_trend)
-        # -------------------------------------------------
 
-        # ── BIỂU ĐỒ 2: GLOSS DISTRIBUTION ───────────────────────────────────
+        # ── BIỂU ĐỒ 2: GLOSS DISTRIBUTION (NORMAL CURVE) ───────────────────────────────────
         st.write("**Gloss Distribution Analysis**")
         fig_dist, ax_dist = plt.subplots(figsize=(9, 5)) 
         
@@ -362,9 +358,11 @@ if view_mode == "✨ Gloss Trend (SPC)":
         st.pyplot(fig_dist)
         plt.close('all')
 
+    # ── TAB SELECTION (TÍCH HỢP TAB NHỰA) ──────────────────────────
     list_ma_son_tab2 = sorted(dff['Ma_Son'].dropna().unique().tolist())
     if list_ma_son_tab2:
-        tab_top_risk, tab_custom = st.tabs(["🚨 Top At-Risk Codes", "🔍 Manual Analysis"])
+        tab_top_risk, tab_custom, tab_resin = st.tabs(["🚨 Top At-Risk Codes", "🔍 Manual Analysis", "🧪 Analysis by Resin"])
+        
         with tab_top_risk:
             if not risk_alert.empty:
                 top_15 = risk_alert['Paint Code'].head(15).tolist()
@@ -378,6 +376,31 @@ if view_mode == "✨ Gloss Trend (SPC)":
         with tab_custom:
             sel_ma_son = st.selectbox("🎯 Select Paint Code:", list_ma_son_tab2, key="manual_sel")
             render_spc_analysis(sel_ma_son, dff, "manual")
+            
+        with tab_resin:
+            st.subheader("🧪 Stratified Analysis by Coating Type")
+            list_resins = sorted(dff['Coating_Type'].unique().tolist())
+            sel_resin_type = st.selectbox("Select Resin (Coating Type) to focus:", list_resins)
+            
+            df_resin_subset = dff[dff['Coating_Type'] == sel_resin_type]
+            codes_in_resin = sorted(df_resin_subset['Ma_Son'].unique().tolist())
+            
+            col_r1, col_r2 = st.columns([1, 3])
+            with col_r1:
+                st.metric("Total Codes", len(codes_in_resin))
+                st.metric("Total Batches", df_resin_subset['Batch_Lot'].nunique())
+                if codes_in_resin:
+                    sel_code_in_resin = st.selectbox(f"Select Paint Code ({sel_resin_type}):", codes_in_resin)
+                else:
+                    sel_code_in_resin = None
+            
+            with col_r2:
+                st.info(f"Phân tích chuyên sâu cho dòng nhựa **{sel_resin_type}**. Việc tách biệt các dòng nhựa giúp phát hiện mức độ nhạy cảm với nhiệt độ sấy đặc thù của từng loại hợp chất.")
+            
+            if sel_code_in_resin:
+                render_spc_analysis(sel_code_in_resin, df_resin_subset, "resin_view")
+
+# ==========================================
 # ==========================================
 # ==========================================
 # VIEW 2: STATISTICAL LIMITS (SCOPE COMPARISON)
