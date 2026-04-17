@@ -765,28 +765,30 @@ elif view_mode == "⚖️ Predictive Compensation & Targeting":
             st.warning("⚠️ Insufficient historical data for this paint code to build a reliable compensation model (Min. 5 coils required).")
 # ==========================================
 # ==========================================
-# VIEW 5: SUPPLIER CAPABILITY
+# VIEW 5: SUPPLIER CAPABILITY (FIXED SPEC LOGIC)
 # ==========================================
 elif view_mode == "🤝 Supplier Capability":
-    st.info("💡 Flexible Mode: Select a specific code for capability comparison (Cpk). Select 'All' to evaluate overall stability of a color group based on Target Deviation (ΔGloss).")
+    st.info("💡 Capability Analysis: Evaluates suppliers based on their specific Full Paint Codes (Ma_Son). Each code is strictly evaluated against its own LSL/USL.")
     
     st.markdown("---")
     st.subheader("🚨 Negotiation Radar (Supplier Blacklist)")
     st.caption("Paint codes with **Cpk < 1.0** (unstable gloss) or **ΔE Max > 1.0** (color shift) will be flagged here. Minimum 2 Batches required.")
     
-    dff_radar = dff.dropna(subset=['Online_Gloss_Top', 'Supplier', 'Gloss_LSL', 'Gloss_USL', 'Color_Group', 'Color_Code', 'dL_N', 'da_N', 'db_N'])
+    dff_radar = dff.dropna(subset=['Online_Gloss_Top', 'Supplier', 'Gloss_LSL', 'Gloss_USL', 'Color_Group', 'Ma_Son', 'dL_N', 'da_N', 'db_N'])
     dff_radar = dff_radar[(dff_radar['Gloss_LSL'] > 0) & (dff_radar['Gloss_USL'] > 0) & (dff_radar['Online_Gloss_Top'] > 0)]
     
     if not dff_radar.empty:
-        # TÍNH TOÁN THEO SỐ MẺ (BATCH)
-        radar_summary = dff_radar.groupby(['Color_Group', 'Color_Code', 'Supplier']).agg(
+        # SỬA LỖI: Nhóm chính xác theo Ma_Son (Full Paint Code) để không bị nhầm lẫn LSL/USL
+        radar_summary = dff_radar.groupby(['Color_Group', 'Ma_Son', 'Supplier']).agg(
             Batches=('Batch_Lot', 'nunique'),
             Coils=('Online_Gloss_Top', 'count'),
-            LSL=('Gloss_LSL', 'first'), USL=('Gloss_USL', 'first'),
-            Mean_Line=('Online_Gloss_Top', 'mean'), Std_Line=('Online_Gloss_Top', 'std'), dE_Max=('ΔE', 'max')
+            LSL=('Gloss_LSL', 'first'), 
+            USL=('Gloss_USL', 'first'),
+            Mean_Line=('Online_Gloss_Top', 'mean'), 
+            Std_Line=('Online_Gloss_Top', 'std'), 
+            dE_Max=('ΔE', 'max')
         ).reset_index()
         
-        # Chỉ đánh giá các nhà cung cấp đã giao từ 2 mẻ (Batch) trở lên
         radar_summary = radar_summary[radar_summary['Batches'] >= 2]
         
         def calc_cpk_radar(row):
@@ -798,8 +800,8 @@ elif view_mode == "🤝 Supplier Capability":
         
         if not radar_alert.empty:
             radar_alert = radar_alert.sort_values(by=['Cpk (Line)'], ascending=True)
-            radar_alert = radar_alert[['Color_Group', 'Color_Code', 'Supplier', 'Batches', 'Coils', 'LSL', 'USL', 'Mean_Line', 'Std_Line', 'dE_Max', 'Cpk (Line)']]
-            radar_alert.columns = ['Color Group', 'Color Code (4 Digits)', 'Supplier', 'Batches', 'Coils', 'LSL', 'USL', 'Mean (Line)', 'Std (Line)', 'Max ΔE', 'Cpk (Line)']
+            radar_alert = radar_alert[['Color_Group', 'Ma_Son', 'Supplier', 'Batches', 'Coils', 'LSL', 'USL', 'Mean_Line', 'Std_Line', 'dE_Max', 'Cpk (Line)']]
+            radar_alert.columns = ['Color Group', 'Full Paint Code', 'Supplier', 'Batches', 'Coils', 'LSL', 'USL', 'Mean (Line)', 'Std (Line)', 'Max ΔE', 'Cpk (Line)']
             st.dataframe(
                 radar_alert.style.format({
                     'LSL': '{:.0f}', 'USL': '{:.0f}', 'Mean (Line)': '{:.1f}',
@@ -825,37 +827,34 @@ elif view_mode == "🤝 Supplier Capability":
     with col_f2:
         if sel_color_group:
             dff_nhom = dff[dff['Color_Group'] == sel_color_group].copy()
-            list_code_4digits = ['All'] + sorted(dff_nhom['Color_Code'].dropna().unique().tolist())
-            sel_code_4digits = st.selectbox("🔢 Step 2: Select Color Code (Last 4 digits):", list_code_4digits)
+            # SỬA LỖI: Dropdown chọn thẳng Mã Sơn Đầy Đủ (Ma_Son) thay vì 4 số cuối
+            list_ma_son = ['All (View Normalized Deviations)'] + sorted(dff_nhom['Ma_Son'].dropna().unique().tolist())
+            sel_ma_son = st.selectbox("🎯 Step 2: Select Full Paint Code (Ma_Son):", list_ma_son)
         else:
-            sel_code_4digits = None
+            sel_ma_son = None
             
-    if sel_code_4digits:
-        if sel_code_4digits == 'All':
+    if sel_ma_son:
+        is_mixed = "All" in sel_ma_son
+        if is_mixed:
             dff_comp = dff_nhom.copy()
-            title_suffix = f"Group: {sel_color_group} (All codes)"
-            is_mixed = True
+            title_suffix = f"Group: {sel_color_group} (Multiple Specs)"
         else:
-            dff_comp = dff_nhom[dff_nhom['Color_Code'] == sel_code_4digits].copy()
-            title_suffix = f"Code: {sel_code_4digits}"
-            is_mixed = False
+            dff_comp = dff_nhom[dff_nhom['Ma_Son'] == sel_ma_son].copy()
+            title_suffix = f"Code: {sel_ma_son}"
         
         dff_comp = dff_comp.dropna(subset=['Online_Gloss_Top', 'Supplier', 'Gloss_LSL', 'Gloss_USL', 'dL_N', 'da_N', 'db_N'])
         dff_comp = dff_comp[(dff_comp['Gloss_LSL'] > 0) & (dff_comp['Gloss_USL'] > 0) & (dff_comp['Online_Gloss_Top'] > 0)]
-        dff_comp['Gloss_Target'] = (dff_comp['Gloss_LSL'] + dff_comp['Gloss_USL']) / 2
-        dff_comp['Gloss_Dev'] = dff_comp['Online_Gloss_Top'] - dff_comp['Gloss_Target']
+        dff_comp['Gloss_Target'] = (dff_comp['Gloss_LSL'] + dff_comp['Gloss_USL']) / 2.0
+        # Tính toán Độ Lệch (Deviation) để có thể so sánh chéo các mã sơn có Target khác nhau trong trường hợp chọn "All"
+        dff_comp['Gloss_Dev'] = dff_comp['Online_Gloss_Top'] - dff_comp['Gloss_Target'] 
         
-        # Đếm số lượng MẺ SƠN duy nhất theo từng nhà cung cấp
         batch_counts = dff_comp.groupby('Supplier')['Batch_Lot'].nunique()
-        # Lọc ra những nhà cung cấp có từ 2 Mẻ sơn trở lên
         valid_suppliers = batch_counts[batch_counts >= 2].index
         dff_comp = dff_comp[dff_comp['Supplier'].isin(valid_suppliers)]
         
-        if len(dff_comp['Supplier'].unique()) >= 1:
+        if not dff_comp.empty:
             st.markdown("---")
             c1, c2 = st.columns([2, 2.2]) 
-            plot_col = 'Gloss_Dev' if is_mixed else 'Online_Gloss_Top'
-            plot_ylabel = "Deviation from Target (ΔGloss)" if is_mixed else "Online Gloss (Line Gloss)"
             
             with c1:
                 st.subheader(f"📊 Line Gloss Dispersion ({title_suffix})")
@@ -863,72 +862,77 @@ elif view_mode == "🤝 Supplier Capability":
                 num_sups = dff_comp['Supplier'].nunique()
                 
                 if is_mixed:
+                    # Nếu xem "All", chỉ được phép vẽ Biểu đồ Độ Lệch (Gloss_Dev) vì Target mỗi mã khác nhau
+                    st.caption("Showing *Deviation from Target (ΔGloss)* because multiple paint codes have different LSL/USL specs.")
                     b_width = 0.5 if num_sups > 1 else 0.3
-                    sns.boxplot(data=dff_comp, x='Supplier', y=plot_col, palette='Set2', ax=ax_comp1, showfliers=False, width=b_width)
-                    sns.stripplot(data=dff_comp, x='Supplier', y=plot_col, color='black', alpha=0.3, size=3, jitter=True, ax=ax_comp1)
-                    ax_comp1.axhline(0, color='green', ls='--', lw=2, label='Target Standard (0)')
+                    sns.boxplot(data=dff_comp, x='Supplier', y='Gloss_Dev', palette='Set2', ax=ax_comp1, showfliers=False, width=b_width)
+                    sns.stripplot(data=dff_comp, x='Supplier', y='Gloss_Dev', color='black', alpha=0.3, size=3, jitter=True, ax=ax_comp1)
+                    ax_comp1.axhline(0, color='green', ls='--', lw=2, label='Target Standard (0 Deviation)')
+                    ax_comp1.set_ylabel("Deviation from Target (ΔGloss)")
                 else:
+                    # Nếu xem 1 mã cụ thể, vẽ Raw Data và đường LSL/USL thực tế của mã đó
                     b_width = 0.3 if num_sups > 1 else 0.15
-                    sns.boxplot(data=dff_comp, x='Supplier', y=plot_col, color='#ecf0f1', ax=ax_comp1, showfliers=False, width=b_width, linewidth=1.5)
-                    sns.stripplot(data=dff_comp, x='Supplier', y=plot_col, hue='Supplier', palette='Set1', alpha=0.85, size=7, jitter=0.15, ax=ax_comp1, legend=False)
+                    sns.boxplot(data=dff_comp, x='Supplier', y='Online_Gloss_Top', color='#ecf0f1', ax=ax_comp1, showfliers=False, width=b_width, linewidth=1.5)
+                    sns.stripplot(data=dff_comp, x='Supplier', y='Online_Gloss_Top', hue='Supplier', palette='Set1', alpha=0.85, size=7, jitter=0.15, ax=ax_comp1, legend=False)
                     lsl_val = dff_comp['Gloss_LSL'].iloc[0]
                     usl_val = dff_comp['Gloss_USL'].iloc[0]
                     ax_comp1.axhline(lsl_val, color='red', ls='--', lw=2, label=f'LSL ({lsl_val:.0f})')
                     ax_comp1.axhline(usl_val, color='red', ls='--', lw=2, label=f'USL ({usl_val:.0f})')
                     total_mean = dff_comp['Online_Gloss_Top'].mean()
                     ax_comp1.axhline(total_mean, color='gray', ls=':', lw=1.5, label=f'Avg Line ({total_mean:.1f})')
+                    ax_comp1.set_ylabel("Online Gloss (GU)")
                 
                 ax_comp1.set_xlabel("Supplier")
-                ax_comp1.set_ylabel(plot_ylabel)
                 plt.legend()
                 st.pyplot(fig_comp1)
                 
             with c2:
-                if is_mixed:
-                    st.subheader("Stability Index Table (Aggregated)")
-                    comp_table = dff_comp.groupby('Supplier').agg(
-                        Batches=('Batch_Lot', 'nunique'), Coils=('Online_Gloss_Top', 'count'), 
-                        Mean_Dev=('Gloss_Dev', 'mean'), Std_Dev=('Gloss_Dev', 'std'), Avg_dE=('ΔE', 'mean')
-                    ).reset_index()
-                    comp_table = comp_table.sort_values('Std_Dev', ascending=True)
-                    comp_table.columns = ['Supplier', 'Batches', 'Coils', 'Avg Target Dev', 'Dispersion (Std)', 'Avg ΔE']
-                    st.dataframe(
-                        comp_table.style.format({'Avg Target Dev': '{:+.2f}', 'Dispersion (Std)': '{:.2f}', 'Avg ΔE': '{:.2f}'}).background_gradient(cmap='RdYlGn_r', subset=['Dispersion (Std)']), 
-                        use_container_width=True, hide_index=True
-                    )
-                else:
-                    st.subheader("Line Capability Table (Online Cpk)")
-                    comp_table = dff_comp.groupby('Supplier').agg(
-                        Batches=('Batch_Lot', 'nunique'), Coils=('Online_Gloss_Top', 'count'), 
-                        LSL=('Gloss_LSL', 'mean'), USL=('Gloss_USL', 'mean'), 
-                        Mean_Gloss=('Online_Gloss_Top', 'mean'), Std_Gloss=('Online_Gloss_Top', 'std'), Avg_dE=('ΔE', 'mean')
-                    ).reset_index()
-                    def calc_cpk(row):
-                        if pd.isna(row['Std_Gloss']) or row['Std_Gloss'] == 0: return np.nan
-                        return min((row['USL'] - row['Mean_Gloss']) / (3 * row['Std_Gloss']), (row['Mean_Gloss'] - row['LSL']) / (3 * row['Std_Gloss']))
-                    comp_table['Cpk (Line)'] = comp_table.apply(calc_cpk, axis=1)
-                    comp_table = comp_table.sort_values('Cpk (Line)', ascending=False)
-                    comp_table.columns = ['Supplier', 'Batches', 'Coils', 'LSL', 'USL', 'Mean (Line)', 'Std (Line)', 'Avg ΔE', 'Cpk (Line)']
-                    st.dataframe(
-                        comp_table.style.format({'LSL': '{:.0f}', 'USL': '{:.0f}', 'Mean (Line)': '{:.1f}', 'Std (Line)': '{:.2f}', 'Avg ΔE': '{:.2f}', 'Cpk (Line)': '{:.2f}'}).background_gradient(cmap='RdYlGn', subset=['Cpk (Line)']), 
-                        use_container_width=True, hide_index=True
-                    )
+                # SỬA LỖI: Bảng dữ liệu luôn phải Break-down theo từng Mã Sơn (Ma_Son) để không bị trộn lẫn Spec
+                st.subheader("Capability Table per Supplier & Paint Code")
+                comp_table = dff_comp.groupby(['Supplier', 'Ma_Son']).agg(
+                    Batches=('Batch_Lot', 'nunique'), 
+                    Coils=('Online_Gloss_Top', 'count'), 
+                    LSL=('Gloss_LSL', 'first'), 
+                    USL=('Gloss_USL', 'first'), 
+                    Mean_Gloss=('Online_Gloss_Top', 'mean'), 
+                    Std_Gloss=('Online_Gloss_Top', 'std'), 
+                    Avg_dE=('ΔE', 'mean')
+                ).reset_index()
+                
+                def calc_cpk_table(row):
+                    if pd.isna(row['Std_Gloss']) or row['Std_Gloss'] == 0: return np.nan
+                    return min((row['USL'] - row['Mean_Gloss']) / (3 * row['Std_Gloss']), (row['Mean_Gloss'] - row['LSL']) / (3 * row['Std_Gloss']))
+                
+                comp_table['Cpk (Line)'] = comp_table.apply(calc_cpk_table, axis=1)
+                comp_table = comp_table.sort_values(['Supplier', 'Cpk (Line)'], ascending=[True, False])
+                comp_table.columns = ['Supplier', 'Full Paint Code', 'Batches', 'Coils', 'LSL', 'USL', 'Mean (Line)', 'Std (Line)', 'Avg ΔE', 'Cpk (Line)']
+                
+                st.dataframe(
+                    comp_table.style.format({'LSL': '{:.0f}', 'USL': '{:.0f}', 'Mean (Line)': '{:.1f}', 'Std (Line)': '{:.2f}', 'Avg ΔE': '{:.2f}', 'Cpk (Line)': '{:.2f}'}).background_gradient(cmap='RdYlGn', subset=['Cpk (Line)']), 
+                    use_container_width=True, hide_index=True
+                )
 
             st.markdown("---")
             st.subheader("📉 Batch-to-Batch Gloss Variation")
-            st.caption("Detailed view of the specific batches with the highest and lowest average gloss. Exposes exact lot numbers for vendor accountability.")
+            st.caption("Comparing variation only between batches of the EXACT SAME paint code.")
             
-            batch_means = dff_comp.groupby(['Supplier', 'Batch_Lot']).agg(Mean_Line=('Online_Gloss_Top', 'mean'), LSL=('Gloss_LSL', 'first'), USL=('Gloss_USL', 'first')).reset_index()
+            # SỬA LỖI: Gom nhóm theo Ma_Son để so sánh 2 mẻ của cùng 1 loại sơn, không so sánh mẻ sơn bóng với mẻ sơn mờ
+            batch_means = dff_comp.groupby(['Supplier', 'Ma_Son', 'Batch_Lot']).agg(
+                Mean_Line=('Online_Gloss_Top', 'mean'), 
+                LSL=('Gloss_LSL', 'first'), 
+                USL=('Gloss_USL', 'first')
+            ).reset_index()
             
             b2b_records = []
-            for sup, group in batch_means.groupby('Supplier'):
+            for (sup, mason), group in batch_means.groupby(['Supplier', 'Ma_Son']):
                 if len(group) >= 2:
                     idx_min = group['Mean_Line'].idxmin()
                     idx_max = group['Mean_Line'].idxmax()
                     min_row = group.loc[idx_min]
                     max_row = group.loc[idx_max]
                     b2b_records.append({
-                        'Supplier': sup, 'Batches': len(group), 'LSL': min_row['LSL'], 'USL': min_row['USL'],
+                        'Supplier': sup, 'Full Paint Code': mason, 'Batches': len(group), 
+                        'LSL': min_row['LSL'], 'USL': min_row['USL'],
                         'Min Batch': min_row['Batch_Lot'], 'Min Avg': min_row['Mean_Line'],
                         'Max Batch': max_row['Batch_Lot'], 'Max Avg': max_row['Mean_Line'],
                         'Gap': max_row['Mean_Line'] - min_row['Mean_Line']
@@ -943,31 +947,19 @@ elif view_mode == "🤝 Supplier Capability":
                     use_container_width=True, hide_index=True
                 )
             else:
-                st.info("Not enough multi-batch data to compare Batch-to-Batch gloss variation.")
+                st.info("Not enough multi-batch data within the SAME paint code to compare Batch-to-Batch variation.")
 
             st.markdown("---")
             st.subheader("🎨 Batch Color Drift Detailed Analysis")
-            st.caption("Table displays AVERAGE values of color components (ΔL, Δa, Δb) per batch. The **Full Paint Code** column helps Vendors trace exact formulas.")
+            st.caption("Table displays AVERAGE values of color components (ΔL, Δa, Δb) per batch.")
             
-            color_drift = dff_comp.groupby(['Supplier', 'Batch_Lot']).agg(
-                Full_Paint_Code=('Ma_Son', 'first'), Ngay_SX=('Ngay_SX', 'min'),
+            color_drift = dff_comp.groupby(['Supplier', 'Ma_Son', 'Batch_Lot']).agg(
+                Ngay_SX=('Ngay_SX', 'min'),
                 Mean_dL=('dL_N', 'mean'), Mean_da=('da_N', 'mean'), Mean_db=('db_N', 'mean'), Max_dE=('ΔE', 'max')
             ).reset_index()
             
             color_drift = color_drift.sort_values(by=['Supplier', 'Ngay_SX'])
-            color_drift.columns = ['Supplier', 'Batch Lot', 'Full Paint Code', 'Production Date', 'ΔL (Avg)', 'Δa (Avg)', 'Δb (Avg)', 'Max ΔE']
-            
-            c_drift1, c_drift2 = st.columns(2)
-            with c_drift1:
-                drift_suppliers = ['All Suppliers'] + sorted(color_drift['Supplier'].unique().tolist())
-                sel_drift_sup = st.selectbox("🏭 Select Supplier:", drift_suppliers, key="drift_sup_filter")
-            if sel_drift_sup != 'All Suppliers':
-                color_drift = color_drift[color_drift['Supplier'] == sel_drift_sup]
-            with c_drift2:
-                drift_codes = ['All Paint Codes'] + sorted(color_drift['Full Paint Code'].unique().tolist())
-                sel_drift_code = st.selectbox("🎯 Select Full Paint Code:", drift_codes, key="drift_code_filter")
-            if sel_drift_code != 'All Paint Codes':
-                color_drift = color_drift[color_drift['Full Paint Code'] == sel_drift_code]
+            color_drift.columns = ['Supplier', 'Full Paint Code', 'Batch Lot', 'Production Date', 'ΔL (Avg)', 'Δa (Avg)', 'Δb (Avg)', 'Max ΔE']
             
             st.dataframe(
                 color_drift.style.format({'ΔL (Avg)': '{:+.2f}', 'Δa (Avg)': '{:+.2f}', 'Δb (Avg)': '{:+.2f}', 'Max ΔE': '{:.2f}'})
@@ -978,8 +970,9 @@ elif view_mode == "🤝 Supplier Capability":
                 use_container_width=True, hide_index=True
             )
         else:
-            st.warning("⚠️ Insufficient data (needs at least 2 batches per supplier with Line data) to perform comparison.")
+            st.warning("⚠️ Insufficient data (needs at least 2 batches per supplier) to perform comparison.")
 
+# ==========================================
 # ==========================================
 # ==========================================
 # VIEW 6: MASTER SUMMARY REPORT
