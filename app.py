@@ -268,29 +268,42 @@ if view_mode == "✨ Gloss Trend (SPC)":
         ax_trend.axhline(line_lsl_val, color='green', ls='--', lw=2, label=f'Line LSL ({line_lsl_val})')
         ax_trend.axhline(line_usl_val, color='green', ls='--', lw=2, label=f'Line USL ({line_usl_val})')
         
-        # --- BẮT ĐẦU ĐOẠN FIX NHÃN TRỤC X CHUẨN SPC ---
+        # --- BẮT ĐẦU ĐOẠN FIX NHÃN TRỤC X CHUẨN SPC (NÂNG CẤP CHỐNG ĐÈ CHỮ) ---
         ax_trend.set_xlabel("Production Sequence (Coils grouped by Batch)")
         
+        # 1. Tìm ranh giới và vị trí trung tâm của từng mẻ
         batch_info = dff_g.groupby('Batch_Lot', sort=False)['x_seq'].agg(['min', 'max', 'mean']).reset_index()
 
+        # 2. Vẽ hàng rào nét đứt phân cách tất cả các mẻ (vẫn giữ nguyên để thấy mẻ nhỏ)
         for val in batch_info['min']:
             if val > 0:
                 ax_trend.axvline(x=val - 0.5, color='gray', linestyle=':', lw=1.5, alpha=0.5)
 
-        ax_trend.set_xticks(batch_info['mean'])
-        ax_trend.set_xticklabels(batch_info['Batch_Lot'].astype(str), rotation=45, ha='right', fontsize=8)
-
-        if len(batch_info) > 25:
-            step = max(1, len(batch_info) // 15)
-            for i, label in enumerate(ax_trend.xaxis.get_ticklabels()):
-                if i % step != 0: label.set_visible(False)
-        # --- KẾT THÚC ĐOẠN FIX NHÃN TRỤC X ---
+        # 3. Lọc nhãn thông minh (Chỉ in nhãn nếu khoảng cách vật lý đủ lớn)
+        # Giới hạn trục ngang chỉ cho phép hiển thị tối đa khoảng 30 nhãn
+        min_x_distance = max(1, len(dff_g) / 30.0) 
+        kept_ticks = []
+        kept_labels = []
+        last_tick = -999
+        
+        for idx, row in batch_info.iterrows():
+            if (row['mean'] - last_tick) >= min_x_distance:
+                kept_ticks.append(row['mean'])
+                kept_labels.append(str(row['Batch_Lot']))
+                last_tick = row['mean']
                 
-        ax_trend.set_ylabel("Gloss (GU)")
-        ax_trend.legend(bbox_to_anchor=(1.01, 1), loc='upper left', fontsize='small')
-        st.pyplot(fig_trend)
-        plt.close(fig_trend)
+        # Ưu tiên luôn hiển thị tên của mẻ cuối cùng để chốt dữ liệu
+        if kept_ticks and kept_ticks[-1] != batch_info['mean'].iloc[-1]:
+            if (batch_info['mean'].iloc[-1] - kept_ticks[-1]) < min_x_distance:
+                kept_ticks.pop() # Xóa nhãn kề cuối nếu nó quá sát nhãn cuối
+                kept_labels.pop()
+            kept_ticks.append(batch_info['mean'].iloc[-1])
+            kept_labels.append(str(batch_info['Batch_Lot'].iloc[-1]))
 
+        # 4. Gắn nhãn đã lọc lên biểu đồ
+        ax_trend.set_xticks(kept_ticks)
+        ax_trend.set_xticklabels(kept_labels, rotation=45, ha='right', fontsize=8)
+        # --- KẾT THÚC ĐOẠN FIX NHÃN TRỤC X ---
         # ── BIỂU ĐỒ 2: GLOSS DISTRIBUTION ───────────────────────────────────
         st.write("**Gloss Distribution Analysis**")
         fig_dist, ax_dist = plt.subplots(figsize=(9, 5)) 
