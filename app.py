@@ -939,6 +939,10 @@ elif view_mode == "🤝 Supplier Capability":
                 USL=('Gloss_USL', 'first')
             ).reset_index().sort_values(by=['Supplier', 'Prod_Date'])
             
+            # --- FIX APPLIED HERE: FORCE DATETIME CONVERSION ---
+            trend_data['Prod_Date'] = pd.to_datetime(trend_data['Prod_Date'])
+            # ---------------------------------------------------
+            
             trend_data['Prod_Date_Str'] = trend_data['Prod_Date'].dt.strftime('%Y-%m-%d')
 
             fig_trend, (ax_gloss, ax_color) = plt.subplots(2, 1, figsize=(14, 10), sharex=False)
