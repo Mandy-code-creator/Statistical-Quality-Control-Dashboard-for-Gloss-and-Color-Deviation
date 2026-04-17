@@ -173,6 +173,7 @@ st.markdown("---")
 
 # ==========================================
 # ==========================================
+# ==========================================
 # VIEW 1: GLOSS TREND (SPC)
 # ==========================================
 if view_mode == "✨ Gloss Trend (SPC)":
@@ -276,8 +277,9 @@ if view_mode == "✨ Gloss Trend (SPC)":
             if val > 0:
                 ax_trend.axvline(x=val - 0.5, color='gray', linestyle=':', lw=1.5, alpha=0.5)
 
+        # ĐOẠN NÀY ÉP CỨNG CHỈ CHO HIỆN TỐI ĐA 10-12 NHÃN TRỤC X ĐỂ KHÔNG BAO GIỜ BỊ ĐÈ CHỮ
         num_labels = len(batch_info)
-        step = max(1, num_labels // 12) 
+        step = max(1, num_labels // 10) 
         
         kept_ticks = batch_info['mean'].iloc[::step].tolist()
         kept_labels = batch_info['Batch_Lot'].iloc[::step].astype(str).tolist()
@@ -368,10 +370,10 @@ if view_mode == "✨ Gloss Trend (SPC)":
             sel_ma_son = st.selectbox("🎯 Select Paint Code:", list_ma_son_tab2, key="manual_sel")
             render_spc_analysis(sel_ma_son, dff, "manual")
             
-        # --- TAB SO SÁNH NHỰA (GHI TRỰC TIẾP LÊN ĐỈNH BIỂU ĐỒ) ---
+        # --- TAB SO SÁNH NHỰA BẰNG BIỂU ĐỒ CHÊNH LỆCH TRỰC TIẾP (DEVIATION) ĐÃ ĐƯỢC THAY MỚI ---
         with tab_resin:
             st.subheader("🧪 Resin Comparison Analysis (Apples-to-Apples)")
-            st.caption("Auto-filtered: Comparing different Resin types within the SAME **Color Group** and SAME **Gloss Spec Range**.")
+            st.caption("Direct Deviation Charts: Evaluate which resin is closest to the Target Gloss and has the most stable Color.")
             
             dff_resin_base = dff.dropna(subset=['Color_Group', 'Gloss_LSL', 'Gloss_USL', 'Coating_Type']).copy()
             
@@ -396,92 +398,81 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 df_resin_subset = dff_resin_base[dff_resin_base['Group_Spec'] == sel_group_spec].copy()
                 available_resins = sorted(df_resin_subset['Coating_Type'].unique().tolist())
                 
-                st.success(f"Comparing **{len(available_resins)}** resin types: {', '.join(available_resins)}")
-                
-                # --- BIỂU ĐỒ GLOSS DENSITY CÓ GẮN LABEL TRỰC TIẾP ---
-                fig_resin, ax_resin = plt.subplots(figsize=(14, 7))
-                palette = sns.color_palette("tab10", len(available_resins))
-                
                 lsl_val = df_resin_subset['Gloss_LSL'].iloc[0] - 2.0
                 usl_val = df_resin_subset['Gloss_USL'].iloc[0] + 2.0
                 target_val = (lsl_val + usl_val) / 2.0
                 
-                # Kẻ vạch và tô màu vùng an toàn
-                ax_resin.axvline(target_val, color='black', linestyle='-', lw=2.5, label=f'Target ({target_val:.1f})')
-                ax_resin.axvspan(lsl_val, usl_val, color='#2ecc71', alpha=0.1, label='Safe Zone (In Spec)')
-                ax_resin.axvline(lsl_val, color='red', linestyle='--', lw=1.5, label='Spec Limits (LSL/USL)')
-                ax_resin.axvline(usl_val, color='red', linestyle='--', lw=1.5)
-
-                max_y = 0 # Biến để tính toán chiều cao trần biểu đồ
+                delta_stats = df_resin_subset.groupby('Coating_Type').agg(
+                    Gloss_Mean=('Online_Gloss_Top', 'mean'),
+                    dE_Mean=('ΔE', 'mean'),
+                    dE_Max=('ΔE', 'max')
+                ).reindex(available_resins)
                 
-                for idx, resin in enumerate(available_resins):
-                    r_data = df_resin_subset[df_resin_subset['Coating_Type'] == resin]['Online_Gloss_Top'].dropna()
+                delta_stats['Gloss_Bias'] = delta_stats['Gloss_Mean'] - target_val
+                
+                col1, col2 = st.columns(2)
+                
+                # --- BIỂU ĐỒ 1: GLOSS BIAS ---
+                with col1:
+                    st.markdown("#### 🎯 Gloss Deviation from Target")
+                    st.caption(f"Trục 0 là Target ({target_val} GU). Nhìn vạch xem nhựa nào bị lệch tâm xa nhất.")
+                    fig_bias, ax_bias = plt.subplots(figsize=(6, 4))
                     
-                    if len(r_data) > 1:
-                        r_mean = r_data.mean()
-                        r_std = r_data.std() if r_data.std() > 0 else 0.1
-                        
-                        # Tính điểm Cpk
-                        cpk = min((usl_val - r_mean) / (3 * r_std), (r_mean - lsl_val) / (3 * r_std))
-                        cpk = max(0, cpk)
-                        
-                        x_min, x_max = r_data.min() - 3*r_std, r_data.max() + 3*r_std
-                        x_axis = np.linspace(x_min, x_max, 200)
-                        y_curve = stats.norm.pdf(x_axis, r_mean, r_std)
-                        
-                        if max(y_curve) > max_y: max_y = max(y_curve)
-                        
-                        ax_resin.plot(x_axis, y_curve, color=palette[idx], lw=2.5, label=f'{resin} (N={len(r_data)})')
-                        ax_resin.fill_between(x_axis, y_curve, alpha=0.2, color=palette[idx])
-                        
-                        # ----------------------------------------------------
-                        # GHI TRỰC TIẾP CÁC THÔNG SỐ LÊN ĐỈNH CỦA TỪNG NGỌN NÚI
-                        # ----------------------------------------------------
-                        peak_y = stats.norm.pdf(r_mean, r_mean, r_std)
-                        bbox_props = dict(boxstyle="round,pad=0.4", fc="white", ec=palette[idx], lw=1.5, alpha=0.95)
-                        text_str = f"{resin}\nμ = {r_mean:.1f}\n±3σ = {(r_mean-3*r_std):.1f} ~ {(r_mean+3*r_std):.1f}\nCpk = {cpk:.2f}"
-                        
-                        ax_resin.annotate(
-                            text_str, 
-                            xy=(r_mean, peak_y), xytext=(0, 25), # Đẩy hộp text cao lên 25 points so với đỉnh
-                            textcoords="offset points", ha='center', va='bottom',
-                            fontsize=9, fontweight='bold', color='black', bbox=bbox_props,
-                            arrowprops=dict(arrowstyle="-|>", color=palette[idx], lw=1.5) # Vẽ mũi tên chỉ xuống đỉnh
-                        )
+                    colors = ['#e74c3c' if x < 0 else '#2ecc71' for x in delta_stats['Gloss_Bias']]
+                    sns.barplot(x=delta_stats['Gloss_Bias'], y=available_resins, hue=available_resins, palette=colors, legend=False, ax=ax_bias)
+                    
+                    ax_bias.axvline(0, color='black', lw=2)
+                    bias_lsl = lsl_val - target_val
+                    bias_usl = usl_val - target_val
+                    ax_bias.axvline(bias_lsl, color='#e74c3c', linestyle='--', lw=1.5, label='LSL/USL Margin')
+                    ax_bias.axvline(bias_usl, color='#e74c3c', linestyle='--', lw=1.5)
+                    
+                    ax_bias.set_xlabel("Deviation from Target (GU) [Bias]")
+                    ax_bias.set_ylabel("")
+                    ax_bias.legend(loc='lower right', fontsize=8)
+                    
+                    for i, v in enumerate(delta_stats['Gloss_Bias']):
+                        ax_bias.text(v + (0.1 if v > 0 else -0.1), i, f"{v:+.1f}", va='center', ha='left' if v > 0 else 'right', fontweight='bold', fontsize=9)
+                    
+                    st.pyplot(fig_bias)
+                    plt.close(fig_bias)
                 
-                # Tăng trần trục Y để hộp Text không bị lẹm ra khỏi hình
-                ax_resin.set_ylim(0, max_y * 1.3)
-                
-                ax_resin.set_title(f"Gloss Capability Comparison: {sel_group_spec}", fontweight='bold')
-                ax_resin.set_xlabel("Online Line Gloss (GU)", fontweight='bold')
-                ax_resin.set_ylabel("Probability Density")
-                ax_resin.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
-                ax_resin.grid(axis='x', alpha=0.3)
-                
-                plt.tight_layout()
-                st.pyplot(fig_resin)
-                plt.close(fig_resin)
-                
-                # --- BIỂU ĐỒ 2: COLOR DEVIATION (BAR CHART) ĐƠN GIẢN ---
-                st.markdown("---")
-                st.markdown("#### 🎨 Color Deviation (Direct ΔE)")
-                st.caption("Cột xanh là trung bình, Chấm đỏ là cuộn bị lệch nặng nhất (Max ΔE). Dễ dàng nhìn thấy nhựa nào hay bị 'lạc màu'.")
-                fig_color, ax_color = plt.subplots(figsize=(10, 4))
-                
-                delta_stats = df_resin_subset.groupby('Coating_Type').agg(dE_Mean=('ΔE', 'mean'), dE_Max=('ΔE', 'max')).reindex(available_resins)
-                
-                sns.barplot(x=delta_stats['dE_Mean'], y=available_resins, color='#3498db', alpha=0.8, ax=ax_color)
-                ax_color.scatter(delta_stats['dE_Max'], range(len(available_resins)), color='red', edgecolor='white', s=80, zorder=5, label='Worst Coil (Max ΔE)')
-                
-                ax_color.axvline(1.0, color='red', linestyle='--', lw=1.5, label='Critical Spec (1.0)')
-                ax_color.axvline(0.8, color='orange', linestyle=':', lw=1.5)
-                
-                ax_color.set_xlabel("Total Color Difference (ΔE)", fontweight='bold')
-                ax_color.set_ylabel("Resin Type")
-                ax_color.legend(loc='lower right', fontsize=9)
-                
-                st.pyplot(fig_color)
-                plt.close(fig_color)
+                # --- BIỂU ĐỒ 2: COLOR DEVIATION ---
+                with col2:
+                    st.markdown("#### 🎨 Color Deviation (Direct ΔE)")
+                    st.caption("Cột xanh là trung bình, Chấm đỏ là cuộn bị lệch màu nặng nhất (Max ΔE).")
+                    fig_color, ax_color = plt.subplots(figsize=(6, 4))
+                    
+                    sns.barplot(x=delta_stats['dE_Mean'], y=available_resins, color='#3498db', alpha=0.8, ax=ax_color)
+                    ax_color.scatter(delta_stats['dE_Max'], range(len(available_resins)), color='red', edgecolor='white', s=80, zorder=5, label='Worst Coil (Max ΔE)')
+                    
+                    ax_color.axvline(1.0, color='red', linestyle='--', lw=1.5, label='Critical Spec (1.0)')
+                    ax_color.axvline(0.8, color='orange', linestyle=':', lw=1.5)
+                    
+                    ax_color.set_xlabel("Total Color Difference (ΔE)")
+                    ax_color.set_ylabel("")
+                    ax_color.legend(loc='lower right', fontsize=8)
+                    
+                    st.pyplot(fig_color)
+                    plt.close(fig_color)
+
+                with st.expander("🔍 View Capability Statistics (Numerical Details)"):
+                    stats_df = df_resin_subset.groupby('Coating_Type').agg(
+                        Batches=('Batch_Lot', 'nunique'),
+                        Coils=('Online_Gloss_Top', 'count'),
+                        Mean=('Online_Gloss_Top', 'mean'),
+                        Std=('Online_Gloss_Top', 'std')
+                    ).reset_index()
+                    
+                    def calc_cpk_resin(row):
+                        if pd.isna(row['Std']) or row['Std'] == 0: return np.nan
+                        cpk = min((usl_val - row['Mean']) / (3 * row['Std']), (row['Mean'] - lsl_val) / (3 * row['Std']))
+                        return max(0, cpk)
+                    
+                    stats_df['Cpk (Line)'] = stats_df.apply(calc_cpk_resin, axis=1)
+                    st.dataframe(stats_df.style.format({
+                        'Mean': '{:.1f}', 'Std': '{:.2f}', 'Cpk (Line)': '{:.2f}'
+                    }).background_gradient(cmap='RdYlGn', subset=['Cpk (Line)']), use_container_width=True, hide_index=True)
 
             else:
                 st.info("🚫 Hiện tại không có Nhóm màu nào sử dụng chung từ 2 loại nhựa trở lên cùng một dải Spec.")
