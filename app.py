@@ -840,21 +840,28 @@ elif view_mode == "🤝 Supplier Capability":
                 st.subheader("📊 Executive Performance Matrix")
                 st.caption(title_suffix)
                 
+                with c1:
+                st.subheader("📊 Executive Performance Matrix")
+                st.caption(title_suffix)
+                
                 fig_matrix, ax_matrix = plt.subplots(figsize=(9, 6))
                 
+                # 1. CALCULATE LIMITS
                 max_cpk = max(2.5, comp_table['Cpk (Line)'].max() + 0.2) if not comp_table['Cpk (Line)'].isna().all() else 2.5
-                # --- UPGRADED COLOR SCHEME (HIGH CONTRAST) ---
-                # Zone Coloring: Using vibrant colors with 60% opacity for better visibility
+                max_bias_abs = max(abs(comp_table['Bias'].max()), abs(comp_table['Bias'].min())) + 1 if not pd.isna(comp_table['Bias'].max()) else 5
+
+                # 2. UPGRADED COLOR SCHEME (HIGH CONTRAST)
+                # Zone Coloring: Vibrant colors with 60% opacity
                 ax_matrix.axhspan(1.33, max_cpk, facecolor='#27ae60', alpha=0.6, label='Excellent (Cpk > 1.33)')
                 ax_matrix.axhspan(1.0, 1.33, facecolor='#f1c40f', alpha=0.6, label='Warning (1.0 < Cpk < 1.33)')
                 ax_matrix.axhspan(0, 1.0, facecolor='#c0392b', alpha=0.6, label='High Risk (Cpk < 1.0)')
                 
-                # Make the Target Centerline and Spec lines bold
+                # Bold Target Centerline
                 ax_matrix.axvline(0, color='black', linestyle='--', linewidth=2.5, label='Target Center (Bias = 0)')
                 ax_matrix.axhline(1.33, color='black', linewidth=1, alpha=0.4)
                 ax_matrix.axhline(1.0, color='black', linewidth=1, alpha=0.4)
                 
-                # Plot Suppliers with larger dots (s=600) and thicker edges
+                # 3. PLOT SUPPLIERS (LARGER DOTS)
                 sns.scatterplot(
                     data=comp_table, 
                     x='Bias', y='Cpk (Line)', 
@@ -864,35 +871,43 @@ elif view_mode == "🤝 Supplier Capability":
                     linewidth=2, 
                     palette='tab10', 
                     ax=ax_matrix,
-                    zorder=5 # Ensure dots are on top of the background colors
+                    zorder=5 
                 )
                 
-                # Supplier Labels
+                # 4. SMART LABELING (PREVENT CLIPPING)
+                import matplotlib.patheffects as path_effects
+                
                 for i in range(comp_table.shape[0]):
                     label_text = comp_table['Supplier'].iloc[i]
                     if is_mixed: 
                         label_text += f"\n({comp_table['Ma_Son'].iloc[i][-4:]})"
+                    
+                    x_pos = comp_table['Bias'].iloc[i]
+                    y_pos = comp_table['Cpk (Line)'].iloc[i]
+                    
+                    # If dot is too close to the right edge, flip the text to the left
+                    if x_pos > (max_bias_abs * 0.7):
+                        ha_align = 'right'
+                        x_offset = -0.2
+                    else:
+                        ha_align = 'left'
+                        x_offset = 0.2
+
                     ax_matrix.text(
-                        comp_table['Bias'].iloc[i] + 0.1, 
-                        comp_table['Cpk (Line)'].iloc[i] + 0.05, 
+                        x_pos + x_offset, 
+                        y_pos + 0.05, 
                         label_text, 
                         fontsize=10, 
                         fontweight='bold', 
-                        color='black'
+                        color='black',
+                        horizontalalignment=ha_align,
+                        zorder=6,
+                        path_effects=[path_effects.withStroke(linewidth=3, foreground="white")]
                     )
-                
-                for i in range(comp_table.shape[0]):
-                    label_text = comp_table['Supplier'].iloc[i]
-                    if is_mixed: 
-                        label_text += f"\n({comp_table['Ma_Son'].iloc[i][-4:]})"
-                    ax_matrix.text(comp_table['Bias'].iloc[i] + 0.05, comp_table['Cpk (Line)'].iloc[i] + 0.03, 
-                                   label_text, fontsize=9, fontweight='bold', color='#2c3e50')
 
                 ax_matrix.set_xlabel("Systematic Bias (Average Gloss - Target) [GU]")
                 ax_matrix.set_ylabel("Stability Index (Cpk)")
                 ax_matrix.set_ylim(0, max_cpk)
-                
-                max_bias_abs = max(abs(comp_table['Bias'].max()), abs(comp_table['Bias'].min())) + 1 if not pd.isna(comp_table['Bias'].max()) else 5
                 ax_matrix.set_xlim(-max_bias_abs, max_bias_abs)
                 
                 ax_matrix.legend(bbox_to_anchor=(0.5, -0.15), loc='upper center', ncol=3)
