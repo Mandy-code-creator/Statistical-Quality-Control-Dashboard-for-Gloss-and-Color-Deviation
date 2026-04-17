@@ -765,73 +765,34 @@ elif view_mode == "⚖️ Predictive Compensation & Targeting":
             st.warning("⚠️ Insufficient historical data for this paint code to build a reliable compensation model (Min. 5 coils required).")
 # ==========================================
 # ==========================================
-# ==========================================
-# VIEW 5: SUPPLIER CAPABILITY (FIXED SPEC LOGIC)
+# VIEW 5: SUPPLIER CAPABILITY BENCHMARKING
 # ==========================================
 elif view_mode == "🤝 Supplier Capability":
-    st.info("💡 Capability Analysis: Evaluates suppliers based on their specific Full Paint Codes (Ma_Son). Each code is strictly evaluated against its own LSL/USL.")
-    
-    st.markdown("---")
-    st.subheader("🚨 Negotiation Radar (Supplier Blacklist)")
-    st.caption("Paint codes with **Cpk < 1.0** (unstable gloss) or **ΔE Max > 1.0** (color shift) will be flagged here. Minimum 2 Batches required.")
-    
-    dff_radar = dff.dropna(subset=['Online_Gloss_Top', 'Supplier', 'Gloss_LSL', 'Gloss_USL', 'Color_Group', 'Ma_Son', 'dL_N', 'da_N', 'db_N'])
-    dff_radar = dff_radar[(dff_radar['Gloss_LSL'] > 0) & (dff_radar['Gloss_USL'] > 0) & (dff_radar['Online_Gloss_Top'] > 0)]
-    
-    if not dff_radar.empty:
-        radar_summary = dff_radar.groupby(['Color_Group', 'Ma_Son', 'Supplier']).agg(
-            Batches=('Batch_Lot', 'nunique'),
-            Coils=('Online_Gloss_Top', 'count'),
-            LSL=('Gloss_LSL', 'first'), 
-            USL=('Gloss_USL', 'first'),
-            Mean_Line=('Online_Gloss_Top', 'mean'), 
-            Std_Line=('Online_Gloss_Top', 'std'), 
-            dE_Max=('ΔE', 'max')
-        ).reset_index()
-        
-        radar_summary = radar_summary[radar_summary['Batches'] >= 2]
-        
-        def calc_cpk_radar(row):
-            if pd.isna(row['Std_Line']) or row['Std_Line'] == 0: return np.nan
-            return min((row['USL'] - row['Mean_Line']) / (3 * row['Std_Line']), (row['Mean_Line'] - row['LSL']) / (3 * row['Std_Line']))
-            
-        radar_summary['Cpk (Line)'] = radar_summary.apply(calc_cpk_radar, axis=1)
-        radar_alert = radar_summary[(radar_summary['Cpk (Line)'] < 1.0) | (radar_summary['dE_Max'] > 1.0)].copy()
-        
-        if not radar_alert.empty:
-            radar_alert = radar_alert.sort_values(by=['Cpk (Line)'], ascending=True)
-            radar_alert = radar_alert[['Color_Group', 'Ma_Son', 'Supplier', 'Batches', 'Coils', 'LSL', 'USL', 'Mean_Line', 'Std_Line', 'dE_Max', 'Cpk (Line)']]
-            radar_alert.columns = ['Color Group', 'Full Paint Code', 'Supplier', 'Batches', 'Coils', 'LSL', 'USL', 'Mean (Line)', 'Std (Line)', 'Max ΔE', 'Cpk (Line)']
-            st.dataframe(
-                radar_alert.style.format({
-                    'LSL': '{:.0f}', 'USL': '{:.0f}', 'Mean (Line)': '{:.1f}',
-                    'Std (Line)': '{:.2f}', 'Max ΔE': '{:.2f}', 'Cpk (Line)': '{:.2f}'
-                }).background_gradient(cmap='Reds_r', subset=['Cpk (Line)']).background_gradient(cmap='Reds', subset=['Max ΔE']),
-                use_container_width=True, hide_index=True
-            )
-        else:
-            st.success("🎉 Excellent! No paint codes are currently in critical violation of Cpk or Color limits.")
-    
-    st.markdown("---")
-    st.write("### 🔍 Drill-down Analysis")
+    st.header("🤝 Executive Supplier Benchmarking")
+    st.info("💡 Apples-to-Apples Analysis: Evaluates suppliers directly against each other using the same Color Code and Target Gloss specification.")
 
+    # 1. DATA PRE-PROCESSING
+    dff_v5 = dff.dropna(subset=['Online_Gloss_Top', 'Supplier', 'Gloss_LSL', 'Gloss_USL', 'Color_Group', 'Ma_Son', 'dL_N', 'da_N', 'db_N']).copy()
+    dff_v5 = dff_v5[(dff_v5['Gloss_LSL'] > 0) & (dff_v5['Gloss_USL'] > 0) & (dff_v5['Online_Gloss_Top'] > 0)]
+    
+    # Calculate Target for precise grouping
+    dff_v5['Gloss_Target'] = (dff_v5['Gloss_LSL'] + dff_v5['Gloss_USL']) / 2.0
+
+    st.write("### 🔍 Comparison Filters")
     col_f1, col_f2 = st.columns(2)
+    
     with col_f1:
-        list_color_group = sorted(dff['Color_Group'].dropna().unique().tolist())
-        if list_color_group:
-            sel_color_group = st.selectbox("🎨 Step 1: Select Color Group:", list_color_group)
-        else:
-            st.warning("No color group data available.")
-            sel_color_group = None
-            
+        list_color_group = sorted(dff_v5['Color_Group'].unique().tolist())
+        sel_color_group = st.selectbox("🎨 Step 1: Select Color Group:", list_color_group) if list_color_group else None
+
     with col_f2:
         if sel_color_group:
-            dff_nhom = dff[dff['Color_Group'] == sel_color_group].copy()
-            list_ma_son = ['All (View Normalized Deviations)'] + sorted(dff_nhom['Ma_Son'].dropna().unique().tolist())
+            dff_nhom = dff_v5[dff_v5['Color_Group'] == sel_color_group].copy()
+            list_ma_son = ['All (View Normalized Deviations)'] + sorted(dff_nhom['Ma_Son'].unique().tolist())
             sel_ma_son = st.selectbox("🎯 Step 2: Select Full Paint Code (Ma_Son):", list_ma_son)
         else:
             sel_ma_son = None
-            
+
     if sel_ma_son:
         is_mixed = "All" in sel_ma_son
         if is_mixed:
@@ -841,18 +802,12 @@ elif view_mode == "🤝 Supplier Capability":
             dff_comp = dff_nhom[dff_nhom['Ma_Son'] == sel_ma_son].copy()
             title_suffix = f"Code: {sel_ma_son}"
         
-        dff_comp = dff_comp.dropna(subset=['Online_Gloss_Top', 'Supplier', 'Gloss_LSL', 'Gloss_USL', 'dL_N', 'da_N', 'db_N'])
-        dff_comp = dff_comp[(dff_comp['Gloss_LSL'] > 0) & (dff_comp['Gloss_USL'] > 0) & (dff_comp['Online_Gloss_Top'] > 0)]
-        dff_comp['Gloss_Target'] = (dff_comp['Gloss_LSL'] + dff_comp['Gloss_USL']) / 2.0
-        dff_comp['Gloss_Dev'] = dff_comp['Online_Gloss_Top'] - dff_comp['Gloss_Target'] 
-        
+        # Requirement: Suppliers must have at least 2 batches for statistical relevance
         batch_counts = dff_comp.groupby('Supplier')['Batch_Lot'].nunique()
         valid_suppliers = batch_counts[batch_counts >= 2].index
         dff_comp = dff_comp[dff_comp['Supplier'].isin(valid_suppliers)]
         
         if not dff_comp.empty:
-            st.markdown("---")
-            
             # CALCULATE DATA FOR MATRIX & TABLE
             comp_table = dff_comp.groupby(['Supplier', 'Ma_Son']).agg(
                 Batches=('Batch_Lot', 'nunique'), 
@@ -873,137 +828,87 @@ elif view_mode == "🤝 Supplier Capability":
             comp_table['Bias'] = comp_table['Mean_Gloss'] - comp_table['Target']
             comp_table = comp_table.sort_values(['Supplier', 'Cpk (Line)'], ascending=[True, False])
 
-            # RENDER MATRIX AND TABLE
+            # 2. EXECUTIVE PERFORMANCE MATRIX
+            st.markdown("---")
             c1, c2 = st.columns([2.5, 2.5]) 
             with c1:
-                st.subheader(f"📊 Executive Performance Matrix")
+                st.subheader("📊 Executive Performance Matrix")
                 st.caption(title_suffix)
                 
                 fig_matrix, ax_matrix = plt.subplots(figsize=(9, 6))
-                
                 max_cpk = max(2.5, comp_table['Cpk (Line)'].max() + 0.2) if not comp_table['Cpk (Line)'].isna().all() else 2.5
+                
+                # Zone Coloring
                 ax_matrix.axhspan(1.33, max_cpk, facecolor='#d4edda', alpha=0.4, label='Excellent (Cpk > 1.33)')
                 ax_matrix.axhspan(1.0, 1.33, facecolor='#fff3cd', alpha=0.4, label='Warning (1.0 < Cpk < 1.33)')
                 ax_matrix.axhspan(0, 1.0, facecolor='#f8d7da', alpha=0.4, label='High Risk (Cpk < 1.0)')
-                
                 ax_matrix.axvline(0, color='black', linestyle='--', linewidth=1.5, label='Target Center (Bias = 0)')
                 
                 sns.scatterplot(data=comp_table, x='Bias', y='Cpk (Line)', hue='Supplier', s=350, edgecolor='black', linewidth=1.5, palette='tab10', ax=ax_matrix)
                 
                 for i in range(comp_table.shape[0]):
                     label_text = comp_table['Supplier'].iloc[i]
-                    if is_mixed: 
-                        label_text += f"\n({comp_table['Ma_Son'].iloc[i][-4:]})"
-                    ax_matrix.text(comp_table['Bias'].iloc[i] + 0.05, comp_table['Cpk (Line)'].iloc[i] + 0.03, 
-                                   label_text, fontsize=9, fontweight='bold', color='#2c3e50')
+                    if is_mixed: label_text += f"\n({comp_table['Ma_Son'].iloc[i][-4:]})"
+                    ax_matrix.text(comp_table['Bias'].iloc[i] + 0.05, comp_table['Cpk (Line)'].iloc[i] + 0.03, label_text, fontsize=9, fontweight='bold')
 
                 ax_matrix.set_xlabel("Systematic Bias (Average Gloss - Target) [GU]")
                 ax_matrix.set_ylabel("Stability Index (Cpk)")
                 ax_matrix.set_ylim(0, max_cpk)
-                
-                max_bias_abs = max(abs(comp_table['Bias'].max()), abs(comp_table['Bias'].min())) + 1 if not pd.isna(comp_table['Bias'].max()) else 5
+                max_bias_abs = max(abs(comp_table['Bias'].max()), abs(comp_table['Bias'].min())) + 1
                 ax_matrix.set_xlim(-max_bias_abs, max_bias_abs)
-                
                 ax_matrix.legend(bbox_to_anchor=(0.5, -0.15), loc='upper center', ncol=3)
-                plt.tight_layout()
                 st.pyplot(fig_matrix)
-                plt.close(fig_matrix)
                 
             with c2:
                 st.subheader("Capability Table per Supplier")
                 disp_table = comp_table[['Supplier', 'Ma_Son', 'Batches', 'Coils', 'Mean_Gloss', 'Std_Gloss', 'Bias', 'Cpk (Line)', 'Avg_dE']].copy()
                 disp_table.columns = ['Supplier', 'Paint Code', 'Batches', 'Coils', 'Mean (Line)', 'Std (Line)', 'Bias', 'Cpk (Line)', 'Avg ΔE']
-                
-                st.dataframe(
-                    disp_table.style.format({
-                        'Mean (Line)': '{:.1f}', 'Std (Line)': '{:.2f}', 
-                        'Bias': '{:+.2f}', 'Cpk (Line)': '{:.2f}', 'Avg ΔE': '{:.2f}'
-                    }).background_gradient(cmap='RdYlGn', subset=['Cpk (Line)'])
-                      .background_gradient(cmap='bwr', subset=['Bias'], vmin=-2, vmax=2), 
-                    use_container_width=True, hide_index=True
-                )
+                st.dataframe(disp_table.style.format({'Mean (Line)': '{:.1f}', 'Std (Line)': '{:.2f}', 'Bias': '{:+.2f}', 'Cpk (Line)': '{:.2f}', 'Avg ΔE': '{:.2f}'}).background_gradient(cmap='RdYlGn', subset=['Cpk (Line)']).background_gradient(cmap='bwr', subset=['Bias'], vmin=-2, vmax=2), use_container_width=True, hide_index=True)
 
-            # ==========================================
-            # TIME-SERIES TREND CHARTS
-            # ==========================================
+            # 3. TIME-SERIES QUALITY TRENDS
             st.markdown("---")
             st.subheader("📈 Quality Trend Analysis (Time-Series)")
-            st.caption("Visualizing Gloss and Color shifts over sequential production dates. Ideal for spotting erratic supplier behavior or progressive degradation.")
+            st.caption("Visualizing Gloss and Color shifts over sequential production dates.")
             
             trend_data = dff_comp.groupby(['Supplier', 'Ma_Son', 'Batch_Lot']).agg(
                 Prod_Date=('Ngay_SX', 'min'),
                 Mean_Gloss=('Online_Gloss_Top', 'mean'),
-                Mean_Dev=('Gloss_Dev', 'mean'),
                 Max_dE=('ΔE', 'max'),
                 LSL=('Gloss_LSL', 'first'),
                 USL=('Gloss_USL', 'first')
             ).reset_index().sort_values(by=['Supplier', 'Prod_Date'])
             
-            # --- FIX APPLIED HERE: FORCE DATETIME CONVERSION ---
+            # FIX: Ensure Prod_Date is datetime and format X-axis labels to avoid overlapping
             trend_data['Prod_Date'] = pd.to_datetime(trend_data['Prod_Date'])
-            # ---------------------------------------------------
-            
-            trend_data['Prod_Date_Str'] = trend_data['Prod_Date'].dt.strftime('%Y-%m-%d')
+            trend_data['Timeline_Label'] = trend_data['Prod_Date'].dt.strftime('%Y-%m-%d') + " (" + trend_data['Batch_Lot'].astype(str) + ")"
 
-            fig_trend, (ax_gloss, ax_color) = plt.subplots(2, 1, figsize=(14, 10), sharex=False)
-
-            # Smart logic to handle "All" vs "Single Code" Y-axis plotting
-            if is_mixed:
-                trend_data['Trace'] = trend_data['Supplier'] + " (" + trend_data['Ma_Son'].str[-4:] + ")"
-                y_col = 'Mean_Dev'
-                y_label = "Deviation from Target (ΔGloss)"
-                chart_title = "Gloss Deviation Trend (Normalized to 0 Target)"
-            else:
-                trend_data['Trace'] = trend_data['Supplier']
-                y_col = 'Mean_Gloss'
-                y_label = "Average Line Gloss (GU)"
-                target_val = (trend_data['LSL'].iloc[0] + trend_data['USL'].iloc[0]) / 2.0
-                chart_title = f"Absolute Gloss Trend (Target: {target_val:.1f} GU)"
+            fig_trend, (ax_gloss, ax_color) = plt.subplots(2, 1, figsize=(14, 10))
 
             # --- Chart 1: Gloss Trend ---
-            sns.lineplot(data=trend_data, x='Prod_Date_Str', y=y_col, hue='Trace', marker='o', markersize=8, lw=2.5, ax=ax_gloss)
-            
-            if is_mixed:
-                ax_gloss.axhline(0, color='green', ls='-', lw=2, label='Target Standard (0)')
-            else:
-                ax_gloss.axhline(target_val, color='green', ls='-', lw=2, label=f'Target ({target_val})')
-                ax_gloss.axhline(trend_data['LSL'].iloc[0], color='red', ls='--', lw=1.5, alpha=0.7, label=f"LSL ({trend_data['LSL'].iloc[0]})")
-                ax_gloss.axhline(trend_data['USL'].iloc[0], color='red', ls='--', lw=1.5, alpha=0.7, label=f"USL ({trend_data['USL'].iloc[0]})")
-            
-            ax_gloss.set_title(chart_title, fontweight='bold')
-            ax_gloss.set_ylabel(y_label)
-            ax_gloss.set_xlabel("")
+            sns.lineplot(data=trend_data, x='Timeline_Label', y='Mean_Gloss', hue='Supplier', marker='o', markersize=8, lw=2.5, ax=ax_gloss)
+            target_val = (trend_data['LSL'].iloc[0] + trend_data['USL'].iloc[0]) / 2.0
+            ax_gloss.axhline(target_val, color='green', ls='-', lw=2, label=f'Target ({target_val:.1f})')
+            ax_gloss.axhline(trend_data['LSL'].iloc[0], color='red', ls='--', lw=1.5, alpha=0.7, label='LSL/USL')
+            ax_gloss.axhline(trend_data['USL'].iloc[0], color='red', ls='--', lw=1.5, alpha=0.7)
+            ax_gloss.set_title("Gloss Drift Over Time (Batch-by-Batch)", fontweight='bold')
+            ax_gloss.set_ylabel("Line Gloss (GU)")
             ax_gloss.tick_params(axis='x', rotation=30)
             ax_gloss.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
-            ax_gloss.grid(True, linestyle='--', alpha=0.5)
 
             # --- Chart 2: Color Shift Trend ---
-            sns.lineplot(data=trend_data, x='Prod_Date_Str', y='Max_dE', hue='Trace', marker='s', markersize=8, lw=2.5, ax=ax_color)
-            ax_color.axhline(1.0, color='red', ls='--', lw=2, label='Critical Limit (ΔE = 1.0)')
-            ax_color.axhline(0.5, color='#f39c12', ls='--', lw=1.5, label='Warning Limit (ΔE = 0.5)')
-            
+            sns.lineplot(data=trend_data, x='Timeline_Label', y='Max_dE', hue='Supplier', marker='s', markersize=8, lw=2.5, ax=ax_color)
+            ax_color.axhline(1.0, color='red', ls='--', lw=2, label='Critical Limit (ΔE=1.0)')
             ax_color.set_title("Color Consistency (Max ΔE) Over Time", fontweight='bold')
-            ax_color.set_ylabel("Max Color Difference (ΔE)")
-            ax_color.set_xlabel("Production Date (Earliest to Latest)")
+            ax_color.set_ylabel("Max ΔE")
+            ax_color.set_ylim(0, max(1.2, trend_data['Max_dE'].max() + 0.2))
             ax_color.tick_params(axis='x', rotation=30)
-            
-            max_y_color = max(1.2, trend_data['Max_dE'].max() + 0.2)
-            ax_color.set_ylim(0, max_y_color)
-            
             ax_color.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
-            ax_color.grid(True, linestyle='--', alpha=0.5)
 
             plt.tight_layout()
             st.pyplot(fig_trend)
             plt.close(fig_trend)
-            
-            with st.expander("🔍 View Raw Batch Data (Details)"):
-                st.dataframe(trend_data[['Supplier', 'Ma_Son', 'Batch_Lot', 'Prod_Date_Str', 'Mean_Gloss', 'Mean_Dev', 'Max_dE']], use_container_width=True, hide_index=True)
-
         else:
-            st.warning("⚠️ Insufficient data (needs at least 2 batches per supplier) to perform comparison.")
-
-# ==========================================
+            st.warning("⚠️ Insufficient data (min. 2 batches per supplier) for this selection.")
 # ==========================================
 # VIEW 6: MASTER SUMMARY REPORT
 # ==========================================
