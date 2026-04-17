@@ -173,7 +173,6 @@ st.markdown("---")
 
 # ==========================================
 # ==========================================
-# ==========================================
 # VIEW 1: GLOSS TREND (SPC)
 # ==========================================
 if view_mode == "✨ Gloss Trend (SPC)":
@@ -382,10 +381,8 @@ if view_mode == "✨ Gloss Trend (SPC)":
             st.subheader("🧪 Resin Comparison Analysis (Apples-to-Apples)")
             st.caption("Auto-filtered: Comparing different Resin types within the SAME **Color Group** and SAME **Gloss Spec Range**.")
             
-            # 1. Gom nhóm theo Nhóm Màu và Dải Spec chuẩn xác (Lab & Line)
             dff_resin_base = dff.dropna(subset=['Color_Group', 'Gloss_LSL', 'Gloss_USL', 'Coating_Type']).copy()
             
-            # Tạo chuỗi nhận diện theo logic Mandy: "Black Group (Lab: 20~30 | Line: 18~32)"
             dff_resin_base['Group_Spec'] = (
                 dff_resin_base['Color_Group'] + " Group (Lab: " + 
                 dff_resin_base['Gloss_LSL'].apply(lambda x: f"{x:g}") + "~" + 
@@ -394,7 +391,6 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 (dff_resin_base['Gloss_USL'] + 2.0).apply(lambda x: f"{x:g}") + ")"
             )
             
-            # 2. Bộ đếm: Chỉ lấy những Group có từ 2 loại nhựa trở lên
             resin_counts = dff_resin_base.groupby('Group_Spec')['Coating_Type'].nunique()
             valid_counts = resin_counts[resin_counts >= 2]
             
@@ -405,7 +401,6 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 sel_display_text = st.selectbox("🎯 Select Color Group & Standard Spec:", sorted_display_list)
                 sel_group_spec = [k for k, v in display_options.items() if v == sel_display_text][0]
                 
-                # 3. Lọc dữ liệu
                 df_resin_subset = dff_resin_base[dff_resin_base['Group_Spec'] == sel_group_spec].copy()
                 available_resins = sorted(df_resin_subset['Coating_Type'].unique().tolist())
                 
@@ -415,12 +410,10 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 fig_resin, (ax_dist, ax_box) = plt.subplots(2, 1, figsize=(14, 9), gridspec_kw={'height_ratios': [2.5, 1]}, sharex=True)
                 palette = sns.color_palette("tab10", len(available_resins))
                 
-                # Lấy các thông số Spec để vẽ
                 lsl_val = df_resin_subset['Gloss_LSL'].iloc[0] - 2.0
                 usl_val = df_resin_subset['Gloss_USL'].iloc[0] + 2.0
                 target_val = (lsl_val + usl_val) / 2.0
                 
-                # Kẻ vạch Target & Limits xuyên suốt cả 2 biểu đồ
                 for ax in [ax_dist, ax_box]:
                     ax.axvline(target_val, color='black', linestyle='-', lw=2.5, label=f'Target ({target_val:.1f})' if ax == ax_dist else "")
                     ax.axvline(lsl_val, color='red', linestyle='--', lw=1.5, alpha=0.6, label='Line Spec Limits' if ax == ax_dist else "")
@@ -435,7 +428,6 @@ if view_mode == "✨ Gloss Trend (SPC)":
                         r_min = r_data.min()
                         r_max = r_data.max()
                         
-                        # 1. Vẽ Normal Curve ở tầng trên (ax_dist)
                         x_min, x_max = r_data.min() - 3*r_std, r_data.max() + 3*r_std
                         x_axis = np.linspace(x_min, x_max, 200)
                         y_curve = stats.norm.pdf(x_axis, r_mean, r_std)
@@ -443,24 +435,18 @@ if view_mode == "✨ Gloss Trend (SPC)":
                         ax_dist.plot(x_axis, y_curve, color=palette[idx], lw=2.5, label=f'{resin} (N={len(r_data)})')
                         ax_dist.fill_between(x_axis, y_curve, alpha=0.2, color=palette[idx])
                         
-                        # 2. Vẽ dải Statistical Range ở tầng dưới (ax_box)
                         ctrl_lower = r_mean - 3*r_std
                         ctrl_upper = r_mean + 3*r_std
                         
-                        # Đường dày: Control Limits (+- 3 sigma)
                         ax_box.plot([ctrl_lower, ctrl_upper], [idx, idx], color=palette[idx], lw=8, alpha=0.4, solid_capstyle='round', label='Control Limits (±3σ)' if idx == 0 else "")
-                        # Đường nét đứt mỏng: Min đến Max thực tế
                         ax_box.plot([r_min, r_max], [idx, idx], color='gray', lw=1.5, linestyle='--', zorder=1, label='Min-Max Spread' if idx == 0 else "")
-                        # Chấm tròn: Mean
                         ax_box.scatter(r_mean, idx, color=palette[idx], edgecolor='white', s=120, zorder=3, label='Mean' if idx == 0 else "")
-                        # Vạch thẳng đứng: Min và Max
                         ax_box.scatter([r_min, r_max], [idx, idx], color='black', marker='|', s=100, zorder=4)
                     
                     elif len(r_data) == 1:
                         ax_dist.axvline(r_data.iloc[0], color=palette[idx], linestyle=':', lw=2.5, label=f'{resin} (N=1)')
                         ax_box.scatter(r_data.iloc[0], idx, color=palette[idx], edgecolor='white', s=120, zorder=3)
                 
-                # Định dạng hiển thị
                 ax_dist.set_title(f"Gloss Capability Comparison: {sel_group_spec}", fontweight='bold')
                 ax_dist.set_ylabel("Probability Density")
                 ax_dist.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
@@ -476,7 +462,7 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 st.pyplot(fig_resin)
                 plt.close(fig_resin)
                 
-                # Bảng tính điểm Cpk tự động
+                # --- PHẦN BẢNG THỐNG KÊ (Cpk) ---
                 with st.expander("🔍 View Capability Statistics (Numerical Details)", expanded=True):
                     stats_df = df_resin_subset.groupby('Coating_Type').agg(
                         Batches=('Batch_Lot', 'nunique'),
@@ -497,38 +483,37 @@ if view_mode == "✨ Gloss Trend (SPC)":
                     st.dataframe(stats_df.style.format({
                         'Mean': '{:.1f}', 'Min': '{:.1f}', 'Max': '{:.1f}', 'Std': '{:.2f}', 'Cpk (Line)': '{:.2f}'
                     }).background_gradient(cmap='RdYlGn', subset=['Cpk (Line)']), use_container_width=True, hide_index=True)
+                
+                # --- PHẦN ADD-ON PHÂN TÍCH MÀU SẮC (DELTA E) ĐÃ ĐƯỢC CHỈNH LẠI LỀ CHUẨN ---
+                st.markdown("---")
+                st.markdown("#### 🎨 Color Stability Comparison (ΔE Dispersion)")
+                st.caption("Đánh giá xem loại nhựa nào giữ màu ổn định nhất qua lò sấy (ΔE càng thấp và ít dao động càng tốt).")
+                
+                fig_color, ax_color = plt.subplots(figsize=(12, 4))
+                
+                sns.boxplot(
+                    data=df_resin_subset, 
+                    x='ΔE', 
+                    y='Coating_Type', 
+                    palette="tab10", 
+                    linewidth=1.5,
+                    flierprops={"marker": "x", "color": "red", "s": 40},
+                    ax=ax_color
+                )
+                
+                ax_color.axvline(1.0, color='red', linestyle='--', lw=2, label='Critical Spec (ΔE = 1.0)')
+                ax_color.axvline(0.8, color='orange', linestyle=':', lw=1.5, label='Warning Limit (ΔE = 0.8)')
+                
+                ax_color.set_xlabel("Total Color Difference (ΔE)")
+                ax_color.set_ylabel("Resin Type")
+                ax_color.legend(loc='upper right')
+                ax_color.grid(axis='x', alpha=0.3)
+                
+                st.pyplot(fig_color)
+                plt.close(fig_color)
+
             else:
                 st.info("🚫 Hiện tại không có Nhóm màu nào sử dụng chung từ 2 loại nhựa trở lên cùng một dải Spec.")
-            # --- ADD-ON: PHÂN TÍCH ĐỘ NHẠY MÀU SẮC (DELTA E) GIỮA CÁC LOẠI NHỰA ---
-                    st.markdown("---")
-                    st.markdown("#### 🎨 Color Stability Comparison (ΔE Dispersion)")
-                    st.caption("Đánh giá xem loại nhựa nào giữ màu ổn định nhất qua lò sấy (ΔE càng thấp và ít dao động càng tốt).")
-                    
-                    fig_color, ax_color = plt.subplots(figsize=(12, 4))
-                    
-                    # Vẽ Boxplot đọ sức ΔE
-                    sns.boxplot(
-                        data=df_resin_subset, 
-                        x='ΔE', 
-                        y='Coating_Type', 
-                        palette="tab10", # Dùng chung hệ màu với biểu đồ Gloss ở trên
-                        linewidth=1.5,
-                        flierprops={"marker": "x", "color": "red", "s": 40},
-                        ax=ax_color
-                    )
-                    
-                    # Vẽ ranh giới NG của màu (Thường ΔE > 1.0 là Fail)
-                    ax_color.axvline(1.0, color='red', linestyle='--', lw=2, label='Critical Spec (ΔE = 1.0)')
-                    ax_color.axvline(0.8, color='orange', linestyle=':', lw=1.5, label='Warning Limit (ΔE = 0.8)')
-                    
-                    ax_color.set_xlabel("Total Color Difference (ΔE)")
-                    ax_color.set_ylabel("Resin Type")
-                    ax_color.legend(loc='upper right')
-                    ax_color.grid(axis='x', alpha=0.3)
-                    
-                    st.pyplot(fig_color)
-                    plt.close(fig_color)
-# ==========================================
 # ==========================================
 # ==========================================
 # VIEW 2: STATISTICAL LIMITS (SCOPE COMPARISON)
