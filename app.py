@@ -173,7 +173,6 @@ st.markdown("---")
 
 # ==========================================
 # ==========================================
-# ==========================================
 # VIEW 1: GLOSS TREND (SPC)
 # ==========================================
 if view_mode == "✨ Gloss Trend (SPC)":
@@ -369,19 +368,23 @@ if view_mode == "✨ Gloss Trend (SPC)":
             sel_ma_son = st.selectbox("🎯 Select Paint Code:", list_ma_son_tab2, key="manual_sel")
             render_spc_analysis(sel_ma_son, dff, "manual")
             
-        # --- TAB PHÂN TÍCH SỰ BIẾN ĐỘNG (THEO ĐÚNG LOGIC CỦA SẾP) ---
+        # --- TAB PHÂN TÍCH SỰ BIẾN ĐỘNG THEO DẢI SPEC ---
         with tab_resin:
             st.subheader("🔍 Production Segment Fluctuation Analysis")
-            st.caption("Deep dive: Analyze the actual running fluctuation of a specific combination (Same Color + Same Supplier + Same Resin + Same Spec).")
+            st.caption("Deep dive: Analyze the actual running fluctuation of a specific combination (Same Color + Same Supplier + Same Resin + Same Spec Range).")
             
             dff_seg = dff.dropna(subset=['Color_Group', 'Supplier', 'Coating_Type', 'Gloss_LSL', 'Gloss_USL', 'Online_Gloss_Top', 'ΔE']).copy()
-            dff_seg['Gloss_Target'] = (dff_seg['Gloss_LSL'] + dff_seg['Gloss_USL']) / 2.0
             
-            # Tạo chuỗi nhận diện phân khúc siêu chi tiết
+            if 'Line_LSL' not in dff_seg.columns:
+                dff_seg['Line_LSL'] = dff_seg['Gloss_LSL'] - 2.0
+                dff_seg['Line_USL'] = dff_seg['Gloss_USL'] + 2.0
+            
+            # ĐÃ ĐỔI TỪ TARGET SANG DẢI SPEC (LSL ~ USL) TRỰC TIẾP
             dff_seg['Segment_Name'] = (
                 "🎨 " + dff_seg['Color_Group'] + " | 🏭 " + dff_seg['Supplier'] + 
-                " | 🧪 " + dff_seg['Coating_Type'] + " | 🎯 Target: " + 
-                dff_seg['Gloss_Target'].apply(lambda x: f"{x:g}") + " GU"
+                " | 🧪 " + dff_seg['Coating_Type'] + " | 📏 Spec (Line): " + 
+                dff_seg['Line_LSL'].apply(lambda x: f"{x:g}") + "~" + 
+                dff_seg['Line_USL'].apply(lambda x: f"{x:g}") + " GU"
             )
             
             # Lọc các phân khúc có đủ dữ liệu (>= 5 cuộn) để phân tích biến động
@@ -395,9 +398,9 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 sel_seg = [k for k, v in display_options.items() if v == sel_display_text][0]
                 df_sub = dff_seg[dff_seg['Segment_Name'] == sel_seg].sort_values(['Ngay_SX', 'Coil_No']).reset_index(drop=True)
                 
-                lsl_val = df_sub['Line_LSL'].iloc[0] if 'Line_LSL' in df_sub.columns else df_sub['Gloss_LSL'].iloc[0] - 2.0
-                usl_val = df_sub['Line_USL'].iloc[0] if 'Line_USL' in df_sub.columns else df_sub['Gloss_USL'].iloc[0] + 2.0
-                target_val = df_sub['Gloss_Target'].iloc[0]
+                lsl_val = df_sub['Line_LSL'].iloc[0]
+                usl_val = df_sub['Line_USL'].iloc[0]
+                target_val = (lsl_val + usl_val) / 2.0
                 
                 r_mean = df_sub['Online_Gloss_Top'].mean()
                 r_std = df_sub['Online_Gloss_Top'].std() if df_sub['Online_Gloss_Top'].std() > 0 else 0.1
@@ -467,8 +470,7 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 plt.close(fig_fluc)
                 
             else:
-                st.info("🚫 Không có phân khúc nào (Nhóm màu + Hãng + Nhựa + Target) có đủ từ 5 cuộn trở lên để vẽ biểu đồ biến động.")
-# ==========================================
+                st.info("🚫 Không có phân khúc nào (Nhóm màu + Hãng + Nhựa + Dải Spec) có đủ từ 5 cuộn trở lên để vẽ biểu đồ biến động.")
 # ==========================================
 # ==========================================
 # VIEW 2: STATISTICAL LIMITS (SCOPE COMPARISON)
