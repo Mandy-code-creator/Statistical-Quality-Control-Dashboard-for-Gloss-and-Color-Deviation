@@ -173,6 +173,7 @@ st.markdown("---")
 
 # ==========================================
 # ==========================================
+# ==========================================
 # VIEW 1: GLOSS TREND (SPC)
 # ==========================================
 if view_mode == "✨ Gloss Trend (SPC)":
@@ -352,7 +353,7 @@ if view_mode == "✨ Gloss Trend (SPC)":
     # ── TAB SELECTION ──────────────────────────
     list_ma_son_tab2 = sorted(dff['Ma_Son'].dropna().unique().tolist())
     if list_ma_son_tab2:
-        tab_top_risk, tab_custom, tab_resin = st.tabs(["🚨 Top At-Risk Codes", "🔍 Manual Analysis", "🔍 Segment Fluctuation"])
+        tab_top_risk, tab_custom, tab_resin = st.tabs(["🚨 Top At-Risk Codes", "🔍 Manual Analysis", "🔍 Segment Fluctuation (X-bar)"])
         
         with tab_top_risk:
             if not risk_alert.empty:
@@ -368,18 +369,18 @@ if view_mode == "✨ Gloss Trend (SPC)":
             sel_ma_son = st.selectbox("🎯 Select Paint Code:", list_ma_son_tab2, key="manual_sel")
             render_spc_analysis(sel_ma_son, dff, "manual")
             
-        # --- TAB PHÂN TÍCH SỰ BIẾN ĐỘNG THEO DẢI SPEC ---
+        # --- TAB PHÂN TÍCH SỰ BIẾN ĐỘNG TRUNG BÌNH THEO MẺ (X-BAR) ---
         with tab_resin:
-            st.subheader("🔍 Production Segment Fluctuation Analysis")
-            st.caption("Deep dive: Analyze the actual running fluctuation of a specific combination (Same Color + Same Supplier + Same Resin + Same Spec Range).")
+            st.subheader("🔍 Production Segment Fluctuation (Batch Average)")
+            st.caption("Statistical Process Control (X-bar format): Compares the Average Lab Input vs. Average Line Output batch by batch.")
             
-            dff_seg = dff.dropna(subset=['Color_Group', 'Supplier', 'Coating_Type', 'Gloss_LSL', 'Gloss_USL', 'Online_Gloss_Top', 'ΔE']).copy()
+            # Yêu cầu phải có cả Gloss_Lab để vẽ biểu đồ 2 dây
+            dff_seg = dff.dropna(subset=['Color_Group', 'Supplier', 'Coating_Type', 'Gloss_LSL', 'Gloss_USL', 'Online_Gloss_Top', 'Gloss_Lab', 'ΔE']).copy()
             
             if 'Line_LSL' not in dff_seg.columns:
                 dff_seg['Line_LSL'] = dff_seg['Gloss_LSL'] - 2.0
                 dff_seg['Line_USL'] = dff_seg['Gloss_USL'] + 2.0
             
-            # ĐÃ ĐỔI TỪ TARGET SANG DẢI SPEC (LSL ~ USL) TRỰC TIẾP
             dff_seg['Segment_Name'] = (
                 "🎨 " + dff_seg['Color_Group'] + " | 🏭 " + dff_seg['Supplier'] + 
                 " | 🧪 " + dff_seg['Coating_Type'] + " | 📏 Spec (Line): " + 
@@ -387,21 +388,36 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 dff_seg['Line_USL'].apply(lambda x: f"{x:g}") + " GU"
             )
             
-            # Lọc các phân khúc có đủ dữ liệu (>= 5 cuộn) để phân tích biến động
-            seg_counts = dff_seg.groupby('Segment_Name')['Online_Gloss_Top'].count()
-            valid_segs = seg_counts[seg_counts >= 5].sort_values(ascending=False)
+            # Cần tối thiểu 3 mẻ (Batches) để thấy được xu hướng
+            seg_counts = dff_seg.groupby('Segment_Name')['Batch_Lot'].nunique()
+            valid_segs = seg_counts[seg_counts >= 3].sort_values(ascending=False)
             
             if not valid_segs.empty:
-                display_options = {seg: f"{seg} ➡️ [{count} Coils analyzed]" for seg, count in valid_segs.items()}
+                display_options = {seg: f"{seg} ➡️ [{count} Batches]" for seg, count in valid_segs.items()}
                 sel_display_text = st.selectbox("🎯 Select Production Segment:", list(display_options.values()))
                 
                 sel_seg = [k for k, v in display_options.items() if v == sel_display_text][0]
-                df_sub = dff_seg[dff_seg['Segment_Name'] == sel_seg].sort_values(['Ngay_SX', 'Coil_No']).reset_index(drop=True)
+                df_sub = dff_seg[dff_seg['Segment_Name'] == sel_seg].copy()
+                
+                # -------------------------------------------------------------
+                # 1. GOM NHÓM LẤY TRUNG BÌNH (AVERAGE) THEO TỪNG MẺ (BATCH_LOT)
+                # -------------------------------------------------------------
+                df_batch = df_sub.groupby('Batch_Lot').agg(
+                    Ngay_SX_min=('Ngay_SX', 'min'),
+                    Coil_Count=('Online_Gloss_Top', 'count'),
+                    Line_Gloss_Mean=('Online_Gloss_Top', 'mean'), # Trung bình Line
+                    Lab_Gloss_Mean=('Gloss_Lab', 'mean'),         # Trung bình Lab
+                    dE_Mean=('ΔE', 'mean'),
+                    dE_Max=('ΔE', 'max')
+                ).sort_values('Ngay_SX_min').reset_index()
+                
+                df_batch['x_seq'] = list(range(len(df_batch)))
                 
                 lsl_val = df_sub['Line_LSL'].iloc[0]
                 usl_val = df_sub['Line_USL'].iloc[0]
                 target_val = (lsl_val + usl_val) / 2.0
                 
+                # Tính Cpk tổng thể dựa trên toàn bộ cuộn (chính xác hơn)
                 r_mean = df_sub['Online_Gloss_Top'].mean()
                 r_std = df_sub['Online_Gloss_Top'].std() if df_sub['Online_Gloss_Top'].std() > 0 else 0.1
                 cpk = min((usl_val - r_mean) / (3 * r_std), (r_mean - lsl_val) / (3 * r_std))
@@ -409,68 +425,74 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 
                 de_max = df_sub['ΔE'].max()
                 
-                # Bảng tóm tắt chỉ số sức khỏe của Segment này
                 st.markdown("---")
                 c1, c2, c3, c4 = st.columns(4)
-                c1.metric("📦 Volume", f"{len(df_sub)} Coils")
-                c2.metric("📊 Stability (Cpk)", f"{cpk:.2f}", "Excellent" if cpk >= 1.33 else ("Warning" if cpk >= 1.0 else "Poor"))
-                c3.metric("🎯 Mean Gloss", f"{r_mean:.1f} GU")
+                c1.metric("📦 Volume", f"{len(df_batch)} Batches ({len(df_sub)} Coils)")
+                c2.metric("📊 Coil Stability (Cpk)", f"{cpk:.2f}", "Excellent" if cpk >= 1.33 else ("Warning" if cpk >= 1.0 else "Poor"))
+                c3.metric("🎯 Mean Line Gloss", f"{r_mean:.1f} GU")
                 c4.metric("🎨 Worst Color Shift (ΔE)", f"{de_max:.2f}", "Fail" if de_max > 1.0 else "Pass", delta_color="inverse")
                 
-                # --- BIỂU ĐỒ BIẾN ĐỘNG KÉP (FLUCTUATION TREND) ---
-                st.markdown("#### 📈 Fluctuation Tracking: Gloss & Color over time")
+                # --- BIỂU ĐỒ BIẾN ĐỘNG KÉP (BATCH FLUCTUATION TREND) ---
+                st.markdown("#### 📈 Batch Fluctuation Tracking: Lab vs Line")
                 
                 fig_fluc, (ax_g, ax_c) = plt.subplots(2, 1, figsize=(14, 8), gridspec_kw={'height_ratios': [2, 1]}, sharex=True)
-                df_sub['x_seq'] = list(range(len(df_sub)))
                 
-                # 1. BIỂU ĐỒ GLOSS
-                ax_g.plot(df_sub['x_seq'], df_sub['Online_Gloss_Top'], marker='o', color='#2980b9', lw=2, label='Actual Line Gloss')
+                # 1. BIỂU ĐỒ GLOSS: LAB (Xanh, đứt nét) vs LINE (Cam, liền)
+                ax_g.plot(df_batch['x_seq'], df_batch['Lab_Gloss_Mean'], marker='o', color='#3498db', lw=2, linestyle='--', label='Avg Lab Gloss (Input)')
+                ax_g.plot(df_batch['x_seq'], df_batch['Line_Gloss_Mean'], marker='s', color='#e67e22', lw=2.5, label='Avg Line Gloss (Output)')
                 
-                ax_g.axhline(target_val, color='black', lw=2.5, label=f'Target ({target_val:.1f})')
-                ax_g.axhline(lsl_val, color='red', ls='--', lw=1.5, label='Spec Limits')
-                ax_g.axhline(usl_val, color='red', ls='--', lw=1.5)
+                ax_g.axhline(target_val, color='black', lw=2.5, label=f'Line Target ({target_val:.1f})')
+                ax_g.axhline(lsl_val, color='red', ls='-', lw=1.5, alpha=0.5, label='Line Spec Limits')
+                ax_g.axhline(usl_val, color='red', ls='-', lw=1.5, alpha=0.5)
                 
-                # Vẽ dải Control Limits (+- 3 sigma) để sếp thấy sự biến động tự nhiên
-                ax_g.axhspan(r_mean - 3*r_std, r_mean + 3*r_std, color='#2ecc71', alpha=0.15, label='Process Capability (±3σ)')
-                ax_g.axhline(r_mean, color='#27ae60', ls='-.', lw=2, label=f'Mean ({r_mean:.1f})')
+                # Dải kiểm soát tự nhiên dựa trên sự biến động giữa các mẻ (Batch-to-Batch Variation)
+                b_mean = df_batch['Line_Gloss_Mean'].mean()
+                b_std = df_batch['Line_Gloss_Mean'].std() if df_batch['Line_Gloss_Mean'].std() > 0 else 0.1
+                ax_g.axhspan(b_mean - 3*b_std, b_mean + 3*b_std, color='#2ecc71', alpha=0.15, label='Batch Control Limits (±3σ)')
+                ax_g.axhline(b_mean, color='#27ae60', ls='-.', lw=2, label=f'Batch Mean ({b_mean:.1f})')
                 
-                ax_g.set_ylabel("Online Gloss (GU)", fontweight='bold')
+                ax_g.set_ylabel("Average Gloss (GU)", fontweight='bold')
                 ax_g.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
-                ax_g.grid(axis='y', alpha=0.3)
+                ax_g.grid(axis='both', alpha=0.3)
                 
                 # 2. BIỂU ĐỒ DELTA E
-                ax_c.plot(df_sub['x_seq'], df_sub['ΔE'], marker='s', color='#e67e22', lw=2, label='Color Shift (ΔE)')
+                ax_c.plot(df_batch['x_seq'], df_batch['dE_Mean'], marker='^', color='#8e44ad', lw=2, label='Avg Color Shift (ΔE)')
+                # Điểm xuyết thêm chấm đỏ thể hiện cuộn tệ nhất trong mẻ đó
+                ax_c.scatter(df_batch['x_seq'], df_batch['dE_Max'], color='red', s=50, zorder=5, label='Max ΔE in Batch')
+                
                 ax_c.axhline(1.0, color='red', ls='--', lw=2, label='Critical (1.0)')
                 ax_c.axhline(0.8, color='orange', ls=':', lw=1.5, label='Warning (0.8)')
                 
                 ax_c.set_ylabel("ΔE", fontweight='bold')
-                ax_c.set_xlabel("Production Sequence (Coils grouped by Batch)", fontweight='bold')
+                ax_c.set_xlabel("Production Sequence (Batches)", fontweight='bold')
                 ax_c.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
-                ax_c.grid(axis='y', alpha=0.3)
+                ax_c.grid(axis='both', alpha=0.3)
                 
-                # Dựng ranh giới phân mẻ và nhãn trục X chống đè chữ
-                batch_info = df_sub.groupby('Batch_Lot', sort=False)['x_seq'].agg(['min', 'max', 'mean']).reset_index()
-                for val in batch_info['min']:
-                    if val > 0:
-                        ax_g.axvline(x=val - 0.5, color='gray', linestyle=':', lw=1.5, alpha=0.5)
-                        ax_c.axvline(x=val - 0.5, color='gray', linestyle=':', lw=1.5, alpha=0.5)
+                # Nhãn trục X: Gắn tên Batch Lot thẳng vào
+                ax_c.set_xticks(df_batch['x_seq'])
+                ax_c.set_xticklabels(df_batch['Batch_Lot'].astype(str), rotation=45, ha='right', fontsize=9)
                 
-                step = max(1, len(batch_info) // 12)
-                kept_ticks = batch_info['mean'].iloc[::step].tolist()
-                kept_labels = batch_info['Batch_Lot'].iloc[::step].astype(str).tolist()
-                if batch_info['mean'].iloc[-1] not in kept_ticks:
-                    kept_ticks.append(batch_info['mean'].iloc[-1])
-                    kept_labels.append(str(batch_info['Batch_Lot'].iloc[-1]))
-                
-                ax_c.set_xticks(kept_ticks)
-                ax_c.set_xticklabels(kept_labels, rotation=45, ha='right', fontsize=9)
-                
+                # Auto-hide nhãn nếu có quá 25 mẻ để chống đè chữ
+                if len(df_batch) > 25:
+                    step = max(1, len(df_batch) // 15)
+                    for i, label in enumerate(ax_c.xaxis.get_ticklabels()):
+                        if i % step != 0: label.set_visible(False)
+                        
                 plt.tight_layout()
                 st.pyplot(fig_fluc)
                 plt.close(fig_fluc)
                 
+                # Bảng xem chi tiết
+                with st.expander("🔍 View Batch Data Details"):
+                    st.dataframe(df_batch[['Batch_Lot', 'Ngay_SX_min', 'Coil_Count', 'Lab_Gloss_Mean', 'Line_Gloss_Mean', 'dE_Mean', 'dE_Max']].rename(columns={
+                        'Ngay_SX_min': 'First Prod Date', 'Coil_Count': 'Coils'
+                    }).style.format({
+                        'Lab_Gloss_Mean': '{:.1f}', 'Line_Gloss_Mean': '{:.1f}', 'dE_Mean': '{:.2f}', 'dE_Max': '{:.2f}'
+                    }), use_container_width=True, hide_index=True)
+                    
             else:
-                st.info("🚫 Không có phân khúc nào (Nhóm màu + Hãng + Nhựa + Dải Spec) có đủ từ 5 cuộn trở lên để vẽ biểu đồ biến động.")
+                st.info("🚫 Không có phân khúc nào (Nhóm màu + Hãng + Nhựa + Dải Spec) có đủ từ 3 mẻ (Batches) trở lên để phân tích biến động.")
+# ==========================================
 # ==========================================
 # ==========================================
 # VIEW 2: STATISTICAL LIMITS (SCOPE COMPARISON)
