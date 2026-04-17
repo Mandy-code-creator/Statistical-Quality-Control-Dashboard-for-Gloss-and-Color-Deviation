@@ -173,6 +173,7 @@ st.markdown("---")
 
 # ==========================================
 # ==========================================
+# ==========================================
 # VIEW 1: GLOSS TREND (SPC)
 # ==========================================
 if view_mode == "✨ Gloss Trend (SPC)":
@@ -271,16 +272,12 @@ if view_mode == "✨ Gloss Trend (SPC)":
         # --- BẮT ĐẦU ĐOẠN FIX NHÃN TRỤC X CHUẨN SPC (NÂNG CẤP CHỐNG ĐÈ CHỮ) ---
         ax_trend.set_xlabel("Production Sequence (Coils grouped by Batch)")
         
-        # 1. Tìm ranh giới và vị trí trung tâm của từng mẻ
         batch_info = dff_g.groupby('Batch_Lot', sort=False)['x_seq'].agg(['min', 'max', 'mean']).reset_index()
 
-        # 2. Vẽ hàng rào nét đứt phân cách tất cả các mẻ (vẫn giữ nguyên để thấy mẻ nhỏ)
         for val in batch_info['min']:
             if val > 0:
                 ax_trend.axvline(x=val - 0.5, color='gray', linestyle=':', lw=1.5, alpha=0.5)
 
-        # 3. Lọc nhãn thông minh (Chỉ in nhãn nếu khoảng cách vật lý đủ lớn)
-        # Giới hạn trục ngang chỉ cho phép hiển thị tối đa khoảng 30 nhãn
         min_x_distance = max(1, len(dff_g) / 30.0) 
         kept_ticks = []
         kept_labels = []
@@ -292,18 +289,24 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 kept_labels.append(str(row['Batch_Lot']))
                 last_tick = row['mean']
                 
-        # Ưu tiên luôn hiển thị tên của mẻ cuối cùng để chốt dữ liệu
         if kept_ticks and kept_ticks[-1] != batch_info['mean'].iloc[-1]:
             if (batch_info['mean'].iloc[-1] - kept_ticks[-1]) < min_x_distance:
-                kept_ticks.pop() # Xóa nhãn kề cuối nếu nó quá sát nhãn cuối
+                kept_ticks.pop() 
                 kept_labels.pop()
             kept_ticks.append(batch_info['mean'].iloc[-1])
             kept_labels.append(str(batch_info['Batch_Lot'].iloc[-1]))
 
-        # 4. Gắn nhãn đã lọc lên biểu đồ
         ax_trend.set_xticks(kept_ticks)
         ax_trend.set_xticklabels(kept_labels, rotation=45, ha='right', fontsize=8)
         # --- KẾT THÚC ĐOẠN FIX NHÃN TRỤC X ---
+        
+        # --- ĐÂY LÀ PHẦN BẠN XÓA NHẦM, MÌNH ĐÃ THÊM LẠI ---
+        ax_trend.set_ylabel("Gloss (GU)")
+        ax_trend.legend(bbox_to_anchor=(1.01, 1), loc='upper left', fontsize='small')
+        st.pyplot(fig_trend)
+        plt.close(fig_trend)
+        # -------------------------------------------------
+
         # ── BIỂU ĐỒ 2: GLOSS DISTRIBUTION ───────────────────────────────────
         st.write("**Gloss Distribution Analysis**")
         fig_dist, ax_dist = plt.subplots(figsize=(9, 5)) 
@@ -375,7 +378,6 @@ if view_mode == "✨ Gloss Trend (SPC)":
         with tab_custom:
             sel_ma_son = st.selectbox("🎯 Select Paint Code:", list_ma_son_tab2, key="manual_sel")
             render_spc_analysis(sel_ma_son, dff, "manual")
-
 # ==========================================
 # ==========================================
 # VIEW 2: STATISTICAL LIMITS (SCOPE COMPARISON)
