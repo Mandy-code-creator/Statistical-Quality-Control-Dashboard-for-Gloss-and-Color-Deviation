@@ -765,212 +765,113 @@ elif view_mode == "⚖️ Predictive Compensation & Targeting":
             st.warning("⚠️ Insufficient historical data for this paint code to build a reliable compensation model (Min. 5 coils required).")
 # ==========================================
 # ==========================================
-# VIEW 5: SUPPLIER CAPABILITY (FIXED SPEC LOGIC)
+# VIEW 5: SUPPLIER BENCHMARKING (APPLES-TO-APPLES)
 # ==========================================
 elif view_mode == "🤝 Supplier Capability":
-    st.info("💡 Capability Analysis: Evaluates suppliers based on their specific Full Paint Codes (Ma_Son). Each code is strictly evaluated against its own LSL/USL.")
+    st.header("🤝 Supplier Capability Benchmarking")
+    st.info("💡 Logic: So sánh trực diện các nhà cung cấp dựa trên cùng một tiêu chuẩn (Cùng mã màu 4 số & Cùng mức Gloss mục tiêu).")
     
-    st.markdown("---")
-    st.subheader("🚨 Negotiation Radar (Supplier Blacklist)")
-    st.caption("Paint codes with **Cpk < 1.0** (unstable gloss) or **ΔE Max > 1.0** (color shift) will be flagged here. Minimum 2 Batches required.")
+    # Tiền xử lý dữ liệu: Tính Target để phân loại
+    dff_v5 = dff.dropna(subset=['Online_Gloss_Top', 'Supplier', 'Gloss_LSL', 'Gloss_USL', 'Color_Code']).copy()
+    dff_v5['Gloss_Target'] = (dff_v5['Gloss_LSL'] + dff_v5['Gloss_USL']) / 2.0
     
-    dff_radar = dff.dropna(subset=['Online_Gloss_Top', 'Supplier', 'Gloss_LSL', 'Gloss_USL', 'Color_Group', 'Ma_Son', 'dL_N', 'da_N', 'db_N'])
-    dff_radar = dff_radar[(dff_radar['Gloss_LSL'] > 0) & (dff_radar['Gloss_USL'] > 0) & (dff_radar['Online_Gloss_Top'] > 0)]
-    
-    if not dff_radar.empty:
-        # SỬA LỖI: Nhóm chính xác theo Ma_Son (Full Paint Code) để không bị nhầm lẫn LSL/USL
-        radar_summary = dff_radar.groupby(['Color_Group', 'Ma_Son', 'Supplier']).agg(
-            Batches=('Batch_Lot', 'nunique'),
-            Coils=('Online_Gloss_Top', 'count'),
-            LSL=('Gloss_LSL', 'first'), 
-            USL=('Gloss_USL', 'first'),
-            Mean_Line=('Online_Gloss_Top', 'mean'), 
-            Std_Line=('Online_Gloss_Top', 'std'), 
-            dE_Max=('ΔE', 'max')
-        ).reset_index()
-        
-        radar_summary = radar_summary[radar_summary['Batches'] >= 2]
-        
-        def calc_cpk_radar(row):
-            if pd.isna(row['Std_Line']) or row['Std_Line'] == 0: return np.nan
-            return min((row['USL'] - row['Mean_Line']) / (3 * row['Std_Line']), (row['Mean_Line'] - row['LSL']) / (3 * row['Std_Line']))
-            
-        radar_summary['Cpk (Line)'] = radar_summary.apply(calc_cpk_radar, axis=1)
-        radar_alert = radar_summary[(radar_summary['Cpk (Line)'] < 1.0) | (radar_summary['dE_Max'] > 1.0)].copy()
-        
-        if not radar_alert.empty:
-            radar_alert = radar_alert.sort_values(by=['Cpk (Line)'], ascending=True)
-            radar_alert = radar_alert[['Color_Group', 'Ma_Son', 'Supplier', 'Batches', 'Coils', 'LSL', 'USL', 'Mean_Line', 'Std_Line', 'dE_Max', 'Cpk (Line)']]
-            radar_alert.columns = ['Color Group', 'Full Paint Code', 'Supplier', 'Batches', 'Coils', 'LSL', 'USL', 'Mean (Line)', 'Std (Line)', 'Max ΔE', 'Cpk (Line)']
-            st.dataframe(
-                radar_alert.style.format({
-                    'LSL': '{:.0f}', 'USL': '{:.0f}', 'Mean (Line)': '{:.1f}',
-                    'Std (Line)': '{:.2f}', 'Max ΔE': '{:.2f}', 'Cpk (Line)': '{:.2f}'
-                }).background_gradient(cmap='Reds_r', subset=['Cpk (Line)']).background_gradient(cmap='Reds', subset=['Max ΔE']),
-                use_container_width=True, hide_index=True
-            )
-        else:
-            st.success("🎉 Excellent! No paint codes are currently in critical violation of Cpk or Color limits.")
-    
-    st.markdown("---")
-    st.write("### 🔍 Drill-down Analysis")
-
+    st.write("### 🔍 Thiết lập bộ lọc so sánh")
     col_f1, col_f2 = st.columns(2)
+    
     with col_f1:
-        list_color_group = sorted(dff['Color_Group'].dropna().unique().tolist())
-        if list_color_group:
-            sel_color_group = st.selectbox("🎨 Step 1: Select Color Group:", list_color_group)
-        else:
-            st.warning("No color group data available.")
-            sel_color_group = None
-            
+        # Bước 1: Chọn mã màu 4 số (ví dụ: 1014, 9002...)
+        list_color_code = sorted(dff_v5['Color_Code'].unique().tolist())
+        sel_color_code = st.selectbox("🔢 Bước 1: Chọn Mã màu (4 số cuối):", list_color_code)
+        
     with col_f2:
-        if sel_color_group:
-            dff_nhom = dff[dff['Color_Group'] == sel_color_group].copy()
-            # SỬA LỖI: Dropdown chọn thẳng Mã Sơn Đầy Đủ (Ma_Son) thay vì 4 số cuối
-            list_ma_son = ['All (View Normalized Deviations)'] + sorted(dff_nhom['Ma_Son'].dropna().unique().tolist())
-            sel_ma_son = st.selectbox("🎯 Step 2: Select Full Paint Code (Ma_Son):", list_ma_son)
-        else:
-            sel_ma_son = None
-            
-    if sel_ma_son:
-        is_mixed = "All" in sel_ma_son
-        if is_mixed:
-            dff_comp = dff_nhom.copy()
-            title_suffix = f"Group: {sel_color_group} (Multiple Specs)"
-        else:
-            dff_comp = dff_nhom[dff_nhom['Ma_Son'] == sel_ma_son].copy()
-            title_suffix = f"Code: {sel_ma_son}"
-        
-        dff_comp = dff_comp.dropna(subset=['Online_Gloss_Top', 'Supplier', 'Gloss_LSL', 'Gloss_USL', 'dL_N', 'da_N', 'db_N'])
-        dff_comp = dff_comp[(dff_comp['Gloss_LSL'] > 0) & (dff_comp['Gloss_USL'] > 0) & (dff_comp['Online_Gloss_Top'] > 0)]
-        dff_comp['Gloss_Target'] = (dff_comp['Gloss_LSL'] + dff_comp['Gloss_USL']) / 2.0
-        # Tính toán Độ Lệch (Deviation) để có thể so sánh chéo các mã sơn có Target khác nhau trong trường hợp chọn "All"
-        dff_comp['Gloss_Dev'] = dff_comp['Online_Gloss_Top'] - dff_comp['Gloss_Target'] 
-        
-        batch_counts = dff_comp.groupby('Supplier')['Batch_Lot'].nunique()
-        valid_suppliers = batch_counts[batch_counts >= 2].index
-        dff_comp = dff_comp[dff_comp['Supplier'].isin(valid_suppliers)]
-        
-        if not dff_comp.empty:
-            st.markdown("---")
-            c1, c2 = st.columns([2, 2.2]) 
-            
-            with c1:
-                st.subheader(f"📊 Line Gloss Dispersion ({title_suffix})")
-                fig_comp1, ax_comp1 = plt.subplots(figsize=(10, 5))
-                num_sups = dff_comp['Supplier'].nunique()
-                
-                if is_mixed:
-                    # Nếu xem "All", chỉ được phép vẽ Biểu đồ Độ Lệch (Gloss_Dev) vì Target mỗi mã khác nhau
-                    st.caption("Showing *Deviation from Target (ΔGloss)* because multiple paint codes have different LSL/USL specs.")
-                    b_width = 0.5 if num_sups > 1 else 0.3
-                    sns.boxplot(data=dff_comp, x='Supplier', y='Gloss_Dev', palette='Set2', ax=ax_comp1, showfliers=False, width=b_width)
-                    sns.stripplot(data=dff_comp, x='Supplier', y='Gloss_Dev', color='black', alpha=0.3, size=3, jitter=True, ax=ax_comp1)
-                    ax_comp1.axhline(0, color='green', ls='--', lw=2, label='Target Standard (0 Deviation)')
-                    ax_comp1.set_ylabel("Deviation from Target (ΔGloss)")
-                else:
-                    # Nếu xem 1 mã cụ thể, vẽ Raw Data và đường LSL/USL thực tế của mã đó
-                    b_width = 0.3 if num_sups > 1 else 0.15
-                    sns.boxplot(data=dff_comp, x='Supplier', y='Online_Gloss_Top', color='#ecf0f1', ax=ax_comp1, showfliers=False, width=b_width, linewidth=1.5)
-                    sns.stripplot(data=dff_comp, x='Supplier', y='Online_Gloss_Top', hue='Supplier', palette='Set1', alpha=0.85, size=7, jitter=0.15, ax=ax_comp1, legend=False)
-                    lsl_val = dff_comp['Gloss_LSL'].iloc[0]
-                    usl_val = dff_comp['Gloss_USL'].iloc[0]
-                    ax_comp1.axhline(lsl_val, color='red', ls='--', lw=2, label=f'LSL ({lsl_val:.0f})')
-                    ax_comp1.axhline(usl_val, color='red', ls='--', lw=2, label=f'USL ({usl_val:.0f})')
-                    total_mean = dff_comp['Online_Gloss_Top'].mean()
-                    ax_comp1.axhline(total_mean, color='gray', ls=':', lw=1.5, label=f'Avg Line ({total_mean:.1f})')
-                    ax_comp1.set_ylabel("Online Gloss (GU)")
-                
-                ax_comp1.set_xlabel("Supplier")
-                plt.legend()
-                st.pyplot(fig_comp1)
-                
-            with c2:
-                # SỬA LỖI: Bảng dữ liệu luôn phải Break-down theo từng Mã Sơn (Ma_Son) để không bị trộn lẫn Spec
-                st.subheader("Capability Table per Supplier & Paint Code")
-                comp_table = dff_comp.groupby(['Supplier', 'Ma_Son']).agg(
-                    Batches=('Batch_Lot', 'nunique'), 
-                    Coils=('Online_Gloss_Top', 'count'), 
-                    LSL=('Gloss_LSL', 'first'), 
-                    USL=('Gloss_USL', 'first'), 
-                    Mean_Gloss=('Online_Gloss_Top', 'mean'), 
-                    Std_Gloss=('Online_Gloss_Top', 'std'), 
-                    Avg_dE=('ΔE', 'mean')
-                ).reset_index()
-                
-                def calc_cpk_table(row):
-                    if pd.isna(row['Std_Gloss']) or row['Std_Gloss'] == 0: return np.nan
-                    return min((row['USL'] - row['Mean_Gloss']) / (3 * row['Std_Gloss']), (row['Mean_Gloss'] - row['LSL']) / (3 * row['Std_Gloss']))
-                
-                comp_table['Cpk (Line)'] = comp_table.apply(calc_cpk_table, axis=1)
-                comp_table = comp_table.sort_values(['Supplier', 'Cpk (Line)'], ascending=[True, False])
-                comp_table.columns = ['Supplier', 'Full Paint Code', 'Batches', 'Coils', 'LSL', 'USL', 'Mean (Line)', 'Std (Line)', 'Avg ΔE', 'Cpk (Line)']
-                
-                st.dataframe(
-                    comp_table.style.format({'LSL': '{:.0f}', 'USL': '{:.0f}', 'Mean (Line)': '{:.1f}', 'Std (Line)': '{:.2f}', 'Avg ΔE': '{:.2f}', 'Cpk (Line)': '{:.2f}'}).background_gradient(cmap='RdYlGn', subset=['Cpk (Line)']), 
-                    use_container_width=True, hide_index=True
-                )
+        # Bước 2: Chỉ hiện các mức Gloss mục tiêu có trong mã màu đó
+        dff_filtered_code = dff_v5[dff_v5['Color_Code'] == sel_color_code]
+        list_targets = sorted(dff_filtered_code['Gloss_Target'].unique().tolist())
+        sel_target = st.selectbox("🎯 Bước 2: Chọn Mức Gloss mục tiêu (Target):", 
+                                  list_targets, 
+                                  format_func=lambda x: f"Tiêu chuẩn {x:.1f} GU")
 
-            st.markdown("---")
-            st.subheader("📉 Batch-to-Batch Gloss Variation")
-            st.caption("Comparing variation only between batches of the EXACT SAME paint code.")
+    # Lọc dữ liệu cuối cùng theo đúng Mã màu & Đúng Target
+    dff_final = dff_filtered_code[dff_filtered_code['Gloss_Target'] == sel_target].copy()
+    
+    # Chỉ giữ lại Supplier có ít nhất 2 mẻ (Batch) để đảm bảo tính thống kê
+    batch_counts = dff_final.groupby('Supplier')['Batch_Lot'].nunique()
+    valid_sups = batch_counts[batch_counts >= 2].index
+    dff_final = dff_final[dff_final['Supplier'].isin(valid_sups)]
+
+    if not dff_final.empty:
+        st.markdown("---")
+        st.subheader(f"📊 So sánh năng lực cung cấp: Mã màu {sel_color_code} | Target {sel_target} GU")
+        
+        c1, c2 = st.columns([2, 2.5])
+        
+        with c1:
+            # Biểu đồ Boxplot so sánh trực diện các Supplier
+            fig_bench, ax_bench = plt.subplots(figsize=(10, 6))
+            sns.boxplot(data=dff_final, x='Supplier', y='Online_Gloss_Top', palette='vlag', ax=ax_bench, showfliers=False)
+            sns.stripplot(data=dff_final, x='Supplier', y='Online_Gloss_Top', color='black', alpha=0.3, jitter=True, ax=ax_bench)
             
-            # SỬA LỖI: Gom nhóm theo Ma_Son để so sánh 2 mẻ của cùng 1 loại sơn, không so sánh mẻ sơn bóng với mẻ sơn mờ
-            batch_means = dff_comp.groupby(['Supplier', 'Ma_Son', 'Batch_Lot']).agg(
-                Mean_Line=('Online_Gloss_Top', 'mean'), 
-                LSL=('Gloss_LSL', 'first'), 
-                USL=('Gloss_USL', 'first')
+            # Vẽ đường Spec chung
+            lsl_val = dff_final['Gloss_LSL'].iloc[0]
+            usl_val = dff_final['Gloss_USL'].iloc[0]
+            ax_bench.axhline(sel_target, color='green', ls='-', lw=2, label=f'Target ({sel_target})')
+            ax_bench.axhline(lsl_val, color='red', ls='--', lw=1.5, label=f'LSL ({lsl_val})')
+            ax_bench.axhline(usl_val, color='red', ls='--', lw=1.5, label=f'USL ({usl_val})')
+            
+            ax_bench.set_ylabel("Độ bóng thực tế trên Line (GU)")
+            ax_bench.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+            st.pyplot(fig_bench)
+            
+        with c2:
+            # Bảng so sánh các chỉ số "vàng"
+            st.write("**Bảng đối chiếu chỉ số kỹ thuật**")
+            bench_table = dff_final.groupby('Supplier').agg(
+                Batches=('Batch_Lot', 'nunique'),
+                Coils=('Online_Gloss_Top', 'count'),
+                Mean_Line=('Online_Gloss_Top', 'mean'),
+                Std_Line=('Online_Gloss_Top', 'std'),
+                Max_dE=('ΔE', 'max')
             ).reset_index()
             
-            b2b_records = []
-            for (sup, mason), group in batch_means.groupby(['Supplier', 'Ma_Son']):
-                if len(group) >= 2:
-                    idx_min = group['Mean_Line'].idxmin()
-                    idx_max = group['Mean_Line'].idxmax()
-                    min_row = group.loc[idx_min]
-                    max_row = group.loc[idx_max]
-                    b2b_records.append({
-                        'Supplier': sup, 'Full Paint Code': mason, 'Batches': len(group), 
-                        'LSL': min_row['LSL'], 'USL': min_row['USL'],
-                        'Min Batch': min_row['Batch_Lot'], 'Min Avg': min_row['Mean_Line'],
-                        'Max Batch': max_row['Batch_Lot'], 'Max Avg': max_row['Mean_Line'],
-                        'Gap': max_row['Mean_Line'] - min_row['Mean_Line']
-                    })
+            # Tính Cpk
+            bench_table['Cpk'] = bench_table.apply(
+                lambda r: min((usl_val - r['Mean_Line'])/(3*r['Std_Line']), (r['Mean_Line'] - lsl_val)/(3*r['Std_Line'])) 
+                if r['Std_Line'] > 0 else 0, axis=1
+            )
             
-            b2b_table = pd.DataFrame(b2b_records)
+            # Tính Bias (Độ lệch so với Target)
+            bench_table['Bias'] = bench_table['Mean_Line'] - sel_target
             
-            if not b2b_table.empty:
-                b2b_table = b2b_table.sort_values('Gap', ascending=False)
-                st.dataframe(
-                    b2b_table.style.format({'LSL': '{:.0f}', 'USL': '{:.0f}', 'Min Avg': '{:.1f}', 'Max Avg': '{:.1f}', 'Gap': '{:.1f}'}).background_gradient(cmap='Oranges', subset=['Gap']), 
-                    use_container_width=True, hide_index=True
-                )
-            else:
-                st.info("Not enough multi-batch data within the SAME paint code to compare Batch-to-Batch variation.")
-
-            st.markdown("---")
-            st.subheader("🎨 Batch Color Drift Detailed Analysis")
-            st.caption("Table displays AVERAGE values of color components (ΔL, Δa, Δb) per batch.")
-            
-            color_drift = dff_comp.groupby(['Supplier', 'Ma_Son', 'Batch_Lot']).agg(
-                Ngay_SX=('Ngay_SX', 'min'),
-                Mean_dL=('dL_N', 'mean'), Mean_da=('da_N', 'mean'), Mean_db=('db_N', 'mean'), Max_dE=('ΔE', 'max')
-            ).reset_index()
-            
-            color_drift = color_drift.sort_values(by=['Supplier', 'Ngay_SX'])
-            color_drift.columns = ['Supplier', 'Full Paint Code', 'Batch Lot', 'Production Date', 'ΔL (Avg)', 'Δa (Avg)', 'Δb (Avg)', 'Max ΔE']
+            bench_table = bench_table.sort_values('Cpk', ascending=False)
             
             st.dataframe(
-                color_drift.style.format({'ΔL (Avg)': '{:+.2f}', 'Δa (Avg)': '{:+.2f}', 'Δb (Avg)': '{:+.2f}', 'Max ΔE': '{:.2f}'})
-                .background_gradient(cmap='bwr', subset=['ΔL (Avg)'], vmin=-0.5, vmax=0.5) 
-                .background_gradient(cmap='bwr', subset=['Δa (Avg)'], vmin=-0.3, vmax=0.3) 
-                .background_gradient(cmap='bwr', subset=['Δb (Avg)'], vmin=-0.3, vmax=0.3) 
-                .background_gradient(cmap='Reds', subset=['Max ΔE'], vmin=0, vmax=1.0),
+                bench_table.style.format({
+                    'Mean_Line': '{:.1f}', 'Std_Line': '{:.2f}', 
+                    'Bias': '{:+.2f}', 'Max_dE': '{:.2f}', 'Cpk': '{:.2f}'
+                }).background_gradient(cmap='RdYlGn', subset=['Cpk'])
+                  .background_gradient(cmap='bwr', subset=['Bias'], vmin=-2, vmax=2),
                 use_container_width=True, hide_index=True
             )
-        else:
-            st.warning("⚠️ Insufficient data (needs at least 2 batches per supplier) to perform comparison.")
+
+        st.markdown("---")
+        st.subheader("🕵️ Chi tiết biến động theo từng Mẻ (Batch-to-Batch)")
+        st.caption("Xem xét sự ổn định của từng mẻ sơn cụ thể giữa các nhà cung cấp.")
+        
+        # Biểu đồ Line chart so sánh xu hướng các mẻ
+        fig_trend, ax_trend = plt.subplots(figsize=(14, 5))
+        for sup in dff_final['Supplier'].unique():
+            sup_data = dff_final[dff_final['Supplier'] == sup].groupby('Batch_Lot')['Online_Gloss_Top'].mean().reset_index()
+            ax_trend.plot(sup_data['Batch_Lot'].astype(str), sup_data['Online_Gloss_Top'], marker='o', label=sup)
+            
+        ax_trend.axhline(sel_target, color='green', ls='-', alpha=0.3)
+        ax_trend.set_ylabel("Gloss Mean per Batch")
+        ax_trend.set_xlabel("Batch Lot Number")
+        plt.xticks(rotation=45)
+        ax_trend.legend()
+        st.pyplot(fig_trend)
+        
+    else:
+        st.warning(f"⚠️ Không có đủ dữ liệu so sánh cho mã màu {sel_color_code} ở mức Target {sel_target} GU (Yêu cầu ít nhất 2 mẻ/nhà cung cấp).")
 
 # ==========================================
 # ==========================================
