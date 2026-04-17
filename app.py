@@ -96,10 +96,10 @@ with st.sidebar:
         "Select Analysis View:",
         [
             "✨ Gloss Trend (SPC)",
-            "🎨 Color Shift Analysis",
             "📊 Statistical Limits (Scope Comparison)",
             "⚖️ Predictive Compensation & Targeting", 
             "🤝 Supplier Capability",
+            "🎨 Color Shift Analysis",
             "📋 Master Summary Report"
         ],
         label_visibility="collapsed"
@@ -173,8 +173,7 @@ st.markdown("---")
 
 # ==========================================
 # ==========================================
-# ==========================================
-# VIEW 1: GLOSS TREND (SPC) - FULL FIXED WITH RED NG ALERTS
+# VIEW 1: GLOSS TREND (SPC)
 # ==========================================
 if view_mode == "✨ Gloss Trend (SPC)":
     st.info("💡 SPC Analysis: Monitor the actual Gloss trend (Lab vs Line) across raw production sequence.")
@@ -249,34 +248,25 @@ if view_mode == "✨ Gloss Trend (SPC)":
         
         st.success(f"📅 **Timeframe:** `{dff_g['Ngay_SX'].min()}` to `{dff_g['Ngay_SX'].max()}` | **Volume:** {dff_g['Batch_Lot'].nunique()} Batches ({len(dff_g)} Coils).")
 
-        # ── BIỂU ĐỒ TREND (ZIGZAG RAW DATA) ───────────────────────────────────
         fig_trend, ax_trend = plt.subplots(figsize=(14, 4.5))
-        
-        # Gắn thêm 1 cột số thứ tự an toàn để vẽ điểm NG
         dff_g['x_seq'] = list(range(len(dff_g)))
         
         ax_trend.plot(dff_g['x_seq'], dff_g['Gloss_Lab'], marker='o', color='#1f77b4', lw=1.5, label='Lab Gloss')
         ax_trend.plot(dff_g['x_seq'], dff_g['Online_Gloss_Top'], marker='s', color='#ff7f0e', lw=1.5, label='Line Gloss')
         
-        # --- LOGIC TÔ ĐỎ ĐIỂM NG ---
-        # Lọc các điểm Lab bị NG
         ng_lab = dff_g[(dff_g['Gloss_Lab'] < lsl_val) | (dff_g['Gloss_Lab'] > usl_val)]
         if not ng_lab.empty:
             ax_trend.scatter(ng_lab['x_seq'], ng_lab['Gloss_Lab'], color='red', s=100, zorder=5, label='Lab NG (Out of Spec)')
             
-        # Lọc các điểm Line bị NG
         ng_line = dff_g[(dff_g['Online_Gloss_Top'] < line_lsl_val) | (dff_g['Online_Gloss_Top'] > line_usl_val)]
         if not ng_line.empty:
             ax_trend.scatter(ng_line['x_seq'], ng_line['Online_Gloss_Top'], color='red', marker='s', s=100, zorder=5, label='Line NG (Out of Spec)')
-        # ---------------------------
 
         ax_trend.axhline(lsl_val, color='red', ls='-', lw=2, label=f'Lab LSL ({lsl_val})')
         ax_trend.axhline(usl_val, color='red', ls='-', lw=2, label=f'Lab USL ({usl_val})')
-        
         ax_trend.axhline(line_lsl_val, color='green', ls='--', lw=2, label=f'Line LSL ({line_lsl_val})')
         ax_trend.axhline(line_usl_val, color='green', ls='--', lw=2, label=f'Line USL ({line_usl_val})')
         
-        # X-Axis Formatting
         plt.xticks(dff_g['x_seq'], dff_g['Batch_Lot'].astype(str), rotation=45, ha='right')
         if len(dff_g['x_seq']) > 20:
             step = max(1, len(dff_g['x_seq']) // 15)
@@ -288,11 +278,9 @@ if view_mode == "✨ Gloss Trend (SPC)":
         st.pyplot(fig_trend)
         plt.close(fig_trend)
 
-# ── 2. BIỂU ĐỒ PHÂN PHỐI (CÓ ĐỦ 4 LIMITS + STD DEV) ───────────────────
         st.write("**Gloss Distribution Analysis**")
         fig_dist, ax_dist = plt.subplots(figsize=(9, 5)) 
         
-        # Thống kê (Cập nhật tính Std Dev)
         mean_lab = dff_g['Gloss_Lab'].mean()
         std_lab = dff_g['Gloss_Lab'].std()
         mean_line = dff_g['Online_Gloss_Top'].mean()
@@ -318,17 +306,14 @@ if view_mode == "✨ Gloss Trend (SPC)":
                          color='white', fontweight='bold', ha='center', va='center', fontsize=7,
                          bbox=dict(boxstyle='round,pad=0.3', fc=color, ec='none', alpha=0.9))
 
-        # GIỮ ĐẦY ĐỦ 4 ĐƯỜNG GIỚI HẠN LAB VÀ LINE
         add_compact_label(lsl_val, "Lab LSL", "red", 0)
         add_compact_label(usl_val, "Lab USL", "red", 0)
         add_compact_label(line_lsl_val, "Line LSL", "green", 0.06)
         add_compact_label(line_usl_val, "Line USL", "green", 0.06)
         
-        # HIỂN THỊ MEAN VÀ ĐỘ LỆCH CHUẨN SIGMA
         add_compact_label(mean_lab, "Lab", "#1f77b4", 0.15, std_lab)
         add_compact_label(mean_line, "Line", "#ff7f0e", -0.15, std_line)
 
-        # Vẽ đường cong chuẩn (Normal Curve)
         all_data = pd.concat([dff_g['Gloss_Lab'], dff_g['Online_Gloss_Top']])
         x_axis = np.linspace(all_data.min()-3, all_data.max()+3, 200)
         bin_width = (all_data.max() - all_data.min()) / 12
@@ -346,7 +331,7 @@ if view_mode == "✨ Gloss Trend (SPC)":
         
         st.pyplot(fig_dist)
         plt.close('all')
-    # ── TAB SELECTION ──────────────────────────────────────────────────────────
+
     list_ma_son_tab2 = sorted(dff['Ma_Son'].dropna().unique().tolist())
     if list_ma_son_tab2:
         tab_top_risk, tab_custom = st.tabs(["🚨 Top At-Risk Codes", "🔍 Manual Analysis"])
@@ -363,91 +348,10 @@ if view_mode == "✨ Gloss Trend (SPC)":
         with tab_custom:
             sel_ma_son = st.selectbox("🎯 Select Paint Code:", list_ma_son_tab2, key="manual_sel")
             render_spc_analysis(sel_ma_son, dff, "manual")
-# ==========================================
-# VIEW 2: COLOR SHIFT ANALYSIS
-# ==========================================
-elif view_mode == "🎨 Color Shift Analysis":
-    st.info("💡 Trend analysis of Total Color Difference (ΔE) and distribution of individual color components (ΔL, Δa, Δb) to detect color drift.")
-    
-    list_ma_son_tab3 = sorted(dff['Ma_Son'].dropna().unique().tolist())
-    if list_ma_son_tab3:
-        sel_ma_son_tab3 = st.selectbox("🎯 Select Full Paint Code for Color Analysis:", list_ma_son_tab3, key="tab3_mason")
-        dff_c = dff[dff['Ma_Son'] == sel_ma_son_tab3].copy()
-        
-        if not dff_c.empty:
-            dff_c_batch = dff_c.groupby('Batch_Lot', as_index=False).agg({'Ngay_SX': 'min', 'ΔE': 'mean'}).sort_values('Ngay_SX')
-            dff_c_batch['Batch_Lot'] = dff_c_batch['Batch_Lot'].astype(str)
-
-            st.markdown("---")
-            st.subheader(f"📈 Avg Total Color Difference Trend (ΔE) - {sel_ma_son_tab3}")
-            fig_c1, ax_c1 = plt.subplots(figsize=(12, 4))
-            ax_c1.plot(dff_c_batch['Batch_Lot'], dff_c_batch['ΔE'], marker='o', color='#e74c3c', lw=2, label='Avg ΔE')
-            ax_c1.axhline(1.0, color='red', ls='--', lw=2, label='Spec Limit (ΔE = 1.0)')
-            ax_c1.axhline(0.8, color='orange', ls=':', lw=1.5, label='Warning Limit (ΔE = 0.8)') 
-            ax_c1.set_xlabel("Batch Lot")
-            ax_c1.set_ylabel("Color Difference (ΔE)")
-            plt.xticks(rotation=45, ha='right')
-            locs, labels = plt.xticks()
-            if len(locs) > 40:
-                for i, label in enumerate(labels):
-                    if i % 3 != 0: label.set_visible(False)
-            plt.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
-            st.pyplot(fig_c1)
-            
-            st.markdown("---")
-            st.subheader("📊 Distribution of Base Color Components (ΔL, Δa, Δb)")
-            st.caption("If the peak shifts from 0, it indicates a consistent color drift (Lighter/Darker, Redder/Greener, Yellower/Bluer).")
-            
-            col_L, col_a, col_b = st.columns(3)
-            with col_L:
-                fig_L, ax_L = plt.subplots(figsize=(5, 4))
-                sns.histplot(dff_c['dL_N'], kde=True, color='#95a5a6', ax=ax_L) 
-                ax_L.axvline(0, color='black', ls='--', lw=1.5)
-                ax_L.set_title("Lightness (ΔL)")
-                ax_L.set_xlabel("ΔL (+ Lighter / - Darker)")
-                st.pyplot(fig_L)
-            with col_a:
-                fig_a, ax_a = plt.subplots(figsize=(5, 4))
-                sns.histplot(dff_c['da_N'], kde=True, color='#e74c3c', ax=ax_a) 
-                ax_a.axvline(0, color='black', ls='--', lw=1.5)
-                ax_a.set_title("Red/Green (Δa)")
-                ax_a.set_xlabel("Δa (+ Redder / - Greener)")
-                st.pyplot(fig_a)
-            with col_b:
-                fig_b, ax_b = plt.subplots(figsize=(5, 4))
-                sns.histplot(dff_c['db_N'], kde=True, color='#f1c40f', ax=ax_b) 
-                ax_b.axvline(0, color='black', ls='--', lw=1.5)
-                ax_b.set_title("Yellow/Blue (Δb)")
-                ax_b.set_xlabel("Δb (+ Yellower / - Bluer)")
-                st.pyplot(fig_b)
-
-            st.markdown("---")
-            col_s1, col_s2 = st.columns(2)
-            with col_s1:
-                st.subheader("Color Shift Coordinates (Δa vs Δb)")
-                fig_s1, ax_s1 = plt.subplots(figsize=(6, 5))
-                sns.scatterplot(data=dff_c, x='da_N', y='db_N', hue='ΔE', size='ΔE', palette='coolwarm', ax=ax_s1)
-                ax_s1.axhline(0, color='black', lw=1, ls='--')
-                ax_s1.axvline(0, color='black', lw=1, ls='--')
-                ax_s1.set_xlabel("Δa (Red/Green Axis)")
-                ax_s1.set_ylabel("Δb (Yellow/Blue Axis)")
-                plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-                st.pyplot(fig_s1)
-            with col_s2:
-                st.subheader("Dispersion of Total Color Difference (Boxplot ΔE)")
-                fig_s2, ax_s2 = plt.subplots(figsize=(6, 5))
-                sns.boxplot(data=dff_c, x='Supplier', y='ΔE', palette='Reds', ax=ax_s2)
-                ax_s2.axhline(1.0, color='red', ls='--', lw=2, label='Spec Limit (1.0)')
-                ax_s2.set_xlabel("Supplier")
-                ax_s2.set_ylabel("Total Color Difference (ΔE)")
-                plt.legend()
-                st.pyplot(fig_s2)
-        else:
-            st.warning("⚠️ Insufficient data to perform color analysis for this paint code.")
 
 # ==========================================
 # ==========================================
-# VIEW 3: STATISTICAL LIMITS (SCOPE COMPARISON)
+# VIEW 2: STATISTICAL LIMITS (SCOPE COMPARISON)
 # ==========================================
 elif view_mode == "📊 Statistical Limits (Scope Comparison)":
     st.header("📊 Control Limits: IQR & Sigma Scopes")
@@ -468,7 +372,6 @@ elif view_mode == "📊 Statistical Limits (Scope Comparison)":
             st.warning("❌ No paint code found.")
             st.stop()
             
-    # Lấy dữ liệu cơ bản
     dff_spc = dff[dff['Ma_Son'] == sel_code].copy().dropna(subset=['Online_Gloss_Top']).sort_values('Ngay_SX')
     
     if len(dff_spc) >= 5:
@@ -478,16 +381,14 @@ elif view_mode == "📊 Statistical Limits (Scope Comparison)":
         st.markdown("---")
         st.subheader("⚙️ Parameter Settings (K-Factor & Sigma)")
         
-        # Form nhập liệu cho người dùng tùy chỉnh K và Sigma
         col_k, col_mill, col_rel = st.columns(3)
         with col_k:
-            k_factor = st.number_input("📏 IQR K-Factor (Outlier Filter)", min_value=0.5, max_value=4.0, value=1.5, step=0.1, format="%.1f", help="Standard is 1.5. Increase to keep more data, decrease to strict filter.")
+            k_factor = st.number_input("📏 IQR K-Factor (Outlier Filter)", min_value=0.5, max_value=4.0, value=1.5, step=0.1, format="%.1f", help="Standard is 1.5.")
         with col_mill:
-            sigma_mill = st.number_input("🏭 Mill Range (Sigma)", min_value=0.5, max_value=3.0, value=1.0, step=0.1, format="%.1f", help="Internal target control limit. Default 1 Sigma.")
+            sigma_mill = st.number_input("🏭 Mill Range (Sigma)", min_value=0.5, max_value=3.0, value=1.0, step=0.1, format="%.1f", help="Internal control limit.")
         with col_rel:
-            sigma_release = st.number_input("📦 Release Range (Sigma)", min_value=1.0, max_value=4.0, value=2.0, step=0.1, format="%.1f", help="External delivery control limit. Default 2 Sigma.")
+            sigma_release = st.number_input("📦 Release Range (Sigma)", min_value=1.0, max_value=4.0, value=2.0, step=0.1, format="%.1f", help="External delivery control limit.")
 
-        # 1. Tính toán IQR và lọc Outlier
         q1 = dff_spc['Online_Gloss_Top'].quantile(0.25)
         q3 = dff_spc['Online_Gloss_Top'].quantile(0.75)
         iqr = q3 - q1
@@ -497,18 +398,15 @@ elif view_mode == "📊 Statistical Limits (Scope Comparison)":
         clean_data = dff_spc[(dff_spc['Online_Gloss_Top'] >= lower_limit_iqr) & (dff_spc['Online_Gloss_Top'] <= upper_limit_iqr)]
         outliers = dff_spc[(dff_spc['Online_Gloss_Top'] < lower_limit_iqr) | (dff_spc['Online_Gloss_Top'] > upper_limit_iqr)]
         
-        # 2. Tính toán thống kê trên dữ liệu sạch
         mean_clean = clean_data['Online_Gloss_Top'].mean()
         std_clean = clean_data['Online_Gloss_Top'].std()
 
-        # 3. Tính toán 2 giới hạn kiểm soát
         lcl_mill = mean_clean - sigma_mill * std_clean
         ucl_mill = mean_clean + sigma_mill * std_clean
         
         lcl_release = mean_clean - sigma_release * std_clean
         ucl_release = mean_clean + sigma_release * std_clean
 
-        # Hiển thị thông báo dữ liệu
         st.success(f"📅 **Historical Data:** Total `{len(dff_spc)}` Coils analyzed. Outlier filter removed `{len(outliers)}` coils. Clean baseline uses `{len(clean_data)}` coils.")
 
         st.markdown("### 📋 Computed Limits Matrix")
@@ -526,38 +424,31 @@ elif view_mode == "📊 Statistical Limits (Scope Comparison)":
             st.metric("Lower Control Limit (LCL)", f"{lcl_release:.1f}")
             st.metric("Upper Control Limit (UCL)", f"{ucl_release:.1f}")
 
-        # --- BIỂU ĐỒ 1: SPC TRENDING ---
         st.markdown("---")
         st.subheader("📈 SPC Trending: Outliers, Mill & Release Ranges")
         fig_trend, ax_trend = plt.subplots(figsize=(14, 5))
 
         seq_index = range(len(dff_spc))
         
-        # Vẽ dữ liệu sạch và dữ liệu outlier
         clean_idx = clean_data.index.map(lambda x: dff_spc.index.get_loc(x))
         outlier_idx = outliers.index.map(lambda x: dff_spc.index.get_loc(x))
         
-        ax_trend.plot(seq_index, dff_spc['Online_Gloss_Top'], color='gray', alpha=0.3, ls='-') # Đường nối mờ
+        ax_trend.plot(seq_index, dff_spc['Online_Gloss_Top'], color='gray', alpha=0.3, ls='-') 
         ax_trend.scatter(clean_idx, clean_data['Online_Gloss_Top'], color='#3498db', label='Clean Coils', zorder=3)
         if not outliers.empty:
             ax_trend.scatter(outlier_idx, outliers['Online_Gloss_Top'], color='red', marker='x', s=60, lw=2, label='Filtered Outliers (IQR)', zorder=4)
 
-        # Vẽ các giới hạn
         ax_trend.axhline(mean_clean, color='black', lw=2, label=f'Mean ({mean_clean:.1f})')
-        
         ax_trend.axhline(ucl_mill, color='#27ae60', ls='--', lw=2, label=f'Mill UCL ({ucl_mill:.1f})')
         ax_trend.axhline(lcl_mill, color='#27ae60', ls='--', lw=2, label=f'Mill LCL ({lcl_mill:.1f})')
-        
         ax_trend.axhline(ucl_release, color='#e67e22', ls='-.', lw=2, label=f'Release UCL ({ucl_release:.1f})')
         ax_trend.axhline(lcl_release, color='#e67e22', ls='-.', lw=2, label=f'Release LCL ({lcl_release:.1f})')
-
         ax_trend.axhline(line_usl, color='red', ls='-', lw=1.5, alpha=0.5, label='Spec USL')
         ax_trend.axhline(line_lsl, color='red', ls='-', lw=1.5, alpha=0.5, label='Spec LSL')
 
         ax_trend.set_xlabel("Production Sequence")
         ax_trend.set_ylabel("Online Gloss Top (GU)")
         
-        # Tối ưu nhãn trục X
         plt.xticks(seq_index, dff_spc['Batch_Lot'].astype(str), rotation=45, ha='right')
         if len(seq_index) > 20:
             step = max(1, len(seq_index) // 15)
@@ -568,7 +459,6 @@ elif view_mode == "📊 Statistical Limits (Scope Comparison)":
         st.pyplot(fig_trend)
         plt.close(fig_trend)
 
-        # --- BIỂU ĐỒ 2: DISTRIBUTION ---
         st.markdown("---")
         st.subheader("📊 Distribution: Mill vs. Release Capabilities")
         fig_dist, ax_dist = plt.subplots(figsize=(14, 6))
@@ -585,7 +475,6 @@ elif view_mode == "📊 Statistical Limits (Scope Comparison)":
 
         y_max = ax_dist.get_ylim()[1]
         
-        # Vẽ các vạch giới hạn
         ax_dist.axvline(mean_clean, color='black', ls='-', lw=2)
         ax_dist.text(mean_clean, y_max * 0.95, f'μ: {mean_clean:.1f}', color='black', ha='center', va='top', fontweight='bold', bbox=dict(facecolor='white', alpha=0.8, edgecolor='none'))
 
@@ -602,7 +491,6 @@ elif view_mode == "📊 Statistical Limits (Scope Comparison)":
         ax_dist.axvline(line_lsl, color='red', ls='-', lw=1.5, alpha=0.5, label='Spec Limits')
         ax_dist.axvline(line_usl, color='red', ls='-', lw=1.5, alpha=0.5)
 
-        # Tô màu vùng giữa Mill và Release để dễ hình dung
         ax_dist.axvspan(lcl_release, lcl_mill, alpha=0.1, color='#e67e22')
         ax_dist.axvspan(ucl_mill, ucl_release, alpha=0.1, color='#e67e22')
 
@@ -615,9 +503,10 @@ elif view_mode == "📊 Statistical Limits (Scope Comparison)":
 
     else:
         st.warning("⚠️ Insufficient data (needs at least 5 coils).")
+
 # ==========================================
 # ==========================================
-# VIEW 4: PREDICTIVE COMPENSATION MODEL
+# VIEW 3: PREDICTIVE COMPENSATION MODEL
 # ==========================================
 elif view_mode == "⚖️ Predictive Compensation & Targeting":
     st.header("⚖️ Predictive Compensation & Lab Optimization")
@@ -676,18 +565,13 @@ elif view_mode == "⚖️ Predictive Compensation & Targeting":
             
             with col_target:
                 st.metric("Specification Target (Line)", f"{target_line:.1f} GU", help="Defined explicitly by user.")
-                st.metric("Historical Process Bias", f"{mean_loss:+.2f} GU", 
-                          help="Average drift caused by the production line for this specific paint.")
-                # --- THÊM HIỂN THỊ GIÁ TRỊ SIGMA Ở ĐÂY ---
-                st.metric("Standard Deviation (Sigma, σ)", f"{std_loss:.2f} GU", 
-                          help="Calculated variation (σ) of the historical bias. Used to define the Internal Control Limit.")
+                st.metric("Historical Process Bias", f"{mean_loss:+.2f} GU", help="Average drift caused by the production line for this specific paint.")
+                st.metric("Standard Deviation (Sigma, σ)", f"{std_loss:.2f} GU", help="Calculated variation (σ) of the historical bias. Used to define the Internal Control Limit.")
 
             with col_guidance:
                 st.success(f"#### Recommended Lab Input: **{optimal_lab_input:.1f} GU**")
                 st.write(f"To ensure the final product hits the exact target of **{target_line:.1f} GU** on the line, the laboratory should aim for a pre-production mix of **{optimal_lab_input:.1f} GU** to compensate for the process drift.")
-                
-                # --- CẬP NHẬT CHÚ THÍCH SIGMA TRONG DẢI ICL ---
-                st.warning(f"**Internal Control Limit (ICL): {icl_lcl:.1f} - {icl_ucl:.1f}** *(±1σ, với σ = {std_loss:.2f})*")
+                st.warning(f"**Internal Control Limit (ICL): {icl_lcl:.1f} - {icl_ucl:.1f}** *(±1σ, with σ = {std_loss:.2f})*")
                 st.caption("Production is only authorized if Lab testing falls within this tightened range (±1σ).")
 
             st.markdown("---")
@@ -717,9 +601,9 @@ elif view_mode == "⚖️ Predictive Compensation & Targeting":
 
             y_annotate = max(max(y_lab_bell), max(y_line_bell)) * 0.6
             ax_bell.annotate('', xy=(mean_lab_hist, y_annotate), xytext=(mean_line_hist, y_annotate),
-                              arrowprops=dict(arrowstyle='<|-|>', color='#f39c12', lw=2.5, mutation_scale=15))
+                             arrowprops=dict(arrowstyle='<|-|>', color='#f39c12', lw=2.5, mutation_scale=15))
             ax_bell.text((mean_lab_hist + mean_line_hist)/2, y_annotate + 0.02, f'Absolute Bias: {mean_loss:+.2f} GU', 
-                          ha='center', va='bottom', color='#f39c12', fontweight='bold', fontsize=11, bbox=dict(facecolor='white', alpha=0.8, edgecolor='none', pad=1))
+                         ha='center', va='bottom', color='#f39c12', fontweight='bold', fontsize=11, bbox=dict(facecolor='white', alpha=0.8, edgecolor='none', pad=1))
 
             ax_bell.set_xlabel("Gloss Value (GU)")
             ax_bell.set_ylabel("Probability Density")
@@ -763,19 +647,18 @@ elif view_mode == "⚖️ Predictive Compensation & Targeting":
 
         else:
             st.warning("⚠️ Insufficient historical data for this paint code to build a reliable compensation model (Min. 5 coils required).")
+
 # ==========================================
 # ==========================================
-# VIEW 5: SUPPLIER CAPABILITY BENCHMARKING
+# VIEW 4: SUPPLIER CAPABILITY BENCHMARKING
 # ==========================================
 elif view_mode == "🤝 Supplier Capability":
     st.header("🤝 Executive Supplier Benchmarking")
     st.info("💡 Apples-to-Apples Analysis: Evaluates suppliers directly against each other using the same Color Group and Paint Code specification.")
 
-    # 1. DATA PRE-PROCESSING
     dff_v5 = dff.dropna(subset=['Online_Gloss_Top', 'Supplier', 'Gloss_LSL', 'Gloss_USL', 'Color_Group', 'Ma_Son', 'dL_N', 'da_N', 'db_N']).copy()
     dff_v5 = dff_v5[(dff_v5['Gloss_LSL'] > 0) & (dff_v5['Gloss_USL'] > 0) & (dff_v5['Online_Gloss_Top'] > 0)]
     
-    # Calculate Target for grouping
     dff_v5['Gloss_Target'] = (dff_v5['Gloss_LSL'] + dff_v5['Gloss_USL']) / 2.0
 
     st.write("### 🔍 Comparison Filters")
@@ -802,11 +685,8 @@ elif view_mode == "🤝 Supplier Capability":
             dff_comp = dff_nhom[dff_nhom['Ma_Son'] == sel_ma_son].copy()
             title_suffix = f"Code: {sel_ma_son}"
         
-        # --- FIX: CALCULATE DEVIATION COLUMN ---
         dff_comp['Gloss_Dev'] = dff_comp['Online_Gloss_Top'] - dff_comp['Gloss_Target']
-        # ---------------------------------------
 
-        # REQUIREMENT: Suppliers must have at least 2 batches
         batch_counts = dff_comp.groupby('Supplier')['Batch_Lot'].nunique()
         valid_suppliers = batch_counts[batch_counts >= 2].index
         dff_comp = dff_comp[dff_comp['Supplier'].isin(valid_suppliers)]
@@ -814,7 +694,6 @@ elif view_mode == "🤝 Supplier Capability":
         if not dff_comp.empty:
             st.markdown("---")
             
-            # CALCULATE DATA FOR MATRIX & TABLE
             comp_table = dff_comp.groupby(['Supplier', 'Ma_Son']).agg(
                 Batches=('Batch_Lot', 'nunique'), 
                 Coils=('Online_Gloss_Top', 'count'), 
@@ -834,45 +713,31 @@ elif view_mode == "🤝 Supplier Capability":
             comp_table['Bias'] = comp_table['Mean_Gloss'] - comp_table['Target']
             comp_table = comp_table.sort_values(['Supplier', 'Cpk (Line)'], ascending=[True, False])
 
-            # RENDER MATRIX AND TABLE
             c1, c2 = st.columns([2.5, 2.5]) 
+            
             with c1:
                 st.subheader("📊 Executive Performance Matrix")
                 st.caption(title_suffix)
-                              
+                
                 fig_matrix, ax_matrix = plt.subplots(figsize=(9, 6))
                 
-                # 1. CALCULATE LIMITS
                 max_cpk = max(2.5, comp_table['Cpk (Line)'].max() + 0.2) if not comp_table['Cpk (Line)'].isna().all() else 2.5
                 max_bias_abs = max(abs(comp_table['Bias'].max()), abs(comp_table['Bias'].min())) + 1 if not pd.isna(comp_table['Bias'].max()) else 5
 
-                # 2. UPGRADED COLOR SCHEME (HIGH CONTRAST)
-                # Zone Coloring: Vibrant colors with 60% opacity
                 ax_matrix.axhspan(1.33, max_cpk, facecolor='#27ae60', alpha=0.6, label='Excellent (Cpk > 1.33)')
                 ax_matrix.axhspan(1.0, 1.33, facecolor='#f1c40f', alpha=0.6, label='Warning (1.0 < Cpk < 1.33)')
                 ax_matrix.axhspan(0, 1.0, facecolor='#c0392b', alpha=0.6, label='High Risk (Cpk < 1.0)')
                 
-                # Bold Target Centerline
                 ax_matrix.axvline(0, color='black', linestyle='--', linewidth=2.5, label='Target Center (Bias = 0)')
                 ax_matrix.axhline(1.33, color='black', linewidth=1, alpha=0.4)
                 ax_matrix.axhline(1.0, color='black', linewidth=1, alpha=0.4)
                 
-                # 3. PLOT SUPPLIERS (LARGER DOTS)
                 sns.scatterplot(
-                    data=comp_table, 
-                    x='Bias', y='Cpk (Line)', 
-                    hue='Supplier', 
-                    s=600, 
-                    edgecolor='white', 
-                    linewidth=2, 
-                    palette='tab10', 
-                    ax=ax_matrix,
-                    zorder=5 
+                    data=comp_table, x='Bias', y='Cpk (Line)', hue='Supplier', 
+                    s=600, edgecolor='white', linewidth=2, palette='tab10', ax=ax_matrix, zorder=5 
                 )
                 
-                # 4. SMART LABELING (PREVENT CLIPPING)
                 import matplotlib.patheffects as path_effects
-                
                 for i in range(comp_table.shape[0]):
                     label_text = comp_table['Supplier'].iloc[i]
                     if is_mixed: 
@@ -881,23 +746,15 @@ elif view_mode == "🤝 Supplier Capability":
                     x_pos = comp_table['Bias'].iloc[i]
                     y_pos = comp_table['Cpk (Line)'].iloc[i]
                     
-                    # If dot is too close to the right edge, flip the text to the left
                     if x_pos > (max_bias_abs * 0.7):
-                        ha_align = 'right'
-                        x_offset = -0.2
+                        ha_align, x_offset = 'right', -0.2
                     else:
-                        ha_align = 'left'
-                        x_offset = 0.2
+                        ha_align, x_offset = 'left', 0.2
 
                     ax_matrix.text(
-                        x_pos + x_offset, 
-                        y_pos + 0.05, 
-                        label_text, 
-                        fontsize=10, 
-                        fontweight='bold', 
-                        color='black',
-                        horizontalalignment=ha_align,
-                        zorder=6,
+                        x_pos + x_offset, y_pos + 0.05, label_text, 
+                        fontsize=10, fontweight='bold', color='black',
+                        horizontalalignment=ha_align, zorder=6,
                         path_effects=[path_effects.withStroke(linewidth=3, foreground="white")]
                     )
 
@@ -905,12 +762,11 @@ elif view_mode == "🤝 Supplier Capability":
                 ax_matrix.set_ylabel("Stability Index (Cpk)")
                 ax_matrix.set_ylim(0, max_cpk)
                 ax_matrix.set_xlim(-max_bias_abs, max_bias_abs)
-                
                 ax_matrix.legend(bbox_to_anchor=(0.5, -0.15), loc='upper center', ncol=3)
                 plt.tight_layout()
                 st.pyplot(fig_matrix)
                 plt.close(fig_matrix)
-                
+
             with c2:
                 st.subheader("Capability Table per Supplier")
                 disp_table = comp_table[['Supplier', 'Ma_Son', 'Batches', 'Coils', 'Mean_Gloss', 'Std_Gloss', 'Bias', 'Cpk (Line)', 'Avg_dE']].copy()
@@ -925,9 +781,6 @@ elif view_mode == "🤝 Supplier Capability":
                     use_container_width=True, hide_index=True
                 )
 
-            # ==========================================
-            # TIME-SERIES TREND CHARTS
-            # ==========================================
             st.markdown("---")
             st.subheader("📈 Quality Trend Analysis (Time-Series)")
             st.caption("Visualizing Gloss and Color shifts over sequential production dates. Ideal for spotting erratic supplier behavior or progressive degradation.")
@@ -941,7 +794,6 @@ elif view_mode == "🤝 Supplier Capability":
                 USL=('Gloss_USL', 'first')
             ).reset_index().sort_values(by=['Supplier', 'Prod_Date'])
             
-            # FORCE DATETIME AND CREATE UNIQUE LABEL
             trend_data['Prod_Date'] = pd.to_datetime(trend_data['Prod_Date'])
             trend_data['Timeline_Label'] = trend_data['Prod_Date'].dt.strftime('%Y-%m-%d') + "\n(" + trend_data['Batch_Lot'].astype(str) + ")"
 
@@ -959,7 +811,6 @@ elif view_mode == "🤝 Supplier Capability":
                 target_val = (trend_data['LSL'].iloc[0] + trend_data['USL'].iloc[0]) / 2.0
                 chart_title = f"Absolute Gloss Trend (Target: {target_val:.1f} GU)"
 
-            # --- Chart 1: Gloss Trend ---
             sns.lineplot(data=trend_data, x='Timeline_Label', y=y_col, hue='Trace', marker='o', markersize=8, lw=2.5, ax=ax_gloss)
             
             if is_mixed:
@@ -973,7 +824,6 @@ elif view_mode == "🤝 Supplier Capability":
             ax_gloss.set_ylabel(y_label)
             ax_gloss.set_xlabel("")
             
-            # AUTO-SKIP X-AXIS LABELS
             ax_gloss.tick_params(axis='x', rotation=45, labelsize=9)
             step_gloss = max(1, len(trend_data) // 12) 
             for ind, label in enumerate(ax_gloss.get_xticklabels()):
@@ -983,7 +833,6 @@ elif view_mode == "🤝 Supplier Capability":
             ax_gloss.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
             ax_gloss.grid(True, linestyle='--', alpha=0.5)
 
-            # --- Chart 2: Color Shift Trend ---
             sns.lineplot(data=trend_data, x='Timeline_Label', y='Max_dE', hue='Trace', marker='s', markersize=8, lw=2.5, ax=ax_color)
             ax_color.axhline(1.0, color='red', ls='--', lw=2, label='Critical Limit (ΔE = 1.0)')
             ax_color.axhline(0.5, color='#f39c12', ls='--', lw=1.5, label='Warning Limit (ΔE = 0.5)')
@@ -992,7 +841,6 @@ elif view_mode == "🤝 Supplier Capability":
             ax_color.set_ylabel("Max Color Difference (ΔE)")
             ax_color.set_xlabel("Production Date & Batch")
             
-            # AUTO-SKIP X-AXIS LABELS
             ax_color.tick_params(axis='x', rotation=45, labelsize=9)
             step_color = max(1, len(trend_data) // 12) 
             for ind, label in enumerate(ax_color.get_xticklabels()):
@@ -1013,6 +861,106 @@ elif view_mode == "🤝 Supplier Capability":
 
         else:
             st.warning("⚠️ Insufficient data (needs at least 2 batches per supplier) to perform comparison.")
+
+# ==========================================
+# ==========================================
+# VIEW 5: COLOR SHIFT ANALYSIS
+# ==========================================
+elif view_mode == "🎨 Color Shift Analysis":
+    st.info("💡 Trend analysis of Total Color Difference (ΔE) and distribution of individual color components (ΔL, Δa, Δb) to detect color drift.")
+    
+    list_ma_son_tab3 = sorted(dff['Ma_Son'].dropna().unique().tolist())
+    if list_ma_son_tab3:
+        sel_ma_son_tab3 = st.selectbox("🎯 Select Full Paint Code for Color Analysis:", list_ma_son_tab3, key="tab3_mason")
+        dff_c = dff[dff['Ma_Son'] == sel_ma_son_tab3].copy()
+        
+        if not dff_c.empty:
+            dff_c_batch = dff_c.groupby('Batch_Lot', as_index=False).agg({'Ngay_SX': 'min', 'ΔE': 'mean'}).sort_values('Ngay_SX')
+            dff_c_batch['Batch_Lot'] = dff_c_batch['Batch_Lot'].astype(str)
+
+            st.markdown("---")
+            st.subheader(f"📈 Avg Total Color Difference Trend (ΔE) - {sel_ma_son_tab3}")
+            fig_c1, ax_c1 = plt.subplots(figsize=(12, 4))
+            ax_c1.plot(dff_c_batch['Batch_Lot'], dff_c_batch['ΔE'], marker='o', color='#e74c3c', lw=2, label='Avg ΔE')
+            ax_c1.axhline(1.0, color='red', ls='--', lw=2, label='Spec Limit (ΔE = 1.0)')
+            ax_c1.axhline(0.8, color='orange', ls=':', lw=1.5, label='Warning Limit (ΔE = 0.8)') 
+            ax_c1.set_xlabel("Batch Lot")
+            ax_c1.set_ylabel("Color Difference (ΔE)")
+            plt.xticks(rotation=45, ha='right')
+            locs, labels = plt.xticks()
+            if len(locs) > 40:
+                for i, label in enumerate(labels):
+                    if i % 3 != 0: label.set_visible(False)
+            plt.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
+            st.pyplot(fig_c1)
+            
+            st.markdown("---")
+            st.subheader("📊 Distribution of Base Color Components (ΔL, Δa, Δb)")
+            st.caption("Fitted with Normal distribution curves to assess the true statistical variation capability.")
+            
+            col_L, col_a, col_b = st.columns(3)
+            
+            # Helper function to plot Histogram + Normal Curve
+            def plot_norm_hist(data_series, ax, color, title, xlabel):
+                data = data_series.dropna()
+                if len(data) > 1:
+                    mean_val = data.mean()
+                    std_val = data.std()
+                    # stat='density' aligns the histogram scale with the probability density function (PDF)
+                    sns.histplot(data, stat="density", color=color, alpha=0.5, ax=ax, kde=False)
+                    
+                    if std_val > 0:
+                        x_min, x_max = data.min() - 3*std_val, data.max() + 3*std_val
+                        x_axis = np.linspace(x_min, x_max, 200)
+                        y_curve = stats.norm.pdf(x_axis, mean_val, std_val)
+                        ax.plot(x_axis, y_curve, color='black', lw=2.5, label=f'Norm Curve\n(μ={mean_val:.2f}, σ={std_val:.2f})')
+                        ax.legend(fontsize=8, loc='upper right')
+                else:
+                    sns.histplot(data, color=color, ax=ax)
+                    
+                ax.axvline(0, color='black', ls='--', lw=1.5, alpha=0.7)
+                ax.set_title(title, fontweight='bold')
+                ax.set_xlabel(xlabel)
+                ax.set_ylabel("Density")
+
+            with col_L:
+                fig_L, ax_L = plt.subplots(figsize=(5, 4))
+                plot_norm_hist(dff_c['dL_N'], ax_L, '#95a5a6', "Lightness (ΔL)", "ΔL (+ Lighter / - Darker)")
+                st.pyplot(fig_L)
+                
+            with col_a:
+                fig_a, ax_a = plt.subplots(figsize=(5, 4))
+                plot_norm_hist(dff_c['da_N'], ax_a, '#e74c3c', "Red/Green (Δa)", "Δa (+ Redder / - Greener)")
+                st.pyplot(fig_a)
+                
+            with col_b:
+                fig_b, ax_b = plt.subplots(figsize=(5, 4))
+                plot_norm_hist(dff_c['db_N'], ax_b, '#f1c40f', "Yellow/Blue (Δb)", "Δb (+ Yellower / - Bluer)")
+                st.pyplot(fig_b)
+
+            st.markdown("---")
+            col_s1, col_s2 = st.columns(2)
+            with col_s1:
+                st.subheader("Color Shift Coordinates (Δa vs Δb)")
+                fig_s1, ax_s1 = plt.subplots(figsize=(6, 5))
+                sns.scatterplot(data=dff_c, x='da_N', y='db_N', hue='ΔE', size='ΔE', palette='coolwarm', ax=ax_s1)
+                ax_s1.axhline(0, color='black', lw=1, ls='--')
+                ax_s1.axvline(0, color='black', lw=1, ls='--')
+                ax_s1.set_xlabel("Δa (Red/Green Axis)")
+                ax_s1.set_ylabel("Δb (Yellow/Blue Axis)")
+                plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+                st.pyplot(fig_s1)
+            with col_s2:
+                st.subheader("Dispersion of Total Color Difference (Boxplot ΔE)")
+                fig_s2, ax_s2 = plt.subplots(figsize=(6, 5))
+                sns.boxplot(data=dff_c, x='Supplier', y='ΔE', palette='Reds', ax=ax_s2)
+                ax_s2.axhline(1.0, color='red', ls='--', lw=2, label='Spec Limit (1.0)')
+                ax_s2.set_xlabel("Supplier")
+                ax_s2.set_ylabel("Total Color Difference (ΔE)")
+                plt.legend()
+                st.pyplot(fig_s2)
+        else:
+            st.warning("⚠️ Insufficient data to perform color analysis for this paint code.")
 
 # ==========================================
 # ==========================================
