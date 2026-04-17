@@ -173,6 +173,7 @@ st.markdown("---")
 
 # ==========================================
 # ==========================================
+# ==========================================
 # VIEW 1: GLOSS TREND (SPC)
 # ==========================================
 if view_mode == "✨ Gloss Trend (SPC)":
@@ -376,7 +377,7 @@ if view_mode == "✨ Gloss Trend (SPC)":
             sel_ma_son = st.selectbox("🎯 Select Paint Code:", list_ma_son_tab2, key="manual_sel")
             render_spc_analysis(sel_ma_son, dff, "manual")
             
-        # --- TAB SO SÁNH NHỰA THEO LOGIC MỚI: CÙNG NHÓM MÀU + CÙNG DẢI SPEC ---
+        # --- TAB SO SÁNH NHỰA (GIAO DIỆN EXECUTIVE DASHBOARD TRỰC QUAN) ---
         with tab_resin:
             st.subheader("🧪 Resin Comparison Analysis (Apples-to-Apples)")
             st.caption("Auto-filtered: Comparing different Resin types within the SAME **Color Group** and SAME **Gloss Spec Range**.")
@@ -404,66 +405,57 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 df_resin_subset = dff_resin_base[dff_resin_base['Group_Spec'] == sel_group_spec].copy()
                 available_resins = sorted(df_resin_subset['Coating_Type'].unique().tolist())
                 
-                st.success(f"Comparing **{len(available_resins)}** resin types: {', '.join(available_resins)}")
-                
-                # --- THIẾT KẾ DUAL-PLOT ---
-                fig_resin, (ax_dist, ax_box) = plt.subplots(2, 1, figsize=(14, 9), gridspec_kw={'height_ratios': [2.5, 1]}, sharex=True)
+                # --- BIỂU ĐỒ 1: GLOSS CAPABILITY RANGE (DỄ HIỂU NHẤT) ---
+                st.markdown("#### 📊 Gloss Capability & Spread (Voice of Process vs Voice of Customer)")
+                fig_resin, ax_resin = plt.subplots(figsize=(12, 5))
                 palette = sns.color_palette("tab10", len(available_resins))
                 
                 lsl_val = df_resin_subset['Gloss_LSL'].iloc[0] - 2.0
                 usl_val = df_resin_subset['Gloss_USL'].iloc[0] + 2.0
                 target_val = (lsl_val + usl_val) / 2.0
                 
-                for ax in [ax_dist, ax_box]:
-                    ax.axvline(target_val, color='black', linestyle='-', lw=2.5, label=f'Target ({target_val:.1f})' if ax == ax_dist else "")
-                    ax.axvline(lsl_val, color='red', linestyle='--', lw=1.5, alpha=0.6, label='Line Spec Limits' if ax == ax_dist else "")
-                    ax.axvline(usl_val, color='red', linestyle='--', lw=1.5, alpha=0.6)
+                # Tô Vùng An Toàn (Màu Xanh Nhạt)
+                ax_resin.axvspan(lsl_val, usl_val, color='#2ecc71', alpha=0.15, label='Safe Zone (In Spec)')
+                ax_resin.axvline(target_val, color='black', linestyle='-', lw=2, label=f'Target ({target_val:.1f})')
+                ax_resin.axvline(lsl_val, color='#e74c3c', linestyle='--', lw=2, label='Spec Limits (LSL/USL)')
+                ax_resin.axvline(usl_val, color='#e74c3c', linestyle='--', lw=2)
 
+                y_positions = np.arange(len(available_resins))
+                
                 for idx, resin in enumerate(available_resins):
                     r_data = df_resin_subset[df_resin_subset['Coating_Type'] == resin]['Online_Gloss_Top'].dropna()
                     
                     if len(r_data) > 1:
+                        # Điểm phân tán của các cuộn thực tế (Nhìn thấy quy mô mẫu)
+                        y_jitter = np.random.normal(y_positions[idx], 0.08, size=len(r_data))
+                        ax_resin.scatter(r_data, y_jitter, color='gray', alpha=0.5, s=15, zorder=2, label='Actual Coils' if idx==0 else "")
+                        
                         r_mean = r_data.mean()
                         r_std = r_data.std() if r_data.std() > 0 else 0.1
-                        r_min = r_data.min()
-                        r_max = r_data.max()
-                        
-                        x_min, x_max = r_data.min() - 3*r_std, r_data.max() + 3*r_std
-                        x_axis = np.linspace(x_min, x_max, 200)
-                        y_curve = stats.norm.pdf(x_axis, r_mean, r_std)
-                        
-                        ax_dist.plot(x_axis, y_curve, color=palette[idx], lw=2.5, label=f'{resin} (N={len(r_data)})')
-                        ax_dist.fill_between(x_axis, y_curve, alpha=0.2, color=palette[idx])
                         
                         ctrl_lower = r_mean - 3*r_std
                         ctrl_upper = r_mean + 3*r_std
                         
-                        ax_box.plot([ctrl_lower, ctrl_upper], [idx, idx], color=palette[idx], lw=8, alpha=0.4, solid_capstyle='round', label='Control Limits (±3σ)' if idx == 0 else "")
-                        ax_box.plot([r_min, r_max], [idx, idx], color='gray', lw=1.5, linestyle='--', zorder=1, label='Min-Max Spread' if idx == 0 else "")
-                        ax_box.scatter(r_mean, idx, color=palette[idx], edgecolor='white', s=120, zorder=3, label='Mean' if idx == 0 else "")
-                        ax_box.scatter([r_min, r_max], [idx, idx], color='black', marker='|', s=100, zorder=4)
+                        # Vẽ thanh năng lực +-3 Sigma
+                        ax_resin.plot([ctrl_lower, ctrl_upper], [y_positions[idx], y_positions[idx]], color=palette[idx], lw=8, zorder=3, solid_capstyle='round', label='Process Capability (±3σ)' if idx==0 else "")
+                        # Điểm chấm to cho Mean
+                        ax_resin.scatter(r_mean, y_positions[idx], color='white', edgecolor=palette[idx], s=120, lw=3, zorder=4, label='Mean' if idx==0 else "")
                     
                     elif len(r_data) == 1:
-                        ax_dist.axvline(r_data.iloc[0], color=palette[idx], linestyle=':', lw=2.5, label=f'{resin} (N=1)')
-                        ax_box.scatter(r_data.iloc[0], idx, color=palette[idx], edgecolor='white', s=120, zorder=3)
+                        ax_resin.scatter(r_data.iloc[0], y_positions[idx], color='white', edgecolor=palette[idx], s=120, lw=3, zorder=4)
                 
-                ax_dist.set_title(f"Gloss Capability Comparison: {sel_group_spec}", fontweight='bold')
-                ax_dist.set_ylabel("Probability Density")
-                ax_dist.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
-                ax_dist.grid(axis='x', alpha=0.3)
-                
-                ax_box.set_yticks(range(len(available_resins)))
-                ax_box.set_yticklabels(available_resins, fontweight='bold', fontsize=10)
-                ax_box.set_xlabel("Online Line Gloss (GU)", fontweight='bold')
-                ax_box.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
-                ax_box.grid(axis='x', alpha=0.3)
+                ax_resin.set_yticks(y_positions)
+                ax_resin.set_yticklabels(available_resins, fontweight='bold', fontsize=11)
+                ax_resin.set_xlabel("Online Line Gloss (GU)", fontweight='bold')
+                ax_resin.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
+                ax_resin.grid(axis='x', alpha=0.3)
                 
                 plt.tight_layout()
                 st.pyplot(fig_resin)
                 plt.close(fig_resin)
                 
-                # --- PHẦN BẢNG THỐNG KÊ (Cpk) ---
-                with st.expander("🔍 View Capability Statistics (Numerical Details)", expanded=True):
+                # Bảng số liệu
+                with st.expander("🔍 View Capability Statistics (Numerical Details)"):
                     stats_df = df_resin_subset.groupby('Coating_Type').agg(
                         Batches=('Batch_Lot', 'nunique'),
                         Coils=('Online_Gloss_Top', 'count'),
@@ -479,38 +471,37 @@ if view_mode == "✨ Gloss Trend (SPC)":
                         return max(0, cpk)
                     
                     stats_df['Cpk (Line)'] = stats_df.apply(calc_cpk_resin, axis=1)
-                    
                     st.dataframe(stats_df.style.format({
                         'Mean': '{:.1f}', 'Min': '{:.1f}', 'Max': '{:.1f}', 'Std': '{:.2f}', 'Cpk (Line)': '{:.2f}'
                     }).background_gradient(cmap='RdYlGn', subset=['Cpk (Line)']), use_container_width=True, hide_index=True)
-                
-                # --- PHẦN ADD-ON PHÂN TÍCH MÀU SẮC (DELTA E) ---
+
+                # --- BIỂU ĐỒ 2: COLOR STABILITY (DẠNG CỘT TỐI GIẢN) ---
                 st.markdown("---")
-                st.markdown("#### 🎨 Color Stability Comparison (ΔE Dispersion)")
-                st.caption("Evaluate which coating type exhibits the highest color stability during the curing process (lower ΔE values with tighter distribution are preferred).")
+                st.markdown("#### 🎨 Color Deviation Comparison (Worst-case vs Average ΔE)")
+                st.caption("Bar chart showing the maximum color shift (gray bar) vs the average shift (colored bar). Evaluate which resin maintains color stability best.")
                 
-                fig_color, ax_color = plt.subplots(figsize=(12, 4))
+                fig_color, ax_color = plt.subplots(figsize=(12, 4.5))
                 
-                # --- LỖI NẰM Ở ĐÂY VÀ ĐÃ ĐƯỢC SỬA ---
-                sns.boxplot(
-                    data=df_resin_subset, 
-                    x='ΔE', 
-                    y='Coating_Type', 
-                    palette="tab10", 
-                    linewidth=1.5,
-                    flierprops={"marker": "x", "markeredgecolor": "red", "markersize": 8}, # Sửa 's' thành 'markersize' và 'color' thành 'markeredgecolor'
-                    ax=ax_color
-                )
-                # -----------------------------------
+                # Tính toán Max và Mean của Delta E
+                delta_stats = df_resin_subset.groupby('Coating_Type')['ΔE'].agg(['mean', 'max']).reindex(available_resins)
                 
-                ax_color.axvline(1.0, color='red', linestyle='--', lw=2, label='Critical Spec (ΔE = 1.0)')
-                ax_color.axvline(0.8, color='orange', linestyle=':', lw=1.5, label='Warning Limit (ΔE = 0.8)')
+                bar_height = 0.4
+                # Cột xám: Cuộn lệch màu nặng nhất (Worst Coil)
+                ax_color.barh(y_positions, delta_stats['max'], color='#bdc3c7', height=bar_height, label='Worst Coil (Max ΔE)', zorder=2)
+                # Cột màu: Trung bình
+                for idx in range(len(available_resins)):
+                    ax_color.barh(y_positions[idx], delta_stats['mean'].iloc[idx], color=palette[idx], height=bar_height, label='Average ΔE' if idx==0 else "", zorder=3)
                 
-                ax_color.set_xlabel("Total Color Difference (ΔE)")
-                ax_color.set_ylabel("Resin Type")
-                ax_color.legend(loc='upper right')
-                ax_color.grid(axis='x', alpha=0.3)
+                ax_color.axvline(1.0, color='#c0392b', linestyle='--', lw=2, zorder=4, label='Critical Spec (Fail > 1.0)')
+                ax_color.axvline(0.8, color='#f39c12', linestyle=':', lw=2, zorder=4, label='Warning Limit (> 0.8)')
                 
+                ax_color.set_yticks(y_positions)
+                ax_color.set_yticklabels(available_resins, fontweight='bold', fontsize=11)
+                ax_color.set_xlabel("Total Color Difference (ΔE)", fontweight='bold')
+                ax_color.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
+                ax_color.grid(axis='x', linestyle='--', alpha=0.5)
+                
+                plt.tight_layout()
                 st.pyplot(fig_color)
                 plt.close(fig_color)
 
