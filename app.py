@@ -839,11 +839,7 @@ elif view_mode == "🤝 Supplier Capability":
             with c1:
                 st.subheader("📊 Executive Performance Matrix")
                 st.caption(title_suffix)
-                
-                with c1:
-                st.subheader("📊 Executive Performance Matrix")
-                st.caption(title_suffix)
-                
+                              
                 fig_matrix, ax_matrix = plt.subplots(figsize=(9, 6))
                 
                 # 1. CALCULATE LIMITS
