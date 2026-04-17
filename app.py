@@ -277,9 +277,8 @@ if view_mode == "✨ Gloss Trend (SPC)":
             if val > 0:
                 ax_trend.axvline(x=val - 0.5, color='gray', linestyle=':', lw=1.5, alpha=0.5)
 
-        # ĐOẠN NÀY ÉP CỨNG CHỈ CHO HIỆN TỐI ĐA 10-12 NHÃN TRỤC X ĐỂ KHÔNG BAO GIỜ BỊ ĐÈ CHỮ
         num_labels = len(batch_info)
-        step = max(1, num_labels // 10) 
+        step = max(1, num_labels // 12) 
         
         kept_ticks = batch_info['mean'].iloc[::step].tolist()
         kept_labels = batch_info['Batch_Lot'].iloc[::step].astype(str).tolist()
@@ -354,7 +353,7 @@ if view_mode == "✨ Gloss Trend (SPC)":
     # ── TAB SELECTION ──────────────────────────
     list_ma_son_tab2 = sorted(dff['Ma_Son'].dropna().unique().tolist())
     if list_ma_son_tab2:
-        tab_top_risk, tab_custom, tab_resin = st.tabs(["🚨 Top At-Risk Codes", "🔍 Manual Analysis", "🧪 Resin Comparison"])
+        tab_top_risk, tab_custom, tab_resin = st.tabs(["🚨 Top At-Risk Codes", "🔍 Manual Analysis", "🔍 Segment Fluctuation"])
         
         with tab_top_risk:
             if not risk_alert.empty:
@@ -370,112 +369,105 @@ if view_mode == "✨ Gloss Trend (SPC)":
             sel_ma_son = st.selectbox("🎯 Select Paint Code:", list_ma_son_tab2, key="manual_sel")
             render_spc_analysis(sel_ma_son, dff, "manual")
             
-        # --- TAB SO SÁNH NHỰA BẰNG BIỂU ĐỒ CHÊNH LỆCH TRỰC TIẾP (DEVIATION) ĐÃ ĐƯỢC THAY MỚI ---
+        # --- TAB PHÂN TÍCH SỰ BIẾN ĐỘNG (THEO ĐÚNG LOGIC CỦA SẾP) ---
         with tab_resin:
-            st.subheader("🧪 Resin Comparison Analysis (Apples-to-Apples)")
-            st.caption("Direct Deviation Charts: Evaluate which resin is closest to the Target Gloss and has the most stable Color.")
+            st.subheader("🔍 Production Segment Fluctuation Analysis")
+            st.caption("Deep dive: Analyze the actual running fluctuation of a specific combination (Same Color + Same Supplier + Same Resin + Same Spec).")
             
-            dff_resin_base = dff.dropna(subset=['Color_Group', 'Gloss_LSL', 'Gloss_USL', 'Coating_Type']).copy()
+            dff_seg = dff.dropna(subset=['Color_Group', 'Supplier', 'Coating_Type', 'Gloss_LSL', 'Gloss_USL', 'Online_Gloss_Top', 'ΔE']).copy()
+            dff_seg['Gloss_Target'] = (dff_seg['Gloss_LSL'] + dff_seg['Gloss_USL']) / 2.0
             
-            dff_resin_base['Group_Spec'] = (
-                dff_resin_base['Color_Group'] + " Group (Lab: " + 
-                dff_resin_base['Gloss_LSL'].apply(lambda x: f"{x:g}") + "~" + 
-                dff_resin_base['Gloss_USL'].apply(lambda x: f"{x:g}") + " | Line: " +
-                (dff_resin_base['Gloss_LSL'] - 2.0).apply(lambda x: f"{x:g}") + "~" +
-                (dff_resin_base['Gloss_USL'] + 2.0).apply(lambda x: f"{x:g}") + ")"
+            # Tạo chuỗi nhận diện phân khúc siêu chi tiết
+            dff_seg['Segment_Name'] = (
+                "🎨 " + dff_seg['Color_Group'] + " | 🏭 " + dff_seg['Supplier'] + 
+                " | 🧪 " + dff_seg['Coating_Type'] + " | 🎯 Target: " + 
+                dff_seg['Gloss_Target'].apply(lambda x: f"{x:g}") + " GU"
             )
             
-            resin_counts = dff_resin_base.groupby('Group_Spec')['Coating_Type'].nunique()
-            valid_counts = resin_counts[resin_counts >= 2]
+            # Lọc các phân khúc có đủ dữ liệu (>= 5 cuộn) để phân tích biến động
+            seg_counts = dff_seg.groupby('Segment_Name')['Online_Gloss_Top'].count()
+            valid_segs = seg_counts[seg_counts >= 5].sort_values(ascending=False)
             
-            if not valid_counts.empty:
-                display_options = {spec: f"{spec} ➡️ [{count} Resins]" for spec, count in valid_counts.items()}
-                sorted_display_list = sorted(display_options.values())
+            if not valid_segs.empty:
+                display_options = {seg: f"{seg} ➡️ [{count} Coils analyzed]" for seg, count in valid_segs.items()}
+                sel_display_text = st.selectbox("🎯 Select Production Segment:", list(display_options.values()))
                 
-                sel_display_text = st.selectbox("🎯 Select Color Group & Standard Spec:", sorted_display_list)
-                sel_group_spec = [k for k, v in display_options.items() if v == sel_display_text][0]
+                sel_seg = [k for k, v in display_options.items() if v == sel_display_text][0]
+                df_sub = dff_seg[dff_seg['Segment_Name'] == sel_seg].sort_values(['Ngay_SX', 'Coil_No']).reset_index(drop=True)
                 
-                df_resin_subset = dff_resin_base[dff_resin_base['Group_Spec'] == sel_group_spec].copy()
-                available_resins = sorted(df_resin_subset['Coating_Type'].unique().tolist())
+                lsl_val = df_sub['Line_LSL'].iloc[0] if 'Line_LSL' in df_sub.columns else df_sub['Gloss_LSL'].iloc[0] - 2.0
+                usl_val = df_sub['Line_USL'].iloc[0] if 'Line_USL' in df_sub.columns else df_sub['Gloss_USL'].iloc[0] + 2.0
+                target_val = df_sub['Gloss_Target'].iloc[0]
                 
-                lsl_val = df_resin_subset['Gloss_LSL'].iloc[0] - 2.0
-                usl_val = df_resin_subset['Gloss_USL'].iloc[0] + 2.0
-                target_val = (lsl_val + usl_val) / 2.0
+                r_mean = df_sub['Online_Gloss_Top'].mean()
+                r_std = df_sub['Online_Gloss_Top'].std() if df_sub['Online_Gloss_Top'].std() > 0 else 0.1
+                cpk = min((usl_val - r_mean) / (3 * r_std), (r_mean - lsl_val) / (3 * r_std))
+                cpk = max(0, cpk)
                 
-                delta_stats = df_resin_subset.groupby('Coating_Type').agg(
-                    Gloss_Mean=('Online_Gloss_Top', 'mean'),
-                    dE_Mean=('ΔE', 'mean'),
-                    dE_Max=('ΔE', 'max')
-                ).reindex(available_resins)
+                de_max = df_sub['ΔE'].max()
                 
-                delta_stats['Gloss_Bias'] = delta_stats['Gloss_Mean'] - target_val
+                # Bảng tóm tắt chỉ số sức khỏe của Segment này
+                st.markdown("---")
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("📦 Volume", f"{len(df_sub)} Coils")
+                c2.metric("📊 Stability (Cpk)", f"{cpk:.2f}", "Excellent" if cpk >= 1.33 else ("Warning" if cpk >= 1.0 else "Poor"))
+                c3.metric("🎯 Mean Gloss", f"{r_mean:.1f} GU")
+                c4.metric("🎨 Worst Color Shift (ΔE)", f"{de_max:.2f}", "Fail" if de_max > 1.0 else "Pass", delta_color="inverse")
                 
-                col1, col2 = st.columns(2)
+                # --- BIỂU ĐỒ BIẾN ĐỘNG KÉP (FLUCTUATION TREND) ---
+                st.markdown("#### 📈 Fluctuation Tracking: Gloss & Color over time")
                 
-                # --- BIỂU ĐỒ 1: GLOSS BIAS ---
-                with col1:
-                    st.markdown("#### 🎯 Gloss Deviation from Target")
-                    st.caption(f"Trục 0 là Target ({target_val} GU). Nhìn vạch xem nhựa nào bị lệch tâm xa nhất.")
-                    fig_bias, ax_bias = plt.subplots(figsize=(6, 4))
-                    
-                    colors = ['#e74c3c' if x < 0 else '#2ecc71' for x in delta_stats['Gloss_Bias']]
-                    sns.barplot(x=delta_stats['Gloss_Bias'], y=available_resins, hue=available_resins, palette=colors, legend=False, ax=ax_bias)
-                    
-                    ax_bias.axvline(0, color='black', lw=2)
-                    bias_lsl = lsl_val - target_val
-                    bias_usl = usl_val - target_val
-                    ax_bias.axvline(bias_lsl, color='#e74c3c', linestyle='--', lw=1.5, label='LSL/USL Margin')
-                    ax_bias.axvline(bias_usl, color='#e74c3c', linestyle='--', lw=1.5)
-                    
-                    ax_bias.set_xlabel("Deviation from Target (GU) [Bias]")
-                    ax_bias.set_ylabel("")
-                    ax_bias.legend(loc='lower right', fontsize=8)
-                    
-                    for i, v in enumerate(delta_stats['Gloss_Bias']):
-                        ax_bias.text(v + (0.1 if v > 0 else -0.1), i, f"{v:+.1f}", va='center', ha='left' if v > 0 else 'right', fontweight='bold', fontsize=9)
-                    
-                    st.pyplot(fig_bias)
-                    plt.close(fig_bias)
+                fig_fluc, (ax_g, ax_c) = plt.subplots(2, 1, figsize=(14, 8), gridspec_kw={'height_ratios': [2, 1]}, sharex=True)
+                df_sub['x_seq'] = list(range(len(df_sub)))
                 
-                # --- BIỂU ĐỒ 2: COLOR DEVIATION ---
-                with col2:
-                    st.markdown("#### 🎨 Color Deviation (Direct ΔE)")
-                    st.caption("Cột xanh là trung bình, Chấm đỏ là cuộn bị lệch màu nặng nhất (Max ΔE).")
-                    fig_color, ax_color = plt.subplots(figsize=(6, 4))
-                    
-                    sns.barplot(x=delta_stats['dE_Mean'], y=available_resins, color='#3498db', alpha=0.8, ax=ax_color)
-                    ax_color.scatter(delta_stats['dE_Max'], range(len(available_resins)), color='red', edgecolor='white', s=80, zorder=5, label='Worst Coil (Max ΔE)')
-                    
-                    ax_color.axvline(1.0, color='red', linestyle='--', lw=1.5, label='Critical Spec (1.0)')
-                    ax_color.axvline(0.8, color='orange', linestyle=':', lw=1.5)
-                    
-                    ax_color.set_xlabel("Total Color Difference (ΔE)")
-                    ax_color.set_ylabel("")
-                    ax_color.legend(loc='lower right', fontsize=8)
-                    
-                    st.pyplot(fig_color)
-                    plt.close(fig_color)
-
-                with st.expander("🔍 View Capability Statistics (Numerical Details)"):
-                    stats_df = df_resin_subset.groupby('Coating_Type').agg(
-                        Batches=('Batch_Lot', 'nunique'),
-                        Coils=('Online_Gloss_Top', 'count'),
-                        Mean=('Online_Gloss_Top', 'mean'),
-                        Std=('Online_Gloss_Top', 'std')
-                    ).reset_index()
-                    
-                    def calc_cpk_resin(row):
-                        if pd.isna(row['Std']) or row['Std'] == 0: return np.nan
-                        cpk = min((usl_val - row['Mean']) / (3 * row['Std']), (row['Mean'] - lsl_val) / (3 * row['Std']))
-                        return max(0, cpk)
-                    
-                    stats_df['Cpk (Line)'] = stats_df.apply(calc_cpk_resin, axis=1)
-                    st.dataframe(stats_df.style.format({
-                        'Mean': '{:.1f}', 'Std': '{:.2f}', 'Cpk (Line)': '{:.2f}'
-                    }).background_gradient(cmap='RdYlGn', subset=['Cpk (Line)']), use_container_width=True, hide_index=True)
-
+                # 1. BIỂU ĐỒ GLOSS
+                ax_g.plot(df_sub['x_seq'], df_sub['Online_Gloss_Top'], marker='o', color='#2980b9', lw=2, label='Actual Line Gloss')
+                
+                ax_g.axhline(target_val, color='black', lw=2.5, label=f'Target ({target_val:.1f})')
+                ax_g.axhline(lsl_val, color='red', ls='--', lw=1.5, label='Spec Limits')
+                ax_g.axhline(usl_val, color='red', ls='--', lw=1.5)
+                
+                # Vẽ dải Control Limits (+- 3 sigma) để sếp thấy sự biến động tự nhiên
+                ax_g.axhspan(r_mean - 3*r_std, r_mean + 3*r_std, color='#2ecc71', alpha=0.15, label='Process Capability (±3σ)')
+                ax_g.axhline(r_mean, color='#27ae60', ls='-.', lw=2, label=f'Mean ({r_mean:.1f})')
+                
+                ax_g.set_ylabel("Online Gloss (GU)", fontweight='bold')
+                ax_g.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
+                ax_g.grid(axis='y', alpha=0.3)
+                
+                # 2. BIỂU ĐỒ DELTA E
+                ax_c.plot(df_sub['x_seq'], df_sub['ΔE'], marker='s', color='#e67e22', lw=2, label='Color Shift (ΔE)')
+                ax_c.axhline(1.0, color='red', ls='--', lw=2, label='Critical (1.0)')
+                ax_c.axhline(0.8, color='orange', ls=':', lw=1.5, label='Warning (0.8)')
+                
+                ax_c.set_ylabel("ΔE", fontweight='bold')
+                ax_c.set_xlabel("Production Sequence (Coils grouped by Batch)", fontweight='bold')
+                ax_c.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
+                ax_c.grid(axis='y', alpha=0.3)
+                
+                # Dựng ranh giới phân mẻ và nhãn trục X chống đè chữ
+                batch_info = df_sub.groupby('Batch_Lot', sort=False)['x_seq'].agg(['min', 'max', 'mean']).reset_index()
+                for val in batch_info['min']:
+                    if val > 0:
+                        ax_g.axvline(x=val - 0.5, color='gray', linestyle=':', lw=1.5, alpha=0.5)
+                        ax_c.axvline(x=val - 0.5, color='gray', linestyle=':', lw=1.5, alpha=0.5)
+                
+                step = max(1, len(batch_info) // 12)
+                kept_ticks = batch_info['mean'].iloc[::step].tolist()
+                kept_labels = batch_info['Batch_Lot'].iloc[::step].astype(str).tolist()
+                if batch_info['mean'].iloc[-1] not in kept_ticks:
+                    kept_ticks.append(batch_info['mean'].iloc[-1])
+                    kept_labels.append(str(batch_info['Batch_Lot'].iloc[-1]))
+                
+                ax_c.set_xticks(kept_ticks)
+                ax_c.set_xticklabels(kept_labels, rotation=45, ha='right', fontsize=9)
+                
+                plt.tight_layout()
+                st.pyplot(fig_fluc)
+                plt.close(fig_fluc)
+                
             else:
-                st.info("🚫 Hiện tại không có Nhóm màu nào sử dụng chung từ 2 loại nhựa trở lên cùng một dải Spec.")
+                st.info("🚫 Không có phân khúc nào (Nhóm màu + Hãng + Nhựa + Target) có đủ từ 5 cuộn trở lên để vẽ biểu đồ biến động.")
 # ==========================================
 # ==========================================
 # ==========================================
