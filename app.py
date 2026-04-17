@@ -484,22 +484,24 @@ if view_mode == "✨ Gloss Trend (SPC)":
                         'Mean': '{:.1f}', 'Min': '{:.1f}', 'Max': '{:.1f}', 'Std': '{:.2f}', 'Cpk (Line)': '{:.2f}'
                     }).background_gradient(cmap='RdYlGn', subset=['Cpk (Line)']), use_container_width=True, hide_index=True)
                 
-                # --- PHẦN ADD-ON PHÂN TÍCH MÀU SẮC (DELTA E) ĐÃ ĐƯỢC CHỈNH LẠI LỀ CHUẨN ---
+                # --- PHẦN ADD-ON PHÂN TÍCH MÀU SẮC (DELTA E) ---
                 st.markdown("---")
                 st.markdown("#### 🎨 Color Stability Comparison (ΔE Dispersion)")
                 st.caption("Đánh giá xem loại nhựa nào giữ màu ổn định nhất qua lò sấy (ΔE càng thấp và ít dao động càng tốt).")
                 
                 fig_color, ax_color = plt.subplots(figsize=(12, 4))
                 
+                # --- LỖI NẰM Ở ĐÂY VÀ ĐÃ ĐƯỢC SỬA ---
                 sns.boxplot(
                     data=df_resin_subset, 
                     x='ΔE', 
                     y='Coating_Type', 
                     palette="tab10", 
                     linewidth=1.5,
-                    flierprops={"marker": "x", "color": "red", "s": 40},
+                    flierprops={"marker": "x", "markeredgecolor": "red", "markersize": 8}, # Sửa 's' thành 'markersize' và 'color' thành 'markeredgecolor'
                     ax=ax_color
                 )
+                # -----------------------------------
                 
                 ax_color.axvline(1.0, color='red', linestyle='--', lw=2, label='Critical Spec (ΔE = 1.0)')
                 ax_color.axvline(0.8, color='orange', linestyle=':', lw=1.5, label='Warning Limit (ΔE = 0.8)')
