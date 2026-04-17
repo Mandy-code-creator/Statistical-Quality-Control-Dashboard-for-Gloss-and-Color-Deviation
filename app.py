@@ -235,7 +235,7 @@ if view_mode == "✨ Gloss Trend (SPC)":
 
     st.markdown("---")
     
-    def render_spc_analysis(paint_code, data_source, key_suffix):
+def render_spc_analysis(paint_code, data_source, key_suffix):
         dff_g = data_source[data_source['Ma_Son'] == paint_code].copy()
         dff_g = dff_g.dropna(subset=['Gloss_LSL', 'Gloss_USL', 'Gloss_Lab', 'Online_Gloss_Top'])
         
@@ -248,6 +248,7 @@ if view_mode == "✨ Gloss Trend (SPC)":
         
         st.success(f"📅 **Timeframe:** `{dff_g['Ngay_SX'].min()}` to `{dff_g['Ngay_SX'].max()}` | **Volume:** {dff_g['Batch_Lot'].nunique()} Batches ({len(dff_g)} Coils).")
 
+        # ── BIỂU ĐỒ TREND (ZIGZAG RAW DATA) ───────────────────────────────────
         fig_trend, ax_trend = plt.subplots(figsize=(14, 4.5))
         dff_g['x_seq'] = list(range(len(dff_g)))
         
@@ -267,17 +268,34 @@ if view_mode == "✨ Gloss Trend (SPC)":
         ax_trend.axhline(line_lsl_val, color='green', ls='--', lw=2, label=f'Line LSL ({line_lsl_val})')
         ax_trend.axhline(line_usl_val, color='green', ls='--', lw=2, label=f'Line USL ({line_usl_val})')
         
-        plt.xticks(dff_g['x_seq'], dff_g['Batch_Lot'].astype(str), rotation=45, ha='right')
-        if len(dff_g['x_seq']) > 20:
-            step = max(1, len(dff_g['x_seq']) // 15)
+        # --- BẮT ĐẦU ĐOẠN FIX NHÃN TRỤC X CHUẨN SPC ---
+        ax_trend.set_xlabel("Production Sequence (Coils grouped by Batch)")
+        
+        # Tìm ranh giới và vị trí trung tâm của từng mẻ
+        batch_info = dff_g.groupby('Batch_Lot', sort=False)['x_seq'].agg(['min', 'max', 'mean']).reset_index()
+
+        # Vẽ hàng rào nét đứt phân cách các mẻ
+        for val in batch_info['min']:
+            if val > 0:
+                ax_trend.axvline(x=val - 0.5, color='gray', linestyle=':', lw=1.5, alpha=0.5)
+
+        # Đặt 1 nhãn mẻ duy nhất vào đúng giữa cụm cuộn thép của mẻ đó
+        ax_trend.set_xticks(batch_info['mean'])
+        ax_trend.set_xticklabels(batch_info['Batch_Lot'].astype(str), rotation=45, ha='right', fontsize=8)
+
+        # Auto-skip ẩn bớt tên mẻ nếu có quá nhiều mẻ (>25)
+        if len(batch_info) > 25:
+            step = max(1, len(batch_info) // 15)
             for i, label in enumerate(ax_trend.xaxis.get_ticklabels()):
                 if i % step != 0: label.set_visible(False)
+        # --- KẾT THÚC ĐOẠN FIX NHÃN TRỤC X ---
                 
         ax_trend.set_ylabel("Gloss (GU)")
         ax_trend.legend(bbox_to_anchor=(1.01, 1), loc='upper left', fontsize='small')
         st.pyplot(fig_trend)
         plt.close(fig_trend)
 
+        # ── BIỂU ĐỒ 2: GLOSS DISTRIBUTION ───────────────────────────────────
         st.write("**Gloss Distribution Analysis**")
         fig_dist, ax_dist = plt.subplots(figsize=(9, 5)) 
         
