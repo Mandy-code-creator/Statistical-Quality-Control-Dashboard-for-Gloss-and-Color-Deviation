@@ -499,6 +499,35 @@ if view_mode == "✨ Gloss Trend (SPC)":
                     }).background_gradient(cmap='RdYlGn', subset=['Cpk (Line)']), use_container_width=True, hide_index=True)
             else:
                 st.info("🚫 Hiện tại không có Nhóm màu nào sử dụng chung từ 2 loại nhựa trở lên cùng một dải Spec.")
+            # --- ADD-ON: PHÂN TÍCH ĐỘ NHẠY MÀU SẮC (DELTA E) GIỮA CÁC LOẠI NHỰA ---
+                    st.markdown("---")
+                    st.markdown("#### 🎨 Color Stability Comparison (ΔE Dispersion)")
+                    st.caption("Đánh giá xem loại nhựa nào giữ màu ổn định nhất qua lò sấy (ΔE càng thấp và ít dao động càng tốt).")
+                    
+                    fig_color, ax_color = plt.subplots(figsize=(12, 4))
+                    
+                    # Vẽ Boxplot đọ sức ΔE
+                    sns.boxplot(
+                        data=df_resin_subset, 
+                        x='ΔE', 
+                        y='Coating_Type', 
+                        palette="tab10", # Dùng chung hệ màu với biểu đồ Gloss ở trên
+                        linewidth=1.5,
+                        flierprops={"marker": "x", "color": "red", "s": 40},
+                        ax=ax_color
+                    )
+                    
+                    # Vẽ ranh giới NG của màu (Thường ΔE > 1.0 là Fail)
+                    ax_color.axvline(1.0, color='red', linestyle='--', lw=2, label='Critical Spec (ΔE = 1.0)')
+                    ax_color.axvline(0.8, color='orange', linestyle=':', lw=1.5, label='Warning Limit (ΔE = 0.8)')
+                    
+                    ax_color.set_xlabel("Total Color Difference (ΔE)")
+                    ax_color.set_ylabel("Resin Type")
+                    ax_color.legend(loc='upper right')
+                    ax_color.grid(axis='x', alpha=0.3)
+                    
+                    st.pyplot(fig_color)
+                    plt.close(fig_color)
 # ==========================================
 # ==========================================
 # ==========================================
