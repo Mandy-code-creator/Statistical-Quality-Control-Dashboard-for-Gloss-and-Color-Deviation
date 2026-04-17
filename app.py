@@ -764,6 +764,7 @@ elif view_mode == "⚖️ Predictive Compensation & Targeting":
         else:
             st.warning("⚠️ Insufficient historical data for this paint code to build a reliable compensation model (Min. 5 coils required).")
 # ==========================================
+# ==========================================
 # VIEW 5: SUPPLIER CAPABILITY
 # ==========================================
 elif view_mode == "🤝 Supplier Capability":
@@ -771,18 +772,22 @@ elif view_mode == "🤝 Supplier Capability":
     
     st.markdown("---")
     st.subheader("🚨 Negotiation Radar (Supplier Blacklist)")
-    st.caption("Paint codes with **Cpk < 1.0** (unstable gloss) or **ΔE Max > 1.0** (color shift) will be flagged here.")
+    st.caption("Paint codes with **Cpk < 1.0** (unstable gloss) or **ΔE Max > 1.0** (color shift) will be flagged here. Minimum 2 Batches required.")
     
     dff_radar = dff.dropna(subset=['Online_Gloss_Top', 'Supplier', 'Gloss_LSL', 'Gloss_USL', 'Color_Group', 'Color_Code', 'dL_N', 'da_N', 'db_N'])
     dff_radar = dff_radar[(dff_radar['Gloss_LSL'] > 0) & (dff_radar['Gloss_USL'] > 0) & (dff_radar['Online_Gloss_Top'] > 0)]
     
     if not dff_radar.empty:
+        # TÍNH TOÁN THEO SỐ MẺ (BATCH)
         radar_summary = dff_radar.groupby(['Color_Group', 'Color_Code', 'Supplier']).agg(
-            Coil_Count=('Online_Gloss_Top', 'count'), LSL=('Gloss_LSL', 'first'), USL=('Gloss_USL', 'first'),
+            Batches=('Batch_Lot', 'nunique'),
+            Coils=('Online_Gloss_Top', 'count'),
+            LSL=('Gloss_LSL', 'first'), USL=('Gloss_USL', 'first'),
             Mean_Line=('Online_Gloss_Top', 'mean'), Std_Line=('Online_Gloss_Top', 'std'), dE_Max=('ΔE', 'max')
         ).reset_index()
         
-        radar_summary = radar_summary[radar_summary['Coil_Count'] >= 3]
+        # Chỉ đánh giá các nhà cung cấp đã giao từ 2 mẻ (Batch) trở lên
+        radar_summary = radar_summary[radar_summary['Batches'] >= 2]
         
         def calc_cpk_radar(row):
             if pd.isna(row['Std_Line']) or row['Std_Line'] == 0: return np.nan
@@ -793,7 +798,8 @@ elif view_mode == "🤝 Supplier Capability":
         
         if not radar_alert.empty:
             radar_alert = radar_alert.sort_values(by=['Cpk (Line)'], ascending=True)
-            radar_alert.columns = ['Color Group', 'Color Code (4 Digits)', 'Supplier', 'Coils', 'LSL', 'USL', 'Mean (Line)', 'Std (Line)', 'Max ΔE', 'Cpk (Line)']
+            radar_alert = radar_alert[['Color_Group', 'Color_Code', 'Supplier', 'Batches', 'Coils', 'LSL', 'USL', 'Mean_Line', 'Std_Line', 'dE_Max', 'Cpk (Line)']]
+            radar_alert.columns = ['Color Group', 'Color Code (4 Digits)', 'Supplier', 'Batches', 'Coils', 'LSL', 'USL', 'Mean (Line)', 'Std (Line)', 'Max ΔE', 'Cpk (Line)']
             st.dataframe(
                 radar_alert.style.format({
                     'LSL': '{:.0f}', 'USL': '{:.0f}', 'Mean (Line)': '{:.1f}',
@@ -839,8 +845,10 @@ elif view_mode == "🤝 Supplier Capability":
         dff_comp['Gloss_Target'] = (dff_comp['Gloss_LSL'] + dff_comp['Gloss_USL']) / 2
         dff_comp['Gloss_Dev'] = dff_comp['Online_Gloss_Top'] - dff_comp['Gloss_Target']
         
-        counts = dff_comp['Supplier'].value_counts()
-        valid_suppliers = counts[counts >= 2].index
+        # Đếm số lượng MẺ SƠN duy nhất theo từng nhà cung cấp
+        batch_counts = dff_comp.groupby('Supplier')['Batch_Lot'].nunique()
+        # Lọc ra những nhà cung cấp có từ 2 Mẻ sơn trở lên
+        valid_suppliers = batch_counts[batch_counts >= 2].index
         dff_comp = dff_comp[dff_comp['Supplier'].isin(valid_suppliers)]
         
         if len(dff_comp['Supplier'].unique()) >= 1:
@@ -879,11 +887,11 @@ elif view_mode == "🤝 Supplier Capability":
                 if is_mixed:
                     st.subheader("Stability Index Table (Aggregated)")
                     comp_table = dff_comp.groupby('Supplier').agg(
-                        Coil_Count=('Batch_Lot', 'count'), Mean_Dev=('Gloss_Dev', 'mean'),
-                        Std_Dev=('Gloss_Dev', 'std'), Avg_dE=('ΔE', 'mean')
+                        Batches=('Batch_Lot', 'nunique'), Coils=('Online_Gloss_Top', 'count'), 
+                        Mean_Dev=('Gloss_Dev', 'mean'), Std_Dev=('Gloss_Dev', 'std'), Avg_dE=('ΔE', 'mean')
                     ).reset_index()
                     comp_table = comp_table.sort_values('Std_Dev', ascending=True)
-                    comp_table.columns = ['Supplier', 'Coils', 'Avg Target Dev', 'Dispersion (Std)', 'Avg ΔE']
+                    comp_table.columns = ['Supplier', 'Batches', 'Coils', 'Avg Target Dev', 'Dispersion (Std)', 'Avg ΔE']
                     st.dataframe(
                         comp_table.style.format({'Avg Target Dev': '{:+.2f}', 'Dispersion (Std)': '{:.2f}', 'Avg ΔE': '{:.2f}'}).background_gradient(cmap='RdYlGn_r', subset=['Dispersion (Std)']), 
                         use_container_width=True, hide_index=True
@@ -891,7 +899,8 @@ elif view_mode == "🤝 Supplier Capability":
                 else:
                     st.subheader("Line Capability Table (Online Cpk)")
                     comp_table = dff_comp.groupby('Supplier').agg(
-                        Coil_Count=('Batch_Lot', 'count'), LSL=('Gloss_LSL', 'mean'), USL=('Gloss_USL', 'mean'), 
+                        Batches=('Batch_Lot', 'nunique'), Coils=('Online_Gloss_Top', 'count'), 
+                        LSL=('Gloss_LSL', 'mean'), USL=('Gloss_USL', 'mean'), 
                         Mean_Gloss=('Online_Gloss_Top', 'mean'), Std_Gloss=('Online_Gloss_Top', 'std'), Avg_dE=('ΔE', 'mean')
                     ).reset_index()
                     def calc_cpk(row):
@@ -899,7 +908,7 @@ elif view_mode == "🤝 Supplier Capability":
                         return min((row['USL'] - row['Mean_Gloss']) / (3 * row['Std_Gloss']), (row['Mean_Gloss'] - row['LSL']) / (3 * row['Std_Gloss']))
                     comp_table['Cpk (Line)'] = comp_table.apply(calc_cpk, axis=1)
                     comp_table = comp_table.sort_values('Cpk (Line)', ascending=False)
-                    comp_table.columns = ['Supplier', 'Coils', 'LSL', 'USL', 'Mean (Line)', 'Std (Line)', 'Avg ΔE', 'Cpk (Line)']
+                    comp_table.columns = ['Supplier', 'Batches', 'Coils', 'LSL', 'USL', 'Mean (Line)', 'Std (Line)', 'Avg ΔE', 'Cpk (Line)']
                     st.dataframe(
                         comp_table.style.format({'LSL': '{:.0f}', 'USL': '{:.0f}', 'Mean (Line)': '{:.1f}', 'Std (Line)': '{:.2f}', 'Avg ΔE': '{:.2f}', 'Cpk (Line)': '{:.2f}'}).background_gradient(cmap='RdYlGn', subset=['Cpk (Line)']), 
                         use_container_width=True, hide_index=True
@@ -969,8 +978,9 @@ elif view_mode == "🤝 Supplier Capability":
                 use_container_width=True, hide_index=True
             )
         else:
-            st.warning("⚠️ Insufficient data (needs at least 2 coils/supplier with Line data) to perform comparison.")
+            st.warning("⚠️ Insufficient data (needs at least 2 batches per supplier with Line data) to perform comparison.")
 
+# ==========================================
 # ==========================================
 # VIEW 6: MASTER SUMMARY REPORT
 # ==========================================
