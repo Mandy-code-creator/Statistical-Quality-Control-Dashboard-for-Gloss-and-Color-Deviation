@@ -843,13 +843,43 @@ elif view_mode == "🤝 Supplier Capability":
                 fig_matrix, ax_matrix = plt.subplots(figsize=(9, 6))
                 
                 max_cpk = max(2.5, comp_table['Cpk (Line)'].max() + 0.2) if not comp_table['Cpk (Line)'].isna().all() else 2.5
-                ax_matrix.axhspan(1.33, max_cpk, facecolor='#d4edda', alpha=0.4, label='Excellent (Cpk > 1.33)')
-                ax_matrix.axhspan(1.0, 1.33, facecolor='#fff3cd', alpha=0.4, label='Warning (1.0 < Cpk < 1.33)')
-                ax_matrix.axhspan(0, 1.0, facecolor='#f8d7da', alpha=0.4, label='High Risk (Cpk < 1.0)')
+                # --- UPGRADED COLOR SCHEME (HIGH CONTRAST) ---
+                # Zone Coloring: Using vibrant colors with 60% opacity for better visibility
+                ax_matrix.axhspan(1.33, max_cpk, facecolor='#27ae60', alpha=0.6, label='Excellent (Cpk > 1.33)')
+                ax_matrix.axhspan(1.0, 1.33, facecolor='#f1c40f', alpha=0.6, label='Warning (1.0 < Cpk < 1.33)')
+                ax_matrix.axhspan(0, 1.0, facecolor='#c0392b', alpha=0.6, label='High Risk (Cpk < 1.0)')
                 
-                ax_matrix.axvline(0, color='black', linestyle='--', linewidth=1.5, label='Target Center (Bias = 0)')
+                # Make the Target Centerline and Spec lines bold
+                ax_matrix.axvline(0, color='black', linestyle='--', linewidth=2.5, label='Target Center (Bias = 0)')
+                ax_matrix.axhline(1.33, color='black', linewidth=1, alpha=0.4)
+                ax_matrix.axhline(1.0, color='black', linewidth=1, alpha=0.4)
                 
-                sns.scatterplot(data=comp_table, x='Bias', y='Cpk (Line)', hue='Supplier', s=350, edgecolor='black', linewidth=1.5, palette='tab10', ax=ax_matrix)
+                # Plot Suppliers with larger dots (s=600) and thicker edges
+                sns.scatterplot(
+                    data=comp_table, 
+                    x='Bias', y='Cpk (Line)', 
+                    hue='Supplier', 
+                    s=600, 
+                    edgecolor='white', 
+                    linewidth=2, 
+                    palette='tab10', 
+                    ax=ax_matrix,
+                    zorder=5 # Ensure dots are on top of the background colors
+                )
+                
+                # Supplier Labels
+                for i in range(comp_table.shape[0]):
+                    label_text = comp_table['Supplier'].iloc[i]
+                    if is_mixed: 
+                        label_text += f"\n({comp_table['Ma_Son'].iloc[i][-4:]})"
+                    ax_matrix.text(
+                        comp_table['Bias'].iloc[i] + 0.1, 
+                        comp_table['Cpk (Line)'].iloc[i] + 0.05, 
+                        label_text, 
+                        fontsize=10, 
+                        fontweight='bold', 
+                        color='black'
+                    )
                 
                 for i in range(comp_table.shape[0]):
                     label_text = comp_table['Supplier'].iloc[i]
