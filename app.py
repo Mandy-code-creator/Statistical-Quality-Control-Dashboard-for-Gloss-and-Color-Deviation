@@ -487,7 +487,7 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 # --- PHẦN ADD-ON PHÂN TÍCH MÀU SẮC (DELTA E) ---
                 st.markdown("---")
                 st.markdown("#### 🎨 Color Stability Comparison (ΔE Dispersion)")
-                st.caption("Đánh giá xem loại nhựa nào giữ màu ổn định nhất qua lò sấy (ΔE càng thấp và ít dao động càng tốt).")
+                st.caption("Evaluate which coating type exhibits the highest color stability during the curing process (lower ΔE values with tighter distribution are preferred).")
                 
                 fig_color, ax_color = plt.subplots(figsize=(12, 4))
                 
