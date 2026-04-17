@@ -173,7 +173,6 @@ st.markdown("---")
 
 # ==========================================
 # ==========================================
-# ==========================================
 # VIEW 1: GLOSS TREND (SPC)
 # ==========================================
 if view_mode == "✨ Gloss Trend (SPC)":
@@ -359,7 +358,7 @@ if view_mode == "✨ Gloss Trend (SPC)":
         st.pyplot(fig_dist)
         plt.close('all')
 
-    # ── TAB SELECTION (TÍCH HỢP TAB SO SÁNH NHỰA) ──────────────────────────
+    # ── TAB SELECTION ──────────────────────────
     list_ma_son_tab2 = sorted(dff['Ma_Son'].dropna().unique().tolist())
     if list_ma_son_tab2:
         tab_top_risk, tab_custom, tab_resin = st.tabs(["🚨 Top At-Risk Codes", "🔍 Manual Analysis", "🧪 Resin Comparison"])
@@ -378,25 +377,49 @@ if view_mode == "✨ Gloss Trend (SPC)":
             sel_ma_son = st.selectbox("🎯 Select Paint Code:", list_ma_son_tab2, key="manual_sel")
             render_spc_analysis(sel_ma_son, dff, "manual")
             
-        # --- TAB SO SÁNH PHÂN BỐ CÁC LOẠI NHỰA TRÊN CÙNG MỘT MÃ MÀU GỐC ---
+        # --- TAB SO SÁNH PHÂN BỐ CÁC LOẠI NHỰA (CÓ BỘ LỌC THÔNG MINH) ---
         with tab_resin:
-            st.subheader("🧪 Resin Comparison Analysis")
-            st.caption("Compare the gloss stability (distribution) of the same Base Color Code across different Resin types.")
+            st.subheader("🧪 Resin Comparison Analysis (Apples-to-Apples)")
+            st.caption("Auto-filtered: Only displaying Base Color Codes that have been produced using AT LEAST TWO different Resin types.")
             
-            # Lọc theo Mã màu gốc (4 ký tự cuối)
-            list_color_codes = sorted(dff['Color_Code'].dropna().unique().tolist())
-            sel_color_code = st.selectbox("🎯 Select Base Color Code (Mã màu gốc):", list_color_codes)
+            # 1. Tính Target và loại bỏ dòng thiếu dữ liệu
+            dff_resin_base = dff.dropna(subset=['Color_Code', 'Gloss_LSL', 'Gloss_USL', 'Coating_Type']).copy()
+            dff_resin_base['Gloss_Target'] = (dff_resin_base['Gloss_LSL'] + dff_resin_base['Gloss_USL']) / 2.0
+            dff_resin_base['Color_Spec'] = dff_resin_base['Color_Code'] + " (Target: " + dff_resin_base['Gloss_Target'].apply(lambda x: f"{x:.1f}") + " GU)"
             
-            df_resin_subset = dff[dff['Color_Code'] == sel_color_code].copy()
-            available_resins = sorted(df_resin_subset['Coating_Type'].dropna().unique().tolist())
+            # 2. Bộ đếm thông minh: Lọc các mã có >= 2 loại nhựa
+            resin_counts = dff_resin_base.groupby('Color_Spec')['Coating_Type'].nunique()
+            valid_counts = resin_counts[resin_counts >= 2]
             
-            if len(available_resins) > 0:
-                st.success(f"Found **{len(available_resins)}** resin types for Code `{sel_color_code}`: {', '.join(available_resins)}")
+            if not valid_counts.empty:
+                # Tạo Dropdown hiển thị kèm số lượng nhựa
+                display_options = {spec: f"{spec} ➡️ [{count} Resins]" for spec, count in valid_counts.items()}
+                sorted_display_list = sorted(display_options.values())
+                
+                sel_display_text = st.selectbox("🎯 Select Base Color & Standard Spec:", sorted_display_list)
+                
+                # Truy ngược lại Mã gốc từ text hiển thị
+                sel_color_spec = [k for k, v in display_options.items() if v == sel_display_text][0]
+                
+                # 3. Lọc dữ liệu để vẽ biểu đồ
+                df_resin_subset = dff_resin_base[dff_resin_base['Color_Spec'] == sel_color_spec].copy()
+                available_resins = sorted(df_resin_subset['Coating_Type'].unique().tolist())
+                
+                st.success(f"Comparing **{len(available_resins)}** resin types: {', '.join(available_resins)}")
                 
                 fig_resin, ax_resin = plt.subplots(figsize=(12, 6))
                 palette = sns.color_palette("tab10", len(available_resins))
                 
-                # Vẽ chồng các đường Normal Curve của từng loại nhựa
+                # Vẽ đường chuẩn
+                target_val = df_resin_subset['Gloss_Target'].iloc[0]
+                lsl_val = df_resin_subset['Line_LSL'].iloc[0] if 'Line_LSL' in df_resin_subset.columns else df_resin_subset['Gloss_LSL'].iloc[0] - 2.0
+                usl_val = df_resin_subset['Line_USL'].iloc[0] if 'Line_USL' in df_resin_subset.columns else df_resin_subset['Gloss_USL'].iloc[0] + 2.0
+                
+                ax_resin.axvline(target_val, color='black', linestyle='-', lw=2.5, label=f'Target ({target_val:.1f})')
+                ax_resin.axvline(lsl_val, color='red', linestyle='--', lw=1.5, alpha=0.6, label='Line Spec Limits')
+                ax_resin.axvline(usl_val, color='red', linestyle='--', lw=1.5, alpha=0.6)
+
+                # Vẽ chồng các Normal Curve
                 for idx, resin in enumerate(available_resins):
                     r_data = df_resin_subset[df_resin_subset['Coating_Type'] == resin]['Online_Gloss_Top'].dropna()
                     
@@ -411,39 +434,42 @@ if view_mode == "✨ Gloss Trend (SPC)":
                         ax_resin.plot(x_axis, y_curve, color=palette[idx], lw=2.5, 
                                       label=f'{resin} (μ={r_mean:.1f}, σ={r_std:.2f}, N={len(r_data)})')
                         ax_resin.fill_between(x_axis, y_curve, alpha=0.2, color=palette[idx])
-                        ax_resin.axvline(r_mean, color=palette[idx], linestyle='--', lw=1.5, alpha=0.8)
                     
                     elif len(r_data) == 1:
-                        # Fallback nếu loại nhựa đó chỉ mới chạy 1 cuộn duy nhất
-                        ax_resin.axvline(r_data.iloc[0], color=palette[idx], linestyle='-', lw=2.5, 
+                        ax_resin.axvline(r_data.iloc[0], color=palette[idx], linestyle=':', lw=2.5, 
                                          label=f'{resin} (Value={r_data.iloc[0]:.1f}, N=1)')
                 
-                ax_resin.set_title(f"Gloss Distribution Comparison by Resin Type for [{sel_color_code}]", fontweight='bold')
+                ax_resin.set_title(f"Gloss Capability Comparison: {sel_color_spec}", fontweight='bold')
                 ax_resin.set_xlabel("Online Line Gloss (GU)")
                 ax_resin.set_ylabel("Probability Density")
                 ax_resin.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
-                ax_resin.grid(axis='y', alpha=0.3)
+                ax_resin.grid(axis='x', alpha=0.3)
                 
                 plt.tight_layout()
                 st.pyplot(fig_resin)
                 plt.close(fig_resin)
                 
-                # Bảng số liệu thô bên dưới biểu đồ
-                with st.expander("🔍 View Raw Statistics"):
+                # 4. Bảng tính điểm Cpk tự động
+                with st.expander("🔍 View Capability Statistics (Cpk)", expanded=True):
                     stats_df = df_resin_subset.groupby('Coating_Type').agg(
                         Batches=('Batch_Lot', 'nunique'),
                         Coils=('Online_Gloss_Top', 'count'),
                         Mean_Gloss=('Online_Gloss_Top', 'mean'),
-                        Std_Gloss=('Online_Gloss_Top', 'std'),
-                        Min_Gloss=('Online_Gloss_Top', 'min'),
-                        Max_Gloss=('Online_Gloss_Top', 'max')
+                        Std_Gloss=('Online_Gloss_Top', 'std')
                     ).reset_index()
+                    
+                    def calc_cpk_resin(row):
+                        if pd.isna(row['Std_Gloss']) or row['Std_Gloss'] == 0: return np.nan
+                        cpk = min((usl_val - row['Mean_Gloss']) / (3 * row['Std_Gloss']), (row['Mean_Gloss'] - lsl_val) / (3 * row['Std_Gloss']))
+                        return max(0, cpk)
+                    
+                    stats_df['Cpk (Line)'] = stats_df.apply(calc_cpk_resin, axis=1)
+                    
                     st.dataframe(stats_df.style.format({
-                        'Mean_Gloss': '{:.1f}', 'Std_Gloss': '{:.2f}', 'Min_Gloss': '{:.1f}', 'Max_Gloss': '{:.1f}'
-                    }), use_container_width=True, hide_index=True)
+                        'Mean_Gloss': '{:.1f}', 'Std_Gloss': '{:.2f}', 'Cpk (Line)': '{:.2f}'
+                    }).background_gradient(cmap='RdYlGn', subset=['Cpk (Line)']), use_container_width=True, hide_index=True)
             else:
-                st.warning("No data available for this selection.")
-
+                st.info("🚫 Tuyệt vời! Hiện tại không có mã màu nào bị chạy lộn xộn trên nhiều loại nhựa khác nhau.")
 # ==========================================
 # ==========================================
 # VIEW 2: STATISTICAL LIMITS (SCOPE COMPARISON)
