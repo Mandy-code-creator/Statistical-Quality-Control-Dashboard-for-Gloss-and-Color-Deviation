@@ -235,7 +235,7 @@ if view_mode == "✨ Gloss Trend (SPC)":
 
     st.markdown("---")
     
-def render_spc_analysis(paint_code, data_source, key_suffix):
+    def render_spc_analysis(paint_code, data_source, key_suffix):
         dff_g = data_source[data_source['Ma_Son'] == paint_code].copy()
         dff_g = dff_g.dropna(subset=['Gloss_LSL', 'Gloss_USL', 'Gloss_Lab', 'Online_Gloss_Top'])
         
@@ -271,19 +271,15 @@ def render_spc_analysis(paint_code, data_source, key_suffix):
         # --- BẮT ĐẦU ĐOẠN FIX NHÃN TRỤC X CHUẨN SPC ---
         ax_trend.set_xlabel("Production Sequence (Coils grouped by Batch)")
         
-        # Tìm ranh giới và vị trí trung tâm của từng mẻ
         batch_info = dff_g.groupby('Batch_Lot', sort=False)['x_seq'].agg(['min', 'max', 'mean']).reset_index()
 
-        # Vẽ hàng rào nét đứt phân cách các mẻ
         for val in batch_info['min']:
             if val > 0:
                 ax_trend.axvline(x=val - 0.5, color='gray', linestyle=':', lw=1.5, alpha=0.5)
 
-        # Đặt 1 nhãn mẻ duy nhất vào đúng giữa cụm cuộn thép của mẻ đó
         ax_trend.set_xticks(batch_info['mean'])
         ax_trend.set_xticklabels(batch_info['Batch_Lot'].astype(str), rotation=45, ha='right', fontsize=8)
 
-        # Auto-skip ẩn bớt tên mẻ nếu có quá nhiều mẻ (>25)
         if len(batch_info) > 25:
             step = max(1, len(batch_info) // 15)
             for i, label in enumerate(ax_trend.xaxis.get_ticklabels()):
