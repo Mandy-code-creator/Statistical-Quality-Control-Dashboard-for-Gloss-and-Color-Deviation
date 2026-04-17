@@ -802,6 +802,10 @@ elif view_mode == "🤝 Supplier Capability":
             dff_comp = dff_nhom[dff_nhom['Ma_Son'] == sel_ma_son].copy()
             title_suffix = f"Code: {sel_ma_son}"
         
+        # --- FIX: CALCULATE DEVIATION COLUMN ---
+        dff_comp['Gloss_Dev'] = dff_comp['Online_Gloss_Top'] - dff_comp['Gloss_Target']
+        # ---------------------------------------
+
         # REQUIREMENT: Suppliers must have at least 2 batches
         batch_counts = dff_comp.groupby('Supplier')['Batch_Lot'].nunique()
         valid_suppliers = batch_counts[batch_counts >= 2].index
@@ -896,9 +900,8 @@ elif view_mode == "🤝 Supplier Capability":
                 USL=('Gloss_USL', 'first')
             ).reset_index().sort_values(by=['Supplier', 'Prod_Date'])
             
-            # FIX 1: Force Datetime Conversion
+            # FORCE DATETIME AND CREATE UNIQUE LABEL
             trend_data['Prod_Date'] = pd.to_datetime(trend_data['Prod_Date'])
-            # FIX 2: Create Unique Timeline Label (Date + Batch)
             trend_data['Timeline_Label'] = trend_data['Prod_Date'].dt.strftime('%Y-%m-%d') + "\n(" + trend_data['Batch_Lot'].astype(str) + ")"
 
             fig_trend, (ax_gloss, ax_color) = plt.subplots(2, 1, figsize=(14, 10), sharex=False)
@@ -929,7 +932,7 @@ elif view_mode == "🤝 Supplier Capability":
             ax_gloss.set_ylabel(y_label)
             ax_gloss.set_xlabel("")
             
-            # FIX 3: Auto-skip overlapping X-axis labels for Gloss Chart
+            # AUTO-SKIP X-AXIS LABELS
             ax_gloss.tick_params(axis='x', rotation=45, labelsize=9)
             step_gloss = max(1, len(trend_data) // 12) 
             for ind, label in enumerate(ax_gloss.get_xticklabels()):
@@ -948,7 +951,7 @@ elif view_mode == "🤝 Supplier Capability":
             ax_color.set_ylabel("Max Color Difference (ΔE)")
             ax_color.set_xlabel("Production Date & Batch")
             
-            # FIX 4: Auto-skip overlapping X-axis labels for Color Chart
+            # AUTO-SKIP X-AXIS LABELS
             ax_color.tick_params(axis='x', rotation=45, labelsize=9)
             step_color = max(1, len(trend_data) // 12) 
             for ind, label in enumerate(ax_color.get_xticklabels()):
@@ -970,6 +973,7 @@ elif view_mode == "🤝 Supplier Capability":
         else:
             st.warning("⚠️ Insufficient data (needs at least 2 batches per supplier) to perform comparison.")
 
+# ==========================================
 # ==========================================
 # ==========================================
 # VIEW 6: MASTER SUMMARY REPORT
