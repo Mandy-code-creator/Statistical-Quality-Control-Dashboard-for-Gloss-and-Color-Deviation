@@ -173,6 +173,7 @@ st.markdown("---")
 
 # ==========================================
 # ==========================================
+# ==========================================
 # VIEW 1: GLOSS TREND (SPC)
 # ==========================================
 if view_mode == "✨ Gloss Trend (SPC)":
@@ -377,32 +378,32 @@ if view_mode == "✨ Gloss Trend (SPC)":
             sel_ma_son = st.selectbox("🎯 Select Paint Code:", list_ma_son_tab2, key="manual_sel")
             render_spc_analysis(sel_ma_son, dff, "manual")
             
-        # --- TAB SO SÁNH PHÂN BỐ CÁC LOẠI NHỰA (CÓ BỘ LỌC THÔNG MINH) ---
+        # --- TAB SO SÁNH PHÂN BỐ NHỰA THEO NHÓM MÀU (COLOR GROUP) ---
         with tab_resin:
             st.subheader("🧪 Resin Comparison Analysis (Apples-to-Apples)")
-            st.caption("Auto-filtered: Only displaying Base Color Codes that have been produced using AT LEAST TWO different Resin types.")
+            st.caption("Auto-filtered: Comparing different Resin types within the SAME **Color Group** (e.g., Red, White) and SAME **Target Specification**.")
             
-            # 1. Tính Target và loại bỏ dòng thiếu dữ liệu
-            dff_resin_base = dff.dropna(subset=['Color_Code', 'Gloss_LSL', 'Gloss_USL', 'Coating_Type']).copy()
+            # 1. Gom nhóm theo Color_Group và Gloss_Target
+            dff_resin_base = dff.dropna(subset=['Color_Group', 'Gloss_LSL', 'Gloss_USL', 'Coating_Type']).copy()
             dff_resin_base['Gloss_Target'] = (dff_resin_base['Gloss_LSL'] + dff_resin_base['Gloss_USL']) / 2.0
-            dff_resin_base['Color_Spec'] = dff_resin_base['Color_Code'] + " (Target: " + dff_resin_base['Gloss_Target'].apply(lambda x: f"{x:.1f}") + " GU)"
             
-            # 2. Bộ đếm thông minh: Lọc các mã có >= 2 loại nhựa
-            resin_counts = dff_resin_base.groupby('Color_Spec')['Coating_Type'].nunique()
+            # Đổi từ Color_Code sang Color_Group
+            dff_resin_base['Group_Spec'] = dff_resin_base['Color_Group'] + " Group (Target: " + dff_resin_base['Gloss_Target'].apply(lambda x: f"{x:.1f}") + " GU)"
+            
+            # 2. Lọc các Nhóm Màu có >= 2 loại nhựa
+            resin_counts = dff_resin_base.groupby('Group_Spec')['Coating_Type'].nunique()
             valid_counts = resin_counts[resin_counts >= 2]
             
             if not valid_counts.empty:
-                # Tạo Dropdown hiển thị kèm số lượng nhựa
                 display_options = {spec: f"{spec} ➡️ [{count} Resins]" for spec, count in valid_counts.items()}
                 sorted_display_list = sorted(display_options.values())
                 
-                sel_display_text = st.selectbox("🎯 Select Base Color & Standard Spec:", sorted_display_list)
+                sel_display_text = st.selectbox("🎯 Select Color Group & Standard Spec:", sorted_display_list)
                 
-                # Truy ngược lại Mã gốc từ text hiển thị
-                sel_color_spec = [k for k, v in display_options.items() if v == sel_display_text][0]
+                sel_group_spec = [k for k, v in display_options.items() if v == sel_display_text][0]
                 
-                # 3. Lọc dữ liệu để vẽ biểu đồ
-                df_resin_subset = dff_resin_base[dff_resin_base['Color_Spec'] == sel_color_spec].copy()
+                # 3. Lọc dữ liệu
+                df_resin_subset = dff_resin_base[dff_resin_base['Group_Spec'] == sel_group_spec].copy()
                 available_resins = sorted(df_resin_subset['Coating_Type'].unique().tolist())
                 
                 st.success(f"Comparing **{len(available_resins)}** resin types: {', '.join(available_resins)}")
@@ -410,7 +411,7 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 fig_resin, ax_resin = plt.subplots(figsize=(12, 6))
                 palette = sns.color_palette("tab10", len(available_resins))
                 
-                # Vẽ đường chuẩn
+                # Đường chuẩn
                 target_val = df_resin_subset['Gloss_Target'].iloc[0]
                 lsl_val = df_resin_subset['Line_LSL'].iloc[0] if 'Line_LSL' in df_resin_subset.columns else df_resin_subset['Gloss_LSL'].iloc[0] - 2.0
                 usl_val = df_resin_subset['Line_USL'].iloc[0] if 'Line_USL' in df_resin_subset.columns else df_resin_subset['Gloss_USL'].iloc[0] + 2.0
@@ -419,7 +420,7 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 ax_resin.axvline(lsl_val, color='red', linestyle='--', lw=1.5, alpha=0.6, label='Line Spec Limits')
                 ax_resin.axvline(usl_val, color='red', linestyle='--', lw=1.5, alpha=0.6)
 
-                # Vẽ chồng các Normal Curve
+                # Vẽ Normal Curve
                 for idx, resin in enumerate(available_resins):
                     r_data = df_resin_subset[df_resin_subset['Coating_Type'] == resin]['Online_Gloss_Top'].dropna()
                     
@@ -439,7 +440,7 @@ if view_mode == "✨ Gloss Trend (SPC)":
                         ax_resin.axvline(r_data.iloc[0], color=palette[idx], linestyle=':', lw=2.5, 
                                          label=f'{resin} (Value={r_data.iloc[0]:.1f}, N=1)')
                 
-                ax_resin.set_title(f"Gloss Capability Comparison: {sel_color_spec}", fontweight='bold')
+                ax_resin.set_title(f"Gloss Capability Comparison: {sel_group_spec}", fontweight='bold')
                 ax_resin.set_xlabel("Online Line Gloss (GU)")
                 ax_resin.set_ylabel("Probability Density")
                 ax_resin.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
@@ -469,7 +470,7 @@ if view_mode == "✨ Gloss Trend (SPC)":
                         'Mean_Gloss': '{:.1f}', 'Std_Gloss': '{:.2f}', 'Cpk (Line)': '{:.2f}'
                     }).background_gradient(cmap='RdYlGn', subset=['Cpk (Line)']), use_container_width=True, hide_index=True)
             else:
-                st.info("🚫 Tuyệt vời! Hiện tại không có mã màu nào bị chạy lộn xộn trên nhiều loại nhựa khác nhau.")
+                st.info("🚫 Hiện tại không có Nhóm màu nào sử dụng chung từ 2 loại nhựa trở lên cùng một mức Target.")
 # ==========================================
 # ==========================================
 # VIEW 2: STATISTICAL LIMITS (SCOPE COMPARISON)
