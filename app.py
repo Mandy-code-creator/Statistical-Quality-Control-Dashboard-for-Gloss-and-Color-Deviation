@@ -334,7 +334,7 @@ if view_mode == "✨ Gloss Trend (SPC)":
         x_axis = np.linspace(all_data.min()-3, all_data.max()+3, 200)
         bin_width = (all_data.max() - all_data.min()) / 12
         
-        for data, color, label, mean_val, std_val in [(dff_g['Gloss_Lab'], '#1f77b4', 'Lab', mean_val, std_lab), 
+        for data, color, label, mean_lab, std_val in [(dff_g['Gloss_Lab'], '#1f77b4', 'Lab', mean_val, std_lab), 
                                                       (dff_g['Online_Gloss_Top'], '#ff7f0e', 'Line', mean_line, std_line)]:
             if std_val > 0:
                 y_curve = stats.norm.pdf(x_axis, mean_val, std_val) * len(data) * bin_width
