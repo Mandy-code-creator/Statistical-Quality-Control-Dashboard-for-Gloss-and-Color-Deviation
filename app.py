@@ -180,7 +180,7 @@ if view_mode == "✨ Gloss Trend (SPC)":
     st.info("💡 SPC Analysis: Monitor the actual Gloss trend (Lab vs Line) across raw production sequence.")
     
     risk_alert = pd.DataFrame()
-    with st.expander("🚨 Early Warning Radar (Click to view at-risk codes)", expanded=True):
+    with st.expander("🚨 Early Warning Radar (By Paint Code)", expanded=True):
         st.caption("This table scans paint codes (≥ 5 Batches) that are Out of Spec (NG) or approaching limits.")
         df_valid_radar = dff.dropna(subset=['Online_Gloss_Top', 'Line_LSL', 'Line_USL', 'Gloss_Lab', 'Gloss_LSL', 'Gloss_USL', 'Batch_Lot'])
         
@@ -389,8 +389,60 @@ if view_mode == "✨ Gloss Trend (SPC)":
             valid_segs = seg_counts[seg_counts >= 3].sort_values(ascending=False)
             
             if not valid_segs.empty:
+                # =====================================================================
+                # TÍNH NĂNG MỚI: BẢNG XẾP HẠNG TỰ ĐỘNG CÁC PHÂN KHÚC LỖI (LEADERBOARD)
+                # =====================================================================
+                st.markdown("#### 🚨 Segment Risk Leaderboard (Auto-Scan)")
+                st.caption("Automatically scans all valid segments to flag those with Out of Spec (NG) batches. Focus your analysis here first!")
+
+                df_all_batches = dff_seg[dff_seg['Segment_Name'].isin(valid_segs.index)].groupby(['Segment_Name', 'Batch_Lot']).agg(
+                    Line_Gloss_Mean=('Online_Gloss_Top', 'mean'),
+                    Lab_Gloss_Mean=('Gloss_Lab', 'mean'),
+                    dE_Max=('ΔE', 'max'),
+                    Line_LSL=('Line_LSL', 'first'),
+                    Line_USL=('Line_USL', 'first'),
+                    Lab_LSL=('Gloss_LSL', 'first'),
+                    Lab_USL=('Gloss_USL', 'first')
+                ).reset_index()
+
+                def check_batch_ng(row):
+                    if row['Line_Gloss_Mean'] < row['Line_LSL'] or row['Line_Gloss_Mean'] > row['Line_USL']: return True
+                    if row['Lab_Gloss_Mean'] < row['Lab_LSL'] or row['Lab_Gloss_Mean'] > row['Lab_USL']: return True
+                    if row['dE_Max'] > 1.0: return True
+                    return False
+
+                df_all_batches['Is_NG'] = df_all_batches.apply(check_batch_ng, axis=1)
+
+                leaderboard = df_all_batches.groupby('Segment_Name').agg(
+                    Total_Batches=('Batch_Lot', 'count'),
+                    NG_Batches=('Is_NG', 'sum'),
+                    Worst_dE=('dE_Max', 'max')
+                ).reset_index()
+
+                # Lọc ra những segment có lỗi và xếp hạng
+                leaderboard = leaderboard[leaderboard['NG_Batches'] > 0].sort_values(by=['NG_Batches', 'Worst_dE'], ascending=[False, False])
+
+                if not leaderboard.empty:
+                    leaderboard['NG Rate'] = (leaderboard['NG_Batches'] / leaderboard['Total_Batches'] * 100).map("{:.1f}%".format)
+
+                    def format_leaderboard_ng(val):
+                        return 'color: white; background-color: #e74c3c; font-weight: bold;'
+
+                    st.dataframe(
+                        leaderboard[['Segment_Name', 'Total_Batches', 'NG_Batches', 'NG Rate', 'Worst_dE']].style
+                        .format({'Worst_dE': '{:.2f}'})
+                        .map(format_leaderboard_ng, subset=['NG_Batches', 'NG Rate']),
+                        use_container_width=True, hide_index=True
+                    )
+                else:
+                    st.success("🌟 Incredible! All segments are currently running 100% In-Spec.")
+
+                st.markdown("---")
+                # =====================================================================
+
+                # THANH CHỌN PHÂN KHÚC ĐỂ PHÂN TÍCH CHUYÊN SÂU
                 display_options = {seg: f"{seg} ➡️ [{count} Batches]" for seg, count in valid_segs.items()}
-                sel_display_text = st.selectbox("🎯 Select Production Segment:", list(display_options.values()))
+                sel_display_text = st.selectbox("🎯 Target Segment Analysis (Select from Leaderboard above):", list(display_options.values()))
                 
                 sel_seg = [k for k, v in display_options.items() if v == sel_display_text][0]
                 df_sub = dff_seg[dff_seg['Segment_Name'] == sel_seg].copy()
@@ -503,7 +555,6 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 st.pyplot(fig_fluc)
                 plt.close(fig_fluc)
 
-                # --- ĐÃ UPDATE: THAY THẾ BIAS HISTOGRAM BẰNG LAB VS LINE DISTRIBUTION ---
                 st.markdown("---")
                 st.markdown("#### 🔬 Supplier Predictability & Transfer Quality (Bias Analysis)")
                 st.caption("A deep view combining R-Squared correlation and the actual Gloss Distribution Shift (Lab to Line).")
@@ -534,10 +585,8 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 
                 c_p4.metric("⚠️ Batches > ±2.0 Bias", f"{out_of_bias}", "Action Required" if out_of_bias > 0 else "Good", delta_color="inverse" if out_of_bias > 0 else "normal")
 
-                # --- HÀNG 1: SCATTER PLOT & LAB VS LINE DISTRIBUTION CURVE ---
                 fig_pred1, (ax_scatter, ax_dist) = plt.subplots(1, 2, figsize=(14, 5.5))
 
-                # Biểu đồ 1: Scatter
                 sns.regplot(data=df_batch, x='Lab_Gloss_Mean', y='Line_Gloss_Mean', ax=ax_scatter, 
                             scatter_kws={'alpha':0.7, 's':50, 'color':'#2980b9'}, 
                             line_kws={'color':'red', 'lw':2, 'label': f'Actual Trend (R²={r2:.2f})'})
@@ -550,7 +599,6 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 ax_scatter.legend()
                 ax_scatter.grid(True, alpha=0.3)
 
-                # Biểu đồ 2: Lab vs Line Distribution (Thay thế cho Bias Histogram)
                 lab_m = df_batch['Lab_Gloss_Mean'].mean()
                 lab_s = df_batch['Lab_Gloss_Mean'].std() if df_batch['Lab_Gloss_Mean'].std() > 0 else 0.1
                 line_m = df_batch['Line_Gloss_Mean'].mean()
@@ -580,7 +628,6 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 st.pyplot(fig_pred1)
                 plt.close(fig_pred1)
 
-                # --- HÀNG 2: BATCH-BY-BATCH BIAS BAR CHART (FULL WIDTH) ---
                 fig_pred2, ax_bar = plt.subplots(figsize=(14, 4.5))
                 
                 colors = ['#2ecc71' if abs(val) <= 1.0 else ('#f39c12' if abs(val) <= 2.0 else '#e74c3c') for val in df_batch['Gloss_Bias']]
