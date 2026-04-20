@@ -407,14 +407,18 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 ).sort_values('Ngay_SX_min').reset_index()
                 
                 df_batch['x_seq'] = list(range(len(df_batch)))
+                df_batch['Seq'] = df_batch['x_seq'] + 1 
                 
-                lsl_val = df_sub['Line_LSL'].iloc[0]
-                usl_val = df_sub['Line_USL'].iloc[0]
-                target_val = (lsl_val + usl_val) / 2.0
+                # CHUẨN BỊ ĐẦY ĐỦ THÔNG SỐ SPEC CỦA CẢ LAB VÀ LINE ĐỂ CHECK LỖI
+                line_lsl_val = df_sub['Line_LSL'].iloc[0]
+                line_usl_val = df_sub['Line_USL'].iloc[0]
+                lab_lsl_val = df_sub['Gloss_LSL'].iloc[0]
+                lab_usl_val = df_sub['Gloss_USL'].iloc[0]
+                target_val = (line_lsl_val + line_usl_val) / 2.0
                 
                 r_mean = df_sub['Online_Gloss_Top'].mean()
                 r_std = df_sub['Online_Gloss_Top'].std() if df_sub['Online_Gloss_Top'].std() > 0 else 0.1
-                cpk = min((usl_val - r_mean) / (3 * r_std), (r_mean - lsl_val) / (3 * r_std))
+                cpk = min((line_usl_val - r_mean) / (3 * r_std), (r_mean - line_lsl_val) / (3 * r_std))
                 cpk = max(0, cpk)
                 
                 de_max = df_sub['ΔE'].max()
@@ -426,13 +430,16 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 c3.metric("🎯 Mean Line Gloss", f"{r_mean:.1f} GU")
                 c4.metric("🎨 Worst Color Shift (ΔE)", f"{de_max:.2f}", "Fail" if de_max > 1.0 else "Pass", delta_color="inverse")
                 
-                # -------------------------------------------------------------
-                # ADD-ON: BẢNG THỐNG KÊ CÁC MẺ (BATCHES) BỊ LỖI OUT OF SPEC
-                # -------------------------------------------------------------
+                # --- UPDATE: HỆ THỐNG QUÉT LỖI KÉP (SO CẢ LAB VÀ LINE) ---
                 def get_batch_status(row):
                     errors = []
-                    if row['Line_Gloss_Mean'] < lsl_val or row['Line_Gloss_Mean'] > usl_val:
-                        errors.append("Gloss NG")
+                    # 1. Soi Line Output (Cam)
+                    if row['Line_Gloss_Mean'] < line_lsl_val or row['Line_Gloss_Mean'] > line_usl_val:
+                        errors.append("Line Gloss NG")
+                    # 2. Soi Lab Input (Xanh)
+                    if row['Lab_Gloss_Mean'] < lab_lsl_val or row['Lab_Gloss_Mean'] > lab_usl_val:
+                        errors.append("Lab Gloss NG")
+                    # 3. Soi màu
                     if row['dE_Max'] > 1.0:
                         errors.append("Color NG")
                     
@@ -445,34 +452,33 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 df_oos = df_batch[df_batch['Status'] != "🟢 Pass"].copy()
                 
                 if not df_oos.empty:
-                    st.warning(f"⚠️ CẢNH BÁO: Phát hiện {len(df_oos)} mẻ (Batches) vi phạm tiêu chuẩn chất lượng (Out of Spec)!")
+                    st.warning(f"⚠️ CẢNH BÁO: Phát hiện {len(df_oos)} mẻ (Batches) vi phạm tiêu chuẩn (Out of Spec Lab/Line/Color)!")
                     
                     def highlight_ng(val):
                         if '🔴' in str(val): return 'color: white; background-color: #e74c3c; font-weight: bold;'
                         return ''
                         
-                    st.dataframe(df_oos[['Batch_Lot', 'Ngay_SX_min', 'Coil_Count', 'Lab_Gloss_Mean', 'Line_Gloss_Mean', 'dE_Max', 'Status']].rename(columns={
-                        'Ngay_SX_min': 'Prod Date', 'Coil_Count': 'Coils', 'Lab_Gloss_Mean': 'Avg Lab Gloss', 'Line_Gloss_Mean': 'Avg Line Gloss', 'dE_Max': 'Worst ΔE'
+                    st.dataframe(df_oos[['Seq', 'Batch_Lot', 'Ngay_SX_min', 'Coil_Count', 'Lab_Gloss_Mean', 'Line_Gloss_Mean', 'dE_Max', 'Status']].rename(columns={
+                        'Seq': '#', 'Ngay_SX_min': 'Prod Date', 'Coil_Count': 'Coils', 'Lab_Gloss_Mean': 'Avg Lab Gloss', 'Line_Gloss_Mean': 'Avg Line Gloss', 'dE_Max': 'Worst ΔE'
                     }).style.format({
                         'Avg Lab Gloss': '{:.1f}', 'Avg Line Gloss': '{:.1f}', 'Worst ΔE': '{:.2f}'
                     }).map(highlight_ng, subset=['Status']), use_container_width=True, hide_index=True)
                 else:
-                    st.success("🎉 Tuyệt vời! 100% các mẻ trong phân khúc này đều đạt chuẩn (In Spec).")
+                    st.success("🎉 Tuyệt vời! 100% các mẻ trong phân khúc này đều đạt chuẩn cả Lab, Line và Màu (In Spec).")
                 st.markdown("---")
-                # -------------------------------------------------------------
 
-                # --- BIỂU ĐỒ BIẾN ĐỘNG KÉP (BATCH FLUCTUATION TREND) ---
+                # --- BIỂU ĐỒ BIẾN ĐỘNG KÉP ---
                 st.markdown("#### 📈 Batch Fluctuation Tracking: Lab vs Line")
                 
                 fig_fluc, (ax_g, ax_c) = plt.subplots(2, 1, figsize=(14, 8), gridspec_kw={'height_ratios': [2, 1]}, sharex=True)
                 
-                # 1. BIỂU ĐỒ GLOSS: LAB (Xanh, đứt nét) vs LINE (Cam, liền)
+                # GLOSS
                 ax_g.plot(df_batch['x_seq'], df_batch['Lab_Gloss_Mean'], marker='o', color='#3498db', lw=2, linestyle='--', label='Avg Lab Gloss (Input)')
                 ax_g.plot(df_batch['x_seq'], df_batch['Line_Gloss_Mean'], marker='s', color='#e67e22', lw=2.5, label='Avg Line Gloss (Output)')
                 
                 ax_g.axhline(target_val, color='black', lw=2.5, label=f'Line Target ({target_val:.1f})')
-                ax_g.axhline(lsl_val, color='red', ls='-', lw=1.5, alpha=0.5, label='Line Spec Limits')
-                ax_g.axhline(usl_val, color='red', ls='-', lw=1.5, alpha=0.5)
+                ax_g.axhline(line_lsl_val, color='red', ls='-', lw=1.5, alpha=0.5, label='Line Spec Limits')
+                ax_g.axhline(line_usl_val, color='red', ls='-', lw=1.5, alpha=0.5)
                 
                 b_mean = df_batch['Line_Gloss_Mean'].mean()
                 b_std = df_batch['Line_Gloss_Mean'].std() if df_batch['Line_Gloss_Mean'].std() > 0 else 0.1
@@ -483,7 +489,7 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 ax_g.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
                 ax_g.grid(axis='both', alpha=0.3)
                 
-                # 2. BIỂU ĐỒ DELTA E
+                # DELTA E
                 ax_c.plot(df_batch['x_seq'], df_batch['dE_Mean'], marker='^', color='#8e44ad', lw=2, label='Avg Color Shift (ΔE)')
                 ax_c.scatter(df_batch['x_seq'], df_batch['dE_Max'], color='red', s=50, zorder=5, label='Max ΔE in Batch')
                 
@@ -491,15 +497,15 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 ax_c.axhline(0.8, color='orange', ls=':', lw=1.5, label='Warning (0.8)')
                 
                 ax_c.set_ylabel("ΔE", fontweight='bold')
-                ax_c.set_xlabel("Production Sequence (Batches)", fontweight='bold')
+                ax_c.set_xlabel("Production Sequence (Batch Number)", fontweight='bold')
                 ax_c.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
                 ax_c.grid(axis='both', alpha=0.3)
                 
                 ax_c.set_xticks(df_batch['x_seq'])
-                ax_c.set_xticklabels(df_batch['Batch_Lot'].astype(str), rotation=45, ha='right', fontsize=9)
+                ax_c.set_xticklabels(df_batch['Seq'].astype(str), rotation=0, ha='center', fontsize=9)
                 
-                if len(df_batch) > 25:
-                    step = max(1, len(df_batch) // 15)
+                if len(df_batch) > 40:
+                    step = max(1, len(df_batch) // 25)
                     for i, label in enumerate(ax_c.xaxis.get_ticklabels()):
                         if i % step != 0: label.set_visible(False)
                         
@@ -508,8 +514,8 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 plt.close(fig_fluc)
                 
                 with st.expander("🔍 View Batch Data Details"):
-                    st.dataframe(df_batch[['Batch_Lot', 'Ngay_SX_min', 'Coil_Count', 'Lab_Gloss_Mean', 'Line_Gloss_Mean', 'dE_Mean', 'dE_Max', 'Status']].rename(columns={
-                        'Ngay_SX_min': 'First Prod Date', 'Coil_Count': 'Coils'
+                    st.dataframe(df_batch[['Seq', 'Batch_Lot', 'Ngay_SX_min', 'Coil_Count', 'Lab_Gloss_Mean', 'Line_Gloss_Mean', 'dE_Mean', 'dE_Max', 'Status']].rename(columns={
+                        'Seq': '#', 'Ngay_SX_min': 'First Prod Date', 'Coil_Count': 'Coils'
                     }).style.format({
                         'Lab_Gloss_Mean': '{:.1f}', 'Line_Gloss_Mean': '{:.1f}', 'dE_Mean': '{:.2f}', 'dE_Max': '{:.2f}'
                     }), use_container_width=True, hide_index=True)
