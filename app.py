@@ -503,10 +503,10 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 st.pyplot(fig_fluc)
                 plt.close(fig_fluc)
 
-                # --- LAYOUT MỚI CỦA SẾP: CHIA LÀM 2 HÀNG ĐỂ BIỂU ĐỒ TO RÕ HƠN ---
+                # --- ĐÃ UPDATE: THAY THẾ BIAS HISTOGRAM BẰNG LAB VS LINE DISTRIBUTION ---
                 st.markdown("---")
                 st.markdown("#### 🔬 Supplier Predictability & Transfer Quality (Bias Analysis)")
-                st.caption("A deep view combining R-Squared correlation and mathematical Bias distribution. Bias = Line Gloss - Lab Gloss.")
+                st.caption("A deep view combining R-Squared correlation and the actual Gloss Distribution Shift (Lab to Line).")
 
                 df_batch['Gloss_Bias'] = df_batch['Line_Gloss_Mean'] - df_batch['Lab_Gloss_Mean']
                 corr = df_batch['Lab_Gloss_Mean'].corr(df_batch['Line_Gloss_Mean'])
@@ -534,7 +534,7 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 
                 c_p4.metric("⚠️ Batches > ±2.0 Bias", f"{out_of_bias}", "Action Required" if out_of_bias > 0 else "Good", delta_color="inverse" if out_of_bias > 0 else "normal")
 
-                # --- HÀNG 1: SCATTER PLOT & NORMAL DISTRIBUTION CURVE ---
+                # --- HÀNG 1: SCATTER PLOT & LAB VS LINE DISTRIBUTION CURVE ---
                 fig_pred1, (ax_scatter, ax_dist) = plt.subplots(1, 2, figsize=(14, 5.5))
 
                 # Biểu đồ 1: Scatter
@@ -550,24 +550,29 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 ax_scatter.legend()
                 ax_scatter.grid(True, alpha=0.3)
 
-                # Biểu đồ 2: Normal Distribution Curve cho Bias
-                sns.histplot(df_batch['Gloss_Bias'], stat='density', kde=False, ax=ax_dist, color='#bdc3c7', alpha=0.5, label='Actual Data')
-                
-                if gap_std > 0:
-                    x_min, x_max = gap_mean - 4*gap_std, gap_mean + 4*gap_std
-                    x_curve = np.linspace(x_min, x_max, 200)
-                    y_curve = stats.norm.pdf(x_curve, gap_mean, gap_std)
-                    
-                    ax_dist.plot(x_curve, y_curve, color='#8e44ad', lw=2.5, label='Normal Distribution')
-                    
-                    x_fill = np.linspace(gap_mean - 3*gap_std, gap_mean + 3*gap_std, 100)
-                    y_fill = stats.norm.pdf(x_fill, gap_mean, gap_std)
-                    ax_dist.fill_between(x_fill, y_fill, color='#9b59b6', alpha=0.2, label='±3σ Spread')
+                # Biểu đồ 2: Lab vs Line Distribution (Thay thế cho Bias Histogram)
+                lab_m = df_batch['Lab_Gloss_Mean'].mean()
+                lab_s = df_batch['Lab_Gloss_Mean'].std() if df_batch['Lab_Gloss_Mean'].std() > 0 else 0.1
+                line_m = df_batch['Line_Gloss_Mean'].mean()
+                line_s = df_batch['Line_Gloss_Mean'].std() if df_batch['Line_Gloss_Mean'].std() > 0 else 0.1
 
-                ax_dist.axvline(0, color='black', linestyle='--', lw=2, label='Zero Bias (Perfect)')
-                ax_dist.axvline(gap_mean, color='red', linestyle='-', lw=2, label=f"Avg Bias ({gap_mean:+.1f})")
-                ax_dist.set_title("Bias Distribution (Normal Curve)", fontweight='bold')
-                ax_dist.set_xlabel("Bias (Line - Lab) [GU]", fontweight='bold')
+                sns.histplot(df_batch['Lab_Gloss_Mean'], stat='density', kde=False, ax=ax_dist, color='#3498db', alpha=0.4, label='Lab Data (Input)')
+                sns.histplot(df_batch['Line_Gloss_Mean'], stat='density', kde=False, ax=ax_dist, color='#e67e22', alpha=0.4, label='Line Data (Output)')
+                
+                all_v = pd.concat([df_batch['Lab_Gloss_Mean'], df_batch['Line_Gloss_Mean']])
+                x_min_c = all_v.min() - 3
+                x_max_c = all_v.max() + 3
+                x_curve = np.linspace(x_min_c, x_max_c, 200)
+                
+                ax_dist.plot(x_curve, stats.norm.pdf(x_curve, lab_m, lab_s), color='#2980b9', lw=2.5, label=f'Lab Curve (μ={lab_m:.1f})')
+                ax_dist.plot(x_curve, stats.norm.pdf(x_curve, line_m, line_s), color='#d35400', lw=2.5, label=f'Line Curve (μ={line_m:.1f})')
+                
+                ax_dist.axvline(target_val, color='black', linestyle='-', lw=2.5, label=f'Target ({target_val:.1f})')
+                ax_dist.axvline(lab_m, color='#2980b9', linestyle='--', lw=1.5)
+                ax_dist.axvline(line_m, color='#d35400', linestyle='--', lw=1.5)
+                
+                ax_dist.set_title("Lab vs Line Gloss Shift (Distribution)", fontweight='bold')
+                ax_dist.set_xlabel("Gloss (GU)", fontweight='bold')
                 ax_dist.set_ylabel("Density", fontweight='bold')
                 ax_dist.legend()
 
@@ -609,7 +614,7 @@ if view_mode == "✨ Gloss Trend (SPC)":
                     
             else:
                 st.info("🚫 Insufficient data: No segment has ≥ 3 Batches to perform fluctuation analysis.")
-
+# ==========================================
 # ==========================================
 # ==========================================
 # VIEW 2: STATISTICAL LIMITS (SCOPE COMPARISON)
