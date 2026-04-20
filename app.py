@@ -173,6 +173,7 @@ st.markdown("---")
 
 # ==========================================
 # ==========================================
+# ==========================================
 # VIEW 1: GLOSS TREND (SPC)
 # ==========================================
 if view_mode == "✨ Gloss Trend (SPC)":
@@ -333,12 +334,13 @@ if view_mode == "✨ Gloss Trend (SPC)":
         x_axis = np.linspace(all_data.min()-3, all_data.max()+3, 200)
         bin_width = (all_data.max() - all_data.min()) / 12
         
-        # Đã sửa lỗi Typo mean_val thành mean_lab ở dòng bên dưới
-        for data, color, label, mean_val, std_val in [(dff_g['Gloss_Lab'], '#1f77b4', 'Lab', mean_lab, std_lab), 
-                                                      (dff_g['Online_Gloss_Top'], '#ff7f0e', 'Line', mean_line, std_line)]:
-            if std_val > 0:
-                y_curve = stats.norm.pdf(x_axis, mean_val, std_val) * len(data) * bin_width
-                ax_dist.plot(x_axis, y_curve, color=color, lw=2, label=f'{label} Curve (σ={std_val:.2f})')
+        for data, color, label, loop_mean, loop_std in [
+            (dff_g['Gloss_Lab'], '#1f77b4', 'Lab', mean_lab, std_lab), 
+            (dff_g['Online_Gloss_Top'], '#ff7f0e', 'Line', mean_line, std_line)
+        ]:
+            if loop_std > 0:
+                y_curve = stats.norm.pdf(x_axis, loop_mean, loop_std) * len(data) * bin_width
+                ax_dist.plot(x_axis, y_curve, color=color, lw=2, label=f'{label} Curve (σ={loop_std:.2f})')
 
         ax_dist.set_xlabel("Gloss Value (GU)", fontsize=9)
         ax_dist.set_ylabel("Number of Coils", fontsize=9)
@@ -501,9 +503,10 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 st.pyplot(fig_fluc)
                 plt.close(fig_fluc)
 
+                # --- LAYOUT MỚI CỦA SẾP: CHIA LÀM 2 HÀNG ĐỂ BIỂU ĐỒ TO RÕ HƠN ---
                 st.markdown("---")
                 st.markdown("#### 🔬 Supplier Predictability & Transfer Quality (Bias Analysis)")
-                st.caption("A 360-degree view combining R-Squared correlation (Lab vs Line) and Batch Bias offset. Bias = Line Gloss - Lab Gloss.")
+                st.caption("A deep view combining R-Squared correlation and mathematical Bias distribution. Bias = Line Gloss - Lab Gloss.")
 
                 df_batch['Gloss_Bias'] = df_batch['Line_Gloss_Mean'] - df_batch['Lab_Gloss_Mean']
                 corr = df_batch['Lab_Gloss_Mean'].corr(df_batch['Line_Gloss_Mean'])
@@ -531,8 +534,10 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 
                 c_p4.metric("⚠️ Batches > ±2.0 Bias", f"{out_of_bias}", "Action Required" if out_of_bias > 0 else "Good", delta_color="inverse" if out_of_bias > 0 else "normal")
 
-                fig_pred, (ax_scatter, ax_bar, ax_hist) = plt.subplots(1, 3, figsize=(18, 5), gridspec_kw={'width_ratios': [1, 1.5, 1]})
+                # --- HÀNG 1: SCATTER PLOT & NORMAL DISTRIBUTION CURVE ---
+                fig_pred1, (ax_scatter, ax_dist) = plt.subplots(1, 2, figsize=(14, 5.5))
 
+                # Biểu đồ 1: Scatter
                 sns.regplot(data=df_batch, x='Lab_Gloss_Mean', y='Line_Gloss_Mean', ax=ax_scatter, 
                             scatter_kws={'alpha':0.7, 's':50, 'color':'#2980b9'}, 
                             line_kws={'color':'red', 'lw':2, 'label': f'Actual Trend (R²={r2:.2f})'})
@@ -545,6 +550,34 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 ax_scatter.legend()
                 ax_scatter.grid(True, alpha=0.3)
 
+                # Biểu đồ 2: Normal Distribution Curve cho Bias
+                sns.histplot(df_batch['Gloss_Bias'], stat='density', kde=False, ax=ax_dist, color='#bdc3c7', alpha=0.5, label='Actual Data')
+                
+                if gap_std > 0:
+                    x_min, x_max = gap_mean - 4*gap_std, gap_mean + 4*gap_std
+                    x_curve = np.linspace(x_min, x_max, 200)
+                    y_curve = stats.norm.pdf(x_curve, gap_mean, gap_std)
+                    
+                    ax_dist.plot(x_curve, y_curve, color='#8e44ad', lw=2.5, label='Normal Distribution')
+                    
+                    x_fill = np.linspace(gap_mean - 3*gap_std, gap_mean + 3*gap_std, 100)
+                    y_fill = stats.norm.pdf(x_fill, gap_mean, gap_std)
+                    ax_dist.fill_between(x_fill, y_fill, color='#9b59b6', alpha=0.2, label='±3σ Spread')
+
+                ax_dist.axvline(0, color='black', linestyle='--', lw=2, label='Zero Bias (Perfect)')
+                ax_dist.axvline(gap_mean, color='red', linestyle='-', lw=2, label=f"Avg Bias ({gap_mean:+.1f})")
+                ax_dist.set_title("Bias Distribution (Normal Curve)", fontweight='bold')
+                ax_dist.set_xlabel("Bias (Line - Lab) [GU]", fontweight='bold')
+                ax_dist.set_ylabel("Density", fontweight='bold')
+                ax_dist.legend()
+
+                plt.tight_layout()
+                st.pyplot(fig_pred1)
+                plt.close(fig_pred1)
+
+                # --- HÀNG 2: BATCH-BY-BATCH BIAS BAR CHART (FULL WIDTH) ---
+                fig_pred2, ax_bar = plt.subplots(figsize=(14, 4.5))
+                
                 colors = ['#2ecc71' if abs(val) <= 1.0 else ('#f39c12' if abs(val) <= 2.0 else '#e74c3c') for val in df_batch['Gloss_Bias']]
                 ax_bar.bar(df_batch['Seq'].astype(str), df_batch['Gloss_Bias'], color=colors, edgecolor='black', linewidth=0.5)
                 ax_bar.axhline(0, color='black', lw=2)
@@ -553,27 +586,19 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 ax_bar.axhline(1.0, color='orange', linestyle=':', lw=1.5, alpha=0.6)
                 ax_bar.axhline(-1.0, color='orange', linestyle=':', lw=1.5, alpha=0.6)
                 
-                ax_bar.set_title("Batch-by-Batch Gloss Bias", fontweight='bold')
-                ax_bar.set_xlabel("Batch Number", fontweight='bold')
+                ax_bar.set_title("Batch-by-Batch Gloss Bias Tracking", fontweight='bold')
+                ax_bar.set_xlabel("Production Sequence (Batch Number)", fontweight='bold')
                 ax_bar.set_ylabel("Bias (Line - Lab) [GU]", fontweight='bold')
                 ax_bar.grid(axis='y', alpha=0.3)
                 
-                if len(df_batch) > 20:
-                    step = max(1, len(df_batch) // 15)
+                if len(df_batch) > 30:
+                    step = max(1, len(df_batch) // 25)
                     for i, label in enumerate(ax_bar.xaxis.get_ticklabels()):
                         if i % step != 0: label.set_visible(False)
 
-                sns.histplot(df_batch['Gloss_Bias'], kde=True, ax=ax_hist, color='#8e44ad')
-                ax_hist.axvline(0, color='black', linestyle='--', lw=2, label='Zero Bias (Perfect)')
-                ax_hist.axvline(gap_mean, color='red', linestyle='-', lw=2, label=f"Avg Bias ({gap_mean:+.1f})")
-                ax_hist.set_title("Bias Distribution Profile", fontweight='bold')
-                ax_hist.set_xlabel("Bias (GU)", fontweight='bold')
-                ax_hist.set_ylabel("Frequency", fontweight='bold')
-                ax_hist.legend()
-
                 plt.tight_layout()
-                st.pyplot(fig_pred)
-                plt.close(fig_pred)
+                st.pyplot(fig_pred2)
+                plt.close(fig_pred2)
                 
                 with st.expander("🔍 View Batch Data Details"):
                     st.dataframe(df_batch[['Seq', 'Batch_Lot', 'Ngay_SX_min', 'Coil_Count', 'Lab_Gloss_Mean', 'Line_Gloss_Mean', 'Gloss_Bias', 'dE_Max', 'Status']].rename(columns={
