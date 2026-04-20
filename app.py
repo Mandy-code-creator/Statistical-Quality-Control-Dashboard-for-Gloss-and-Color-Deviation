@@ -425,12 +425,13 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 
                 st.markdown("---")
                 c1, c2, c3, c4 = st.columns(4)
-                c1.metric("📦 Volume", f"{len(df_batch)} Batches ({len(df_sub)} Coils)")
+                # Đã fix lỗi hiển thị bị che khuất "11... Coils"
+                c1.metric("📦 Số lượng", f"{len(df_batch)} Mẻ / {len(df_sub)} Cuộn")
                 c2.metric("📊 Coil Stability (Cpk)", f"{cpk:.2f}", "Excellent" if cpk >= 1.33 else ("Warning" if cpk >= 1.0 else "Poor"))
                 c3.metric("🎯 Mean Line Gloss", f"{r_mean:.1f} GU")
                 c4.metric("🎨 Worst Color Shift (ΔE)", f"{de_max:.2f}", "Fail" if de_max > 1.0 else "Pass", delta_color="inverse")
                 
-                # --- UPDATE: HỆ THỐNG QUÉT LỖI KÉP (SO CẢ LAB VÀ LINE) ---
+                # --- HỆ THỐNG QUÉT LỖI KÉP (SO CẢ LAB VÀ LINE) ---
                 def get_batch_status(row):
                     errors = []
                     # 1. Soi Line Output (Cam)
@@ -501,6 +502,7 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 ax_c.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
                 ax_c.grid(axis='both', alpha=0.3)
                 
+                # TRỤC X: Chỉ dùng Số thứ tự (Seq), không xoay chữ
                 ax_c.set_xticks(df_batch['x_seq'])
                 ax_c.set_xticklabels(df_batch['Seq'].astype(str), rotation=0, ha='center', fontsize=9)
                 
@@ -522,7 +524,7 @@ if view_mode == "✨ Gloss Trend (SPC)":
                     
             else:
                 st.info("🚫 Không có phân khúc nào (Nhóm màu + Hãng + Nhựa + Dải Spec) có đủ từ 3 mẻ (Batches) trở lên để phân tích biến động.")
-# ==========================================
+# ========================================== ==========================================
 # ==========================================
 # ==========================================
 # VIEW 2: STATISTICAL LIMITS (SCOPE COMPARISON)
