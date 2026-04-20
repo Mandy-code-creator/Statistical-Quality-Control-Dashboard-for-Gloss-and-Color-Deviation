@@ -409,7 +409,6 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 df_batch['x_seq'] = list(range(len(df_batch)))
                 df_batch['Seq'] = df_batch['x_seq'] + 1 
                 
-                # CHUẨN BỊ ĐẦY ĐỦ THÔNG SỐ SPEC CỦA CẢ LAB VÀ LINE ĐỂ CHECK LỖI
                 line_lsl_val = df_sub['Line_LSL'].iloc[0]
                 line_usl_val = df_sub['Line_USL'].iloc[0]
                 lab_lsl_val = df_sub['Gloss_LSL'].iloc[0]
@@ -425,22 +424,23 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 
                 st.markdown("---")
                 c1, c2, c3, c4 = st.columns(4)
-                # Đã fix lỗi hiển thị bị che khuất "11... Coils"
-                c1.metric("📦 Số lượng", f"{len(df_batch)} Mẻ / {len(df_sub)} Cuộn")
+                
+                # --- ĐÂY LÀ VỊ TRÍ ĐÃ SỬA LỖI TRÀN CHỮ TRONG METRIC ---
+                # Đưa chữ "Coils" xuống phần delta nhỏ ở dưới để số Batch to rõ ràng ở trên
+                c1.metric("📦 Total Batches", f"{len(df_batch)}", f"{len(df_sub)} Coils total", delta_color="off")
+                # -------------------------------------------------------
+                
                 c2.metric("📊 Coil Stability (Cpk)", f"{cpk:.2f}", "Excellent" if cpk >= 1.33 else ("Warning" if cpk >= 1.0 else "Poor"))
                 c3.metric("🎯 Mean Line Gloss", f"{r_mean:.1f} GU")
                 c4.metric("🎨 Worst Color Shift (ΔE)", f"{de_max:.2f}", "Fail" if de_max > 1.0 else "Pass", delta_color="inverse")
                 
-                # --- HỆ THỐNG QUÉT LỖI KÉP (SO CẢ LAB VÀ LINE) ---
+                # --- HỆ THỐNG QUÉT LỖI KÉP ---
                 def get_batch_status(row):
                     errors = []
-                    # 1. Soi Line Output (Cam)
                     if row['Line_Gloss_Mean'] < line_lsl_val or row['Line_Gloss_Mean'] > line_usl_val:
                         errors.append("Line Gloss NG")
-                    # 2. Soi Lab Input (Xanh)
                     if row['Lab_Gloss_Mean'] < lab_lsl_val or row['Lab_Gloss_Mean'] > lab_usl_val:
                         errors.append("Lab Gloss NG")
-                    # 3. Soi màu
                     if row['dE_Max'] > 1.0:
                         errors.append("Color NG")
                     
@@ -453,7 +453,7 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 df_oos = df_batch[df_batch['Status'] != "🟢 Pass"].copy()
                 
                 if not df_oos.empty:
-                    st.warning(f"⚠️ CẢNH BÁO: Phát hiện {len(df_oos)} mẻ (Batches) vi phạm tiêu chuẩn (Out of Spec Lab/Line/Color)!")
+                    st.warning(f"⚠️ WARNING: Detected {len(df_oos)} Batch(es) Out of Spec (Lab/Line/Color)!")
                     
                     def highlight_ng(val):
                         if '🔴' in str(val): return 'color: white; background-color: #e74c3c; font-weight: bold;'
@@ -465,7 +465,7 @@ if view_mode == "✨ Gloss Trend (SPC)":
                         'Avg Lab Gloss': '{:.1f}', 'Avg Line Gloss': '{:.1f}', 'Worst ΔE': '{:.2f}'
                     }).map(highlight_ng, subset=['Status']), use_container_width=True, hide_index=True)
                 else:
-                    st.success("🎉 Tuyệt vời! 100% các mẻ trong phân khúc này đều đạt chuẩn cả Lab, Line và Màu (In Spec).")
+                    st.success("🎉 Excellent! 100% of batches in this segment are completely In Spec.")
                 st.markdown("---")
 
                 # --- BIỂU ĐỒ BIẾN ĐỘNG KÉP ---
@@ -502,7 +502,6 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 ax_c.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
                 ax_c.grid(axis='both', alpha=0.3)
                 
-                # TRỤC X: Chỉ dùng Số thứ tự (Seq), không xoay chữ
                 ax_c.set_xticks(df_batch['x_seq'])
                 ax_c.set_xticklabels(df_batch['Seq'].astype(str), rotation=0, ha='center', fontsize=9)
                 
@@ -523,8 +522,8 @@ if view_mode == "✨ Gloss Trend (SPC)":
                     }), use_container_width=True, hide_index=True)
                     
             else:
-                st.info("🚫 Không có phân khúc nào (Nhóm màu + Hãng + Nhựa + Dải Spec) có đủ từ 3 mẻ (Batches) trở lên để phân tích biến động.")
-# ========================================== ==========================================
+                st.info("🚫 Insufficient data: No segment has ≥ 3 Batches to perform fluctuation analysis.")
+# ==========================================
 # ==========================================
 # ==========================================
 # VIEW 2: STATISTICAL LIMITS (SCOPE COMPARISON)
