@@ -334,7 +334,7 @@ if view_mode == "✨ Gloss Trend (SPC)":
         x_axis = np.linspace(all_data.min()-3, all_data.max()+3, 200)
         bin_width = (all_data.max() - all_data.min()) / 12
         
-        for data, color, label, mean_val, std_val in [(dff_g['Gloss_Lab'], '#1f77b4', 'Lab', mean_lab, std_lab), 
+        for data, color, label, mean_val, std_val in [(dff_g['Gloss_Lab'], '#1f77b4', 'Lab', mean_val, std_lab), 
                                                       (dff_g['Online_Gloss_Top'], '#ff7f0e', 'Line', mean_line, std_line)]:
             if std_val > 0:
                 y_curve = stats.norm.pdf(x_axis, mean_val, std_val) * len(data) * bin_width
@@ -415,6 +415,7 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 r_std = df_sub['Online_Gloss_Top'].std() if df_sub['Online_Gloss_Top'].std() > 0 else 0.1
                 cpk = min((line_usl_val - r_mean) / (3 * r_std), (r_mean - line_lsl_val) / (3 * r_std))
                 cpk = max(0, cpk)
+                
                 de_max = df_sub['ΔE'].max()
                 
                 st.markdown("---")
@@ -499,70 +500,89 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 plt.tight_layout()
                 st.pyplot(fig_fluc)
                 plt.close(fig_fluc)
-                
-                # --- PHẦN MỚI: KIỂM TRA ĐỘ ỔN ĐỊNH NHÀ CUNG CẤP (SUPPLIER PREDICTABILITY) ---
-                st.markdown("---")
-                st.markdown("#### 🔬 Supplier Predictability & Transfer Quality")
-                st.caption("Evaluate if the supplier's Lab formulation reliably translates to the Line. Highly scattered data means unstable paint formulation.")
 
-                df_batch['Gloss_Gap'] = df_batch['Line_Gloss_Mean'] - df_batch['Lab_Gloss_Mean']
+                # --- MỚI NHẤT: CỤM 3 BIỂU ĐỒ (SCATTER + BIAS BAR + BIAS HISTOGRAM) ---
+                st.markdown("---")
+                st.markdown("#### 🔬 Supplier Predictability & Transfer Quality (Bias Analysis)")
+                st.caption("A 360-degree view combining R-Squared correlation (Lab vs Line) and Batch Bias offset. Bias = Line Gloss - Lab Gloss.")
+
+                df_batch['Gloss_Bias'] = df_batch['Line_Gloss_Mean'] - df_batch['Lab_Gloss_Mean']
                 corr = df_batch['Lab_Gloss_Mean'].corr(df_batch['Line_Gloss_Mean'])
                 r2 = corr**2 if pd.notna(corr) else 0.0
-                gap_mean = df_batch['Gloss_Gap'].mean()
-                gap_std = df_batch['Gloss_Gap'].std() if len(df_batch) > 1 else 0.0
+                gap_mean = df_batch['Gloss_Bias'].mean()
+                gap_std = df_batch['Gloss_Bias'].std() if len(df_batch) > 1 else 0.0
+                out_of_bias = len(df_batch[abs(df_batch['Gloss_Bias']) > 2.0])
 
-                c_p1, c_p2, c_p3 = st.columns(3)
+                c_p1, c_p2, c_p3, c_p4 = st.columns(4)
                 
-                # Đánh giá R-Squared
                 if r2 >= 0.7: r2_status = "Good Formulation"
                 elif r2 >= 0.4: r2_status = "Borderline"
                 else: r2_status = "Unstable Formulation"
-                
                 c_p1.metric("🔄 Predictability (R²)", f"{r2:.2f}", r2_status, delta_color="normal" if r2>=0.5 else "inverse")
-                c_p2.metric("⚖️ Avg Transfer Bias (Line - Lab)", f"{gap_mean:+.1f} GU")
                 
-                # Đánh giá độ văng của Bias
-                if gap_std > 2.0: std_status = "Highly Sensitive"
-                elif gap_std > 1.0: std_status = "Moderate"
-                else: std_status = "Stable Paint"
+                if abs(gap_mean) <= 1.0: mean_status = "Excellent Matching"
+                elif abs(gap_mean) <= 2.0: mean_status = "Systematic Offset"
+                else: mean_status = "High Deviation"
+                c_p2.metric("⚖️ Avg Transfer Bias", f"{gap_mean:+.1f} GU", mean_status, delta_color="normal" if abs(gap_mean)<=1.0 else "inverse")
                 
-                c_p3.metric("📉 Bias Volatility (Std Dev)", f"{gap_std:.2f} GU", std_status, delta_color="inverse" if gap_std > 2.0 else "normal")
+                if gap_std <= 1.0: std_status = "Highly Stable"
+                elif gap_std <= 2.0: std_status = "Moderate Variation"
+                else: std_status = "Unstable Formulation"
+                c_p3.metric("📉 Bias Volatility (Std)", f"{gap_std:.2f} GU", std_status, delta_color="inverse" if gap_std > 2.0 else "normal")
+                
+                c_p4.metric("⚠️ Batches > ±2.0 Bias", f"{out_of_bias}", "Action Required" if out_of_bias > 0 else "Good", delta_color="inverse" if out_of_bias > 0 else "normal")
 
-                fig_pred, (ax_scatter, ax_gap) = plt.subplots(1, 2, figsize=(14, 5))
+                # KHUNG CHỨA 3 BIỂU ĐỒ NẰM NGANG NHAU (SCATTER | BAR | HISTOGRAM)
+                fig_pred, (ax_scatter, ax_bar, ax_hist) = plt.subplots(1, 3, figsize=(18, 5), gridspec_kw={'width_ratios': [1, 1.5, 1]})
 
-                # BIỂU ĐỒ 1: Scatter Plot (Lab vs Line)
+                # 1. SCATTER PLOT
                 sns.regplot(data=df_batch, x='Lab_Gloss_Mean', y='Line_Gloss_Mean', ax=ax_scatter, 
                             scatter_kws={'alpha':0.7, 's':50, 'color':'#2980b9'}, 
                             line_kws={'color':'red', 'lw':2, 'label': f'Actual Trend (R²={r2:.2f})'})
-                
-                # Đường chuẩn lý thuyết 1:1
                 min_val = min(df_batch['Lab_Gloss_Mean'].min(), df_batch['Line_Gloss_Mean'].min()) - 2
                 max_val = max(df_batch['Lab_Gloss_Mean'].max(), df_batch['Line_Gloss_Mean'].max()) + 2
                 ax_scatter.plot([min_val, max_val], [min_val, max_val], color='black', linestyle='--', label='Perfect Match (1:1)')
-
                 ax_scatter.set_title("Lab vs Line Correlation", fontweight='bold')
                 ax_scatter.set_xlabel("Lab Gloss Input (GU)", fontweight='bold')
                 ax_scatter.set_ylabel("Line Gloss Output (GU)", fontweight='bold')
                 ax_scatter.legend()
                 ax_scatter.grid(True, alpha=0.3)
 
-                # BIỂU ĐỒ 2: Gap Distribution
-                sns.histplot(df_batch['Gloss_Gap'], kde=True, ax=ax_gap, color='#8e44ad')
-                ax_gap.axvline(0, color='black', linestyle='--', lw=2, label='No Bias (0.0)')
-                ax_gap.axvline(gap_mean, color='red', linestyle='-', lw=2, label=f"Average Bias ({gap_mean:+.1f})")
+                # 2. BIAS BAR CHART
+                colors = ['#2ecc71' if abs(val) <= 1.0 else ('#f39c12' if abs(val) <= 2.0 else '#e74c3c') for val in df_batch['Gloss_Bias']]
+                ax_bar.bar(df_batch['Seq'].astype(str), df_batch['Gloss_Bias'], color=colors, edgecolor='black', linewidth=0.5)
+                ax_bar.axhline(0, color='black', lw=2)
+                ax_bar.axhline(2.0, color='red', linestyle='--', lw=1.5, alpha=0.6)
+                ax_bar.axhline(-2.0, color='red', linestyle='--', lw=1.5, alpha=0.6)
+                ax_bar.axhline(1.0, color='orange', linestyle=':', lw=1.5, alpha=0.6)
+                ax_bar.axhline(-1.0, color='orange', linestyle=':', lw=1.5, alpha=0.6)
+                
+                ax_bar.set_title("Batch-by-Batch Gloss Bias", fontweight='bold')
+                ax_bar.set_xlabel("Batch Number", fontweight='bold')
+                ax_bar.set_ylabel("Bias (Line - Lab) [GU]", fontweight='bold')
+                ax_bar.grid(axis='y', alpha=0.3)
+                
+                if len(df_batch) > 20:
+                    step = max(1, len(df_batch) // 15)
+                    for i, label in enumerate(ax_bar.xaxis.get_ticklabels()):
+                        if i % step != 0: label.set_visible(False)
 
-                ax_gap.set_title("Gloss Bias Distribution (Line - Lab)", fontweight='bold')
-                ax_gap.set_xlabel("Gloss Difference (GU)", fontweight='bold')
-                ax_gap.set_ylabel("Frequency (Batches)")
-                ax_gap.legend()
+                # 3. BIAS HISTOGRAM
+                sns.histplot(df_batch['Gloss_Bias'], kde=True, ax=ax_hist, color='#8e44ad')
+                ax_hist.axvline(0, color='black', linestyle='--', lw=2, label='Zero Bias (Perfect)')
+                ax_hist.axvline(gap_mean, color='red', linestyle='-', lw=2, label=f"Avg Bias ({gap_mean:+.1f})")
+                ax_hist.set_title("Bias Distribution Profile", fontweight='bold')
+                ax_hist.set_xlabel("Bias (GU)", fontweight='bold')
+                ax_hist.set_ylabel("Frequency", fontweight='bold')
+                ax_hist.legend()
 
                 plt.tight_layout()
                 st.pyplot(fig_pred)
                 plt.close(fig_pred)
                 
                 with st.expander("🔍 View Batch Data Details"):
-                    st.dataframe(df_batch[['Seq', 'Batch_Lot', 'Ngay_SX_min', 'Coil_Count', 'Lab_Gloss_Mean', 'Line_Gloss_Mean', 'Gloss_Gap', 'dE_Max', 'Status']].rename(columns={
-                        'Seq': '#', 'Ngay_SX_min': 'First Prod Date', 'Coil_Count': 'Coils', 'Gloss_Gap': 'Bias (Line-Lab)'
+                    st.dataframe(df_batch[['Seq', 'Batch_Lot', 'Ngay_SX_min', 'Coil_Count', 'Lab_Gloss_Mean', 'Line_Gloss_Mean', 'Gloss_Bias', 'dE_Max', 'Status']].rename(columns={
+                        'Seq': '#', 'Ngay_SX_min': 'First Prod Date', 'Coil_Count': 'Coils', 'Gloss_Bias': 'Bias (Line-Lab)'
                     }).style.format({
                         'Lab_Gloss_Mean': '{:.1f}', 'Line_Gloss_Mean': '{:.1f}', 'Bias (Line-Lab)': '{:+.1f}', 'dE_Max': '{:.2f}'
                     }), use_container_width=True, hide_index=True)
