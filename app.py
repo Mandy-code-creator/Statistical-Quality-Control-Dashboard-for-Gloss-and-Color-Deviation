@@ -249,7 +249,6 @@ if view_mode == "✨ Gloss Trend (SPC)":
         
         st.success(f"📅 **Timeframe:** `{dff_g['Ngay_SX'].min()}` to `{dff_g['Ngay_SX'].max()}` | **Volume:** {dff_g['Batch_Lot'].nunique()} Batches ({len(dff_g)} Coils).")
 
-        # ── BIỂU ĐỒ 1: TREND (ZIGZAG RAW DATA) ───────────────────────────────────
         fig_trend, ax_trend = plt.subplots(figsize=(14, 4.5))
         dff_g['x_seq'] = list(range(len(dff_g)))
         
@@ -295,7 +294,6 @@ if view_mode == "✨ Gloss Trend (SPC)":
         st.pyplot(fig_trend)
         plt.close(fig_trend)
 
-        # ── BIỂU ĐỒ 2: GLOSS DISTRIBUTION ─────────────────────────
         st.write("**Gloss Distribution Analysis**")
         fig_dist, ax_dist = plt.subplots(figsize=(9, 5)) 
         
@@ -350,7 +348,6 @@ if view_mode == "✨ Gloss Trend (SPC)":
         st.pyplot(fig_dist)
         plt.close('all')
 
-    # ── TAB SELECTION ──────────────────────────
     list_ma_son_tab2 = sorted(dff['Ma_Son'].dropna().unique().tolist())
     if list_ma_son_tab2:
         tab_top_risk, tab_custom, tab_resin = st.tabs(["🚨 Top At-Risk Codes", "🔍 Manual Analysis", "🔍 Segment Fluctuation (X-bar)"])
@@ -369,7 +366,6 @@ if view_mode == "✨ Gloss Trend (SPC)":
             sel_ma_son = st.selectbox("🎯 Select Paint Code:", list_ma_son_tab2, key="manual_sel")
             render_spc_analysis(sel_ma_son, dff, "manual")
             
-        # --- TAB PHÂN TÍCH SỰ BIẾN ĐỘNG TRUNG BÌNH THEO MẺ (X-BAR) ---
         with tab_resin:
             st.subheader("🔍 Production Segment Fluctuation (Batch Average)")
             st.caption("Statistical Process Control (X-bar format): Compares the Average Lab Input vs. Average Line Output batch by batch.")
@@ -419,22 +415,15 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 r_std = df_sub['Online_Gloss_Top'].std() if df_sub['Online_Gloss_Top'].std() > 0 else 0.1
                 cpk = min((line_usl_val - r_mean) / (3 * r_std), (r_mean - line_lsl_val) / (3 * r_std))
                 cpk = max(0, cpk)
-                
                 de_max = df_sub['ΔE'].max()
                 
                 st.markdown("---")
                 c1, c2, c3, c4 = st.columns(4)
-                
-                # --- ĐÂY LÀ VỊ TRÍ ĐÃ SỬA LỖI TRÀN CHỮ TRONG METRIC ---
-                # Đưa chữ "Coils" xuống phần delta nhỏ ở dưới để số Batch to rõ ràng ở trên
                 c1.metric("📦 Total Batches", f"{len(df_batch)}", f"{len(df_sub)} Coils total", delta_color="off")
-                # -------------------------------------------------------
-                
                 c2.metric("📊 Coil Stability (Cpk)", f"{cpk:.2f}", "Excellent" if cpk >= 1.33 else ("Warning" if cpk >= 1.0 else "Poor"))
                 c3.metric("🎯 Mean Line Gloss", f"{r_mean:.1f} GU")
                 c4.metric("🎨 Worst Color Shift (ΔE)", f"{de_max:.2f}", "Fail" if de_max > 1.0 else "Pass", delta_color="inverse")
                 
-                # --- HỆ THỐNG QUÉT LỖI KÉP ---
                 def get_batch_status(row):
                     errors = []
                     if row['Line_Gloss_Mean'] < line_lsl_val or row['Line_Gloss_Mean'] > line_usl_val:
@@ -468,12 +457,10 @@ if view_mode == "✨ Gloss Trend (SPC)":
                     st.success("🎉 Excellent! 100% of batches in this segment are completely In Spec.")
                 st.markdown("---")
 
-                # --- BIỂU ĐỒ BIẾN ĐỘNG KÉP ---
                 st.markdown("#### 📈 Batch Fluctuation Tracking: Lab vs Line")
                 
                 fig_fluc, (ax_g, ax_c) = plt.subplots(2, 1, figsize=(14, 8), gridspec_kw={'height_ratios': [2, 1]}, sharex=True)
                 
-                # GLOSS
                 ax_g.plot(df_batch['x_seq'], df_batch['Lab_Gloss_Mean'], marker='o', color='#3498db', lw=2, linestyle='--', label='Avg Lab Gloss (Input)')
                 ax_g.plot(df_batch['x_seq'], df_batch['Line_Gloss_Mean'], marker='s', color='#e67e22', lw=2.5, label='Avg Line Gloss (Output)')
                 
@@ -490,7 +477,6 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 ax_g.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
                 ax_g.grid(axis='both', alpha=0.3)
                 
-                # DELTA E
                 ax_c.plot(df_batch['x_seq'], df_batch['dE_Mean'], marker='^', color='#8e44ad', lw=2, label='Avg Color Shift (ΔE)')
                 ax_c.scatter(df_batch['x_seq'], df_batch['dE_Max'], color='red', s=50, zorder=5, label='Max ΔE in Batch')
                 
@@ -514,11 +500,71 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 st.pyplot(fig_fluc)
                 plt.close(fig_fluc)
                 
+                # --- PHẦN MỚI: KIỂM TRA ĐỘ ỔN ĐỊNH NHÀ CUNG CẤP (SUPPLIER PREDICTABILITY) ---
+                st.markdown("---")
+                st.markdown("#### 🔬 Supplier Predictability & Transfer Quality")
+                st.caption("Evaluate if the supplier's Lab formulation reliably translates to the Line. Highly scattered data means unstable paint formulation.")
+
+                df_batch['Gloss_Gap'] = df_batch['Line_Gloss_Mean'] - df_batch['Lab_Gloss_Mean']
+                corr = df_batch['Lab_Gloss_Mean'].corr(df_batch['Line_Gloss_Mean'])
+                r2 = corr**2 if pd.notna(corr) else 0.0
+                gap_mean = df_batch['Gloss_Gap'].mean()
+                gap_std = df_batch['Gloss_Gap'].std() if len(df_batch) > 1 else 0.0
+
+                c_p1, c_p2, c_p3 = st.columns(3)
+                
+                # Đánh giá R-Squared
+                if r2 >= 0.7: r2_status = "Good Formulation"
+                elif r2 >= 0.4: r2_status = "Borderline"
+                else: r2_status = "Unstable Formulation"
+                
+                c_p1.metric("🔄 Predictability (R²)", f"{r2:.2f}", r2_status, delta_color="normal" if r2>=0.5 else "inverse")
+                c_p2.metric("⚖️ Avg Transfer Bias (Line - Lab)", f"{gap_mean:+.1f} GU")
+                
+                # Đánh giá độ văng của Bias
+                if gap_std > 2.0: std_status = "Highly Sensitive"
+                elif gap_std > 1.0: std_status = "Moderate"
+                else: std_status = "Stable Paint"
+                
+                c_p3.metric("📉 Bias Volatility (Std Dev)", f"{gap_std:.2f} GU", std_status, delta_color="inverse" if gap_std > 2.0 else "normal")
+
+                fig_pred, (ax_scatter, ax_gap) = plt.subplots(1, 2, figsize=(14, 5))
+
+                # BIỂU ĐỒ 1: Scatter Plot (Lab vs Line)
+                sns.regplot(data=df_batch, x='Lab_Gloss_Mean', y='Line_Gloss_Mean', ax=ax_scatter, 
+                            scatter_kws={'alpha':0.7, 's':50, 'color':'#2980b9'}, 
+                            line_kws={'color':'red', 'lw':2, 'label': f'Actual Trend (R²={r2:.2f})'})
+                
+                # Đường chuẩn lý thuyết 1:1
+                min_val = min(df_batch['Lab_Gloss_Mean'].min(), df_batch['Line_Gloss_Mean'].min()) - 2
+                max_val = max(df_batch['Lab_Gloss_Mean'].max(), df_batch['Line_Gloss_Mean'].max()) + 2
+                ax_scatter.plot([min_val, max_val], [min_val, max_val], color='black', linestyle='--', label='Perfect Match (1:1)')
+
+                ax_scatter.set_title("Lab vs Line Correlation", fontweight='bold')
+                ax_scatter.set_xlabel("Lab Gloss Input (GU)", fontweight='bold')
+                ax_scatter.set_ylabel("Line Gloss Output (GU)", fontweight='bold')
+                ax_scatter.legend()
+                ax_scatter.grid(True, alpha=0.3)
+
+                # BIỂU ĐỒ 2: Gap Distribution
+                sns.histplot(df_batch['Gloss_Gap'], kde=True, ax=ax_gap, color='#8e44ad')
+                ax_gap.axvline(0, color='black', linestyle='--', lw=2, label='No Bias (0.0)')
+                ax_gap.axvline(gap_mean, color='red', linestyle='-', lw=2, label=f"Average Bias ({gap_mean:+.1f})")
+
+                ax_gap.set_title("Gloss Bias Distribution (Line - Lab)", fontweight='bold')
+                ax_gap.set_xlabel("Gloss Difference (GU)", fontweight='bold')
+                ax_gap.set_ylabel("Frequency (Batches)")
+                ax_gap.legend()
+
+                plt.tight_layout()
+                st.pyplot(fig_pred)
+                plt.close(fig_pred)
+                
                 with st.expander("🔍 View Batch Data Details"):
-                    st.dataframe(df_batch[['Seq', 'Batch_Lot', 'Ngay_SX_min', 'Coil_Count', 'Lab_Gloss_Mean', 'Line_Gloss_Mean', 'dE_Mean', 'dE_Max', 'Status']].rename(columns={
-                        'Seq': '#', 'Ngay_SX_min': 'First Prod Date', 'Coil_Count': 'Coils'
+                    st.dataframe(df_batch[['Seq', 'Batch_Lot', 'Ngay_SX_min', 'Coil_Count', 'Lab_Gloss_Mean', 'Line_Gloss_Mean', 'Gloss_Gap', 'dE_Max', 'Status']].rename(columns={
+                        'Seq': '#', 'Ngay_SX_min': 'First Prod Date', 'Coil_Count': 'Coils', 'Gloss_Gap': 'Bias (Line-Lab)'
                     }).style.format({
-                        'Lab_Gloss_Mean': '{:.1f}', 'Line_Gloss_Mean': '{:.1f}', 'dE_Mean': '{:.2f}', 'dE_Max': '{:.2f}'
+                        'Lab_Gloss_Mean': '{:.1f}', 'Line_Gloss_Mean': '{:.1f}', 'Bias (Line-Lab)': '{:+.1f}', 'dE_Max': '{:.2f}'
                     }), use_container_width=True, hide_index=True)
                     
             else:
