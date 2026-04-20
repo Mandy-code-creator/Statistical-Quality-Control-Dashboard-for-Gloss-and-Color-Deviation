@@ -173,7 +173,6 @@ st.markdown("---")
 
 # ==========================================
 # ==========================================
-# ==========================================
 # VIEW 1: GLOSS TREND (SPC)
 # ==========================================
 if view_mode == "✨ Gloss Trend (SPC)":
@@ -334,7 +333,8 @@ if view_mode == "✨ Gloss Trend (SPC)":
         x_axis = np.linspace(all_data.min()-3, all_data.max()+3, 200)
         bin_width = (all_data.max() - all_data.min()) / 12
         
-        for data, color, label, mean_lab, std_val in [(dff_g['Gloss_Lab'], '#1f77b4', 'Lab', mean_val, std_lab), 
+        # Đã sửa lỗi Typo mean_val thành mean_lab ở dòng bên dưới
+        for data, color, label, mean_val, std_val in [(dff_g['Gloss_Lab'], '#1f77b4', 'Lab', mean_lab, std_lab), 
                                                       (dff_g['Online_Gloss_Top'], '#ff7f0e', 'Line', mean_line, std_line)]:
             if std_val > 0:
                 y_curve = stats.norm.pdf(x_axis, mean_val, std_val) * len(data) * bin_width
@@ -501,7 +501,6 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 st.pyplot(fig_fluc)
                 plt.close(fig_fluc)
 
-                # --- MỚI NHẤT: CỤM 3 BIỂU ĐỒ (SCATTER + BIAS BAR + BIAS HISTOGRAM) ---
                 st.markdown("---")
                 st.markdown("#### 🔬 Supplier Predictability & Transfer Quality (Bias Analysis)")
                 st.caption("A 360-degree view combining R-Squared correlation (Lab vs Line) and Batch Bias offset. Bias = Line Gloss - Lab Gloss.")
@@ -532,10 +531,8 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 
                 c_p4.metric("⚠️ Batches > ±2.0 Bias", f"{out_of_bias}", "Action Required" if out_of_bias > 0 else "Good", delta_color="inverse" if out_of_bias > 0 else "normal")
 
-                # KHUNG CHỨA 3 BIỂU ĐỒ NẰM NGANG NHAU (SCATTER | BAR | HISTOGRAM)
                 fig_pred, (ax_scatter, ax_bar, ax_hist) = plt.subplots(1, 3, figsize=(18, 5), gridspec_kw={'width_ratios': [1, 1.5, 1]})
 
-                # 1. SCATTER PLOT
                 sns.regplot(data=df_batch, x='Lab_Gloss_Mean', y='Line_Gloss_Mean', ax=ax_scatter, 
                             scatter_kws={'alpha':0.7, 's':50, 'color':'#2980b9'}, 
                             line_kws={'color':'red', 'lw':2, 'label': f'Actual Trend (R²={r2:.2f})'})
@@ -548,7 +545,6 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 ax_scatter.legend()
                 ax_scatter.grid(True, alpha=0.3)
 
-                # 2. BIAS BAR CHART
                 colors = ['#2ecc71' if abs(val) <= 1.0 else ('#f39c12' if abs(val) <= 2.0 else '#e74c3c') for val in df_batch['Gloss_Bias']]
                 ax_bar.bar(df_batch['Seq'].astype(str), df_batch['Gloss_Bias'], color=colors, edgecolor='black', linewidth=0.5)
                 ax_bar.axhline(0, color='black', lw=2)
@@ -567,7 +563,6 @@ if view_mode == "✨ Gloss Trend (SPC)":
                     for i, label in enumerate(ax_bar.xaxis.get_ticklabels()):
                         if i % step != 0: label.set_visible(False)
 
-                # 3. BIAS HISTOGRAM
                 sns.histplot(df_batch['Gloss_Bias'], kde=True, ax=ax_hist, color='#8e44ad')
                 ax_hist.axvline(0, color='black', linestyle='--', lw=2, label='Zero Bias (Perfect)')
                 ax_hist.axvline(gap_mean, color='red', linestyle='-', lw=2, label=f"Avg Bias ({gap_mean:+.1f})")
