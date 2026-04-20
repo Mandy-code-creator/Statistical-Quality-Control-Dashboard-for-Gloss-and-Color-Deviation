@@ -384,8 +384,8 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 dff_seg['Line_USL'] = dff_seg['Gloss_USL'] + 2.0
             
             dff_seg['Segment_Name'] = (
-                "🎨 " + dff_seg['Color_Group'] + " | 🏭 " + dff_seg['Supplier'] + 
-                " | 🧪 " + dff_seg['Coating_Type'] + " | 📏 Spec (Line): " + 
+                "🎨 " + dff_seg['Color_Group'].astype(str) + " | 🏭 " + dff_seg['Supplier'].astype(str) + 
+                " | 🧪 " + dff_seg['Coating_Type'].astype(str) + " | 📏 Spec (Line): " + 
                 dff_seg['Line_LSL'].apply(lambda x: f"{x:g}") + "~" + 
                 dff_seg['Line_USL'].apply(lambda x: f"{x:g}") + " GU"
             )
@@ -491,7 +491,6 @@ if view_mode == "✨ Gloss Trend (SPC)":
                     }).style.format({'Avg Lab Gloss': '{:.1f}', 'Avg Line Gloss': '{:.1f}', 'Worst ΔE': '{:.2f}'}).map(highlight_ng, subset=['Status']), use_container_width=True, hide_index=True)
                 st.markdown("---")
 
-                # BATCH FLUCTUATION (LAB VS LINE)
                 st.markdown("#### 📈 Batch Fluctuation Tracking: Lab vs Line")
                 fig_fluc, (ax_g, ax_c) = plt.subplots(2, 1, figsize=(14, 8), gridspec_kw={'height_ratios': [2, 1]}, sharex=True)
                 
@@ -528,7 +527,6 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 st.pyplot(fig_fluc)
                 plt.close(fig_fluc)
 
-                # BIAS ANALYSIS
                 st.markdown("---")
                 st.markdown("#### 🔬 Supplier Predictability & Transfer Quality (Bias Analysis)")
                 st.caption("A deep view combining R-Squared correlation and the actual Gloss Distribution Shift (Lab to Line).")
@@ -607,36 +605,102 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 st.info("🚫 Insufficient data: No segment has ≥ 3 Batches to perform fluctuation analysis.")
         
         # =========================================================================
-        # TAB 4: DFT IMPACT (TỰ ĐỘNG TÍNH TRUNG BÌNH NORTH + SOUTH)
+        # TAB 4: DFT IMPACT (TỰ ĐỘNG TÍNH DFT VÀ GOM NHÓM MACRO/MICRO)
         # =========================================================================
         with tab_dft:
             st.subheader("📏 Process vs. Material (Thickness Correlation)")
             st.caption("Identify Root Cause: Does gloss fluctuate because the paint formulation is unstable (Material Issue), or because the operator applies uneven paint thickness (Process Issue)?")
             
-            if 'NORTH_TOP_FILM_THICK' not in dff.columns or 'SOUTH_TOP_FILM_THICK' not in dff.columns:
-                st.error("❌ Cannot perform analysis. Missing thickness data columns ('NORTH_TOP_FILM_THICK' or 'SOUTH_TOP_FILM_THICK').")
+            required_cols = ['NORTH_TOP_FILM_THICK', 'SOUTH_TOP_FILM_THICK', '正面漆膜厚', 'TTMFILM_THICK']
+            missing_cols = [c for c in required_cols if c not in dff.columns]
+            
+            if missing_cols:
+                st.error(f"❌ Cannot perform analysis. Missing columns in dataset: {', '.join(missing_cols)}")
             else:
-                st.info("💡 **Dry Film Thickness (DFT)** is automatically calculated as the average of North and South edge measurements.")
+                st.info("💡 **Dry Film Thickness (DFT)** is the average of North/South edges. It is compared against the **Target DFT** `(Top Paint + Primer) * 90%`.")
                 
-                dff_dft = dff.dropna(subset=['Color_Group', 'Supplier', 'Online_Gloss_Top', 'NORTH_TOP_FILM_THICK', 'SOUTH_TOP_FILM_THICK']).copy()
+                dff_dft = dff.dropna(subset=['Color_Group', 'Supplier', 'Online_Gloss_Top', 'Coating_Type', 'Gloss_LSL', 'Gloss_USL'] + required_cols).copy()
                 dff_dft['Avg_DFT'] = (dff_dft['NORTH_TOP_FILM_THICK'] + dff_dft['SOUTH_TOP_FILM_THICK']) / 2.0
+                dff_dft['Target_DFT'] = (dff_dft['正面漆膜厚'] + dff_dft['TTMFILM_THICK']) * 0.9
                 
-                valid_segs_dft = dff_dft.groupby("Ma_Son")['Batch_Lot'].nunique()
-                valid_segs_dft = valid_segs_dft[valid_segs_dft >= 3].index.tolist()
+                if 'Line_LSL' not in dff_dft.columns:
+                    dff_dft['Line_LSL'] = dff_dft['Gloss_LSL'] - 2.0
+                    dff_dft['Line_USL'] = dff_dft['Gloss_USL'] + 2.0
                 
-                if not valid_segs_dft:
-                    st.warning("⚠️ Need at least 3 batches of a paint code to run correlation analysis.")
+                # Tạo Tên Phân Khúc (Segment_Name) kết hợp đầy đủ 5 biến số
+                dff_dft['Segment_Name'] = (
+                    "🎨 " + dff_dft['Color_Group'].astype(str) + " | 🏭 " + dff_dft['Supplier'].astype(str) + 
+                    " | 🧪 " + dff_dft['Coating_Type'].astype(str) + 
+                    " | 🌟 Gloss: " + dff_dft['Line_LSL'].apply(lambda x: f"{x:g}") + "~" + dff_dft['Line_USL'].apply(lambda x: f"{x:g}") + " GU" +
+                    " | 📏 Target DFT: " + dff_dft['Target_DFT'].apply(lambda x: f"{x:.1f}") + " µm"
+                )
+                
+                # --- TÍNH NĂNG MỚI: CHỌN GÓC NHÌN MACRO / MICRO ---
+                analysis_level = st.radio(
+                    "🔍 Select Analysis Level:", 
+                    ["Detailed View (By Paint Code - Coil Level)", "Macro View (By Product Segment - Batch Average)"], 
+                    horizontal=True
+                )
+                
+                is_macro = "Macro" in analysis_level
+                
+                if is_macro:
+                    seg_counts = dff_dft.groupby('Segment_Name')['Batch_Lot'].nunique()
+                    valid_targets = seg_counts[seg_counts >= 3].index.tolist()
+                    label_text = "🎯 Select Product Segment (Macro View):"
+                    col_target = 'Segment_Name'
                 else:
-                    sel_code_dft = st.selectbox("🎯 Select Paint Code to Analyze:", valid_segs_dft, key="dft_code_sel")
+                    valid_targets = dff_dft.groupby("Ma_Son")['Batch_Lot'].nunique()
+                    valid_targets = valid_targets[valid_targets >= 3].index.tolist()
+                    label_text = "🎯 Select Paint Code (Detailed View):"
+                    col_target = 'Ma_Son'
+                
+                if not valid_targets:
+                    st.warning("⚠️ Need at least 3 batches of data to run correlation analysis.")
+                else:
+                    sel_target = st.selectbox(label_text, valid_targets, key="dft_target_sel")
                     
-                    df_dft_sub = dff_dft[dff_dft['Ma_Son'] == sel_code_dft].sort_values('Ngay_SX').reset_index(drop=True)
-                    df_dft_sub['x_seq'] = list(range(len(df_dft_sub)))
+                    # Lấy data theo mục tiêu đã chọn
+                    df_raw = dff_dft[dff_dft[col_target] == sel_target].copy()
+                    
+                    if is_macro:
+                        # Gom nhóm theo Batch nếu xem Macro
+                        df_plot = df_raw.groupby('Batch_Lot').agg(
+                            Ngay_SX_min=('Ngay_SX', 'min'),
+                            Online_Gloss_Top=('Online_Gloss_Top', 'mean'),
+                            Avg_DFT=('Avg_DFT', 'mean'),
+                            Target_DFT=('Target_DFT', 'mean')
+                        ).sort_values('Ngay_SX_min').reset_index()
+                        x_label_seq = "Production Sequence (Batch Number)"
+                    else:
+                        # Dữ liệu từng cuộn nếu xem Micro
+                        df_plot = df_raw.sort_values('Ngay_SX').reset_index(drop=True)
+                        df_plot['Ngay_SX_min'] = df_plot['Ngay_SX']
+                        x_label_seq = "Production Sequence (Coil Number)"
+                        
+                    df_plot['x_seq'] = list(range(len(df_plot)))
+                    df_plot['DFT_Diff'] = df_plot['Avg_DFT'] - df_plot['Target_DFT']
 
-                    if len(df_dft_sub) > 5:
-                        corr_val = df_dft_sub['Avg_DFT'].corr(df_dft_sub['Online_Gloss_Top'])
+                    if len(df_plot) > 5:
+                        corr_val = df_plot['Avg_DFT'].corr(df_plot['Online_Gloss_Top'])
                         r2_val = corr_val**2 if pd.notna(corr_val) else 0.0
                         
+                        avg_actual = df_plot['Avg_DFT'].mean()
+                        avg_target = df_plot['Target_DFT'].mean()
+                        avg_diff = df_plot['DFT_Diff'].mean()
+                        
                         st.markdown("---")
+                        
+                        c_t1, c_t2, c_t3 = st.columns(3)
+                        c_t1.metric("📏 Avg Actual DFT", f"{avg_actual:.2f} µm")
+                        c_t2.metric("🎯 Avg Target DFT", f"{avg_target:.2f} µm")
+                        
+                        if avg_diff > 1.0: diff_status = "🔴 Over-thickness (Waste)"
+                        elif avg_diff < -1.0: diff_status = "🔴 Under-thickness"
+                        else: diff_status = "🟢 On Target"
+                            
+                        c_t3.metric("⚖️ Avg Deviation", f"{avg_diff:+.2f} µm", diff_status, delta_color="inverse" if abs(avg_diff) > 1.0 else "normal")
+
                         st.markdown("#### 🤖 AI Root-Cause Verdict")
                         if r2_val > 0.5:
                             st.error(f"**🔴 PROCESS ISSUE (R² = {r2_val:.2f}):** Gloss strictly follows Film Thickness. The Supplier's paint is fine, but the Line Operator is applying paint unevenly. Fix coater settings!")
@@ -647,9 +711,10 @@ if view_mode == "✨ Gloss Trend (SPC)":
 
                         st.markdown("#### 1. Thickness vs Gloss Scatter Correlation")
                         fig_dft_scatter, ax_scatter = plt.subplots(figsize=(10, 5))
-                        sns.regplot(data=df_dft_sub, x='Avg_DFT', y='Online_Gloss_Top', ax=ax_scatter, 
+                        sns.regplot(data=df_plot, x='Avg_DFT', y='Online_Gloss_Top', ax=ax_scatter, 
                                     scatter_kws={'alpha':0.6, 's':60, 'color':'#8e44ad'}, 
                                     line_kws={'color':'red', 'lw':2, 'label': f'Trend Line (R²={r2_val:.2f})'})
+                        ax_scatter.axvline(avg_target, color='green', linestyle='--', lw=2, label=f'Target DFT ({avg_target:.1f})')
                         ax_scatter.set_xlabel("Average Dry Film Thickness (µm)", fontweight='bold')
                         ax_scatter.set_ylabel("Online Gloss (GU)", fontweight='bold')
                         ax_scatter.grid(True, alpha=0.3)
@@ -661,26 +726,27 @@ if view_mode == "✨ Gloss Trend (SPC)":
                         fig_dual, ax1 = plt.subplots(figsize=(14, 5))
                         
                         color1 = '#e67e22'
-                        ax1.set_xlabel('Production Sequence (Coils)', fontweight='bold')
+                        ax1.set_xlabel(x_label_seq, fontweight='bold')
                         ax1.set_ylabel('Gloss (GU)', color=color1, fontweight='bold')
-                        line1 = ax1.plot(df_dft_sub['x_seq'], df_dft_sub['Online_Gloss_Top'], marker='s', color=color1, lw=2, label='Line Gloss')
+                        line1 = ax1.plot(df_plot['x_seq'], df_plot['Online_Gloss_Top'], marker='s', color=color1, lw=2, label='Line Gloss')
                         ax1.tick_params(axis='y', labelcolor=color1)
                         ax1.grid(axis='x', alpha=0.3)
 
                         ax2 = ax1.twinx()  
                         color2 = '#2980b9'
-                        ax2.set_ylabel('Avg Thickness (µm)', color=color2, fontweight='bold')
-                        line2 = ax2.plot(df_dft_sub['x_seq'], df_dft_sub['Avg_DFT'], marker='o', color=color2, lw=2, linestyle='--', label='Film Thickness')
+                        ax2.set_ylabel('Thickness (µm)', color=color2, fontweight='bold')
+                        line2 = ax2.plot(df_plot['x_seq'], df_plot['Avg_DFT'], marker='o', color=color2, lw=2, linestyle='-', label='Actual DFT')
+                        line3 = ax2.plot(df_plot['x_seq'], df_plot['Target_DFT'], color='green', lw=2.5, linestyle='--', label='Target DFT (90%)')
                         ax2.tick_params(axis='y', labelcolor=color2)
 
-                        lines = line1 + line2
+                        lines = line1 + line2 + line3
                         labels = [l.get_label() for l in lines]
                         ax1.legend(lines, labels, loc='upper left')
 
                         st.pyplot(fig_dual)
                         plt.close(fig_dual)
                     else:
-                        st.info("⚠️ Not enough data points (need > 5 coils) with both Thickness and Gloss recorded to run correlation analysis.")
+                        st.info("⚠️ Not enough data points to run correlation analysis.")
 # ==========================================
 # ==========================================
 # ==========================================
