@@ -609,7 +609,7 @@ if view_mode == "✨ Gloss Trend (SPC)":
                     
             else:
                 st.info("🚫 Insufficient data: No segment has ≥ 3 Batches to perform fluctuation analysis.")
-# ==========================================
+
 # ==========================================
 # ==========================================
 # VIEW 2: STATISTICAL LIMITS (SCOPE COMPARISON)
