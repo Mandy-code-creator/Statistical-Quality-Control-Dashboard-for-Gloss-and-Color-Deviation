@@ -352,7 +352,6 @@ if view_mode == "✨ Gloss Trend (SPC)":
 
     list_ma_son_tab2 = sorted(dff['Ma_Son'].dropna().unique().tolist())
     if list_ma_son_tab2:
-        # ĐÃ THÊM TAB SỐ 4: DFT IMPACT
         tab_top_risk, tab_custom, tab_resin, tab_dft = st.tabs([
             "🚨 Top At-Risk Codes", 
             "🔍 Manual Analysis", 
@@ -608,46 +607,36 @@ if view_mode == "✨ Gloss Trend (SPC)":
                 st.info("🚫 Insufficient data: No segment has ≥ 3 Batches to perform fluctuation analysis.")
         
         # =========================================================================
-        # TAB MỚI 4: DFT IMPACT (TÌM THỦ PHẠM DO SƠN HAY DO MÁY)
+        # TAB 4: DFT IMPACT (TỰ ĐỘNG TÍNH TRUNG BÌNH NORTH + SOUTH)
         # =========================================================================
         with tab_dft:
             st.subheader("📏 Process vs. Material (Thickness Correlation)")
             st.caption("Identify Root Cause: Does gloss fluctuate because the paint formulation is unstable (Material Issue), or because the operator applies uneven paint thickness (Process Issue)?")
             
-            dff_dft = dff.dropna(subset=['Color_Group', 'Supplier', 'Online_Gloss_Top']).copy()
-            numeric_cols = dff_dft.select_dtypes(include=np.number).columns.tolist()
-            
-            # Gợi ý mặc định tìm cột DFT
-            default_dft = next((col for col in numeric_cols if 'DFT' in col.upper() or 'THICKNESS' in col.upper() or 'DAY' in col.upper()), numeric_cols[0] if numeric_cols else None)
-            
-            if not default_dft:
-                st.error("❌ No numeric columns found in the dataset for Thickness analysis.")
+            if 'NORTH_TOP_FILM_THICK' not in dff.columns or 'SOUTH_TOP_FILM_THICK' not in dff.columns:
+                st.error("❌ Cannot perform analysis. Missing thickness data columns ('NORTH_TOP_FILM_THICK' or 'SOUTH_TOP_FILM_THICK').")
             else:
-                col1, col2 = st.columns([2, 1])
-                with col1:
-                    # Lấy danh sách segment từ Tab 3
-                    valid_segs_dft = dff_dft.groupby("Ma_Son")['Batch_Lot'].nunique()
-                    valid_segs_dft = valid_segs_dft[valid_segs_dft >= 3].index.tolist()
-                    if not valid_segs_dft:
-                        st.warning("⚠️ Need at least 3 batches of a paint code to run correlation analysis.")
-                    else:
-                        sel_code_dft = st.selectbox("🎯 Select Paint Code to Analyze:", valid_segs_dft)
-                with col2:
-                    # Cho người dùng tự chọn cột chứa dữ liệu Độ dày
-                    sel_dft_col = st.selectbox("📏 Select Thickness (DFT) Column in Data:", numeric_cols, index=numeric_cols.index(default_dft))
+                st.info("💡 **Dry Film Thickness (DFT)** is automatically calculated as the average of North and South edge measurements.")
                 
-                if valid_segs_dft:
-                    df_dft_sub = dff_dft.dropna(subset=['Ma_Son', sel_dft_col, 'Online_Gloss_Top'])
-                    df_dft_sub = df_dft_sub[df_dft_sub['Ma_Son'] == sel_code_dft].sort_values('Ngay_SX').reset_index(drop=True)
+                dff_dft = dff.dropna(subset=['Color_Group', 'Supplier', 'Online_Gloss_Top', 'NORTH_TOP_FILM_THICK', 'SOUTH_TOP_FILM_THICK']).copy()
+                dff_dft['Avg_DFT'] = (dff_dft['NORTH_TOP_FILM_THICK'] + dff_dft['SOUTH_TOP_FILM_THICK']) / 2.0
+                
+                valid_segs_dft = dff_dft.groupby("Ma_Son")['Batch_Lot'].nunique()
+                valid_segs_dft = valid_segs_dft[valid_segs_dft >= 3].index.tolist()
+                
+                if not valid_segs_dft:
+                    st.warning("⚠️ Need at least 3 batches of a paint code to run correlation analysis.")
+                else:
+                    sel_code_dft = st.selectbox("🎯 Select Paint Code to Analyze:", valid_segs_dft, key="dft_code_sel")
+                    
+                    df_dft_sub = dff_dft[dff_dft['Ma_Son'] == sel_code_dft].sort_values('Ngay_SX').reset_index(drop=True)
                     df_dft_sub['x_seq'] = list(range(len(df_dft_sub)))
 
                     if len(df_dft_sub) > 5:
-                        # Tính R-Squared
-                        corr_val = df_dft_sub[sel_dft_col].corr(df_dft_sub['Online_Gloss_Top'])
+                        corr_val = df_dft_sub['Avg_DFT'].corr(df_dft_sub['Online_Gloss_Top'])
                         r2_val = corr_val**2 if pd.notna(corr_val) else 0.0
                         
                         st.markdown("---")
-                        # TRỌNG TÀI AI PHÁN QUYẾT
                         st.markdown("#### 🤖 AI Root-Cause Verdict")
                         if r2_val > 0.5:
                             st.error(f"**🔴 PROCESS ISSUE (R² = {r2_val:.2f}):** Gloss strictly follows Film Thickness. The Supplier's paint is fine, but the Line Operator is applying paint unevenly. Fix coater settings!")
@@ -656,20 +645,18 @@ if view_mode == "✨ Gloss Trend (SPC)":
                         else:
                             st.info(f"**🟡 MIXED FACTORS (R² = {r2_val:.2f}):** Weak correlation. Both paint formulation and oven curing profile (PMT) might be fluctuating simultaneously.")
 
-                        # BIỂU ĐỒ 1: SCATTER PLOT DFT VS GLOSS
                         st.markdown("#### 1. Thickness vs Gloss Scatter Correlation")
                         fig_dft_scatter, ax_scatter = plt.subplots(figsize=(10, 5))
-                        sns.regplot(data=df_dft_sub, x=sel_dft_col, y='Online_Gloss_Top', ax=ax_scatter, 
+                        sns.regplot(data=df_dft_sub, x='Avg_DFT', y='Online_Gloss_Top', ax=ax_scatter, 
                                     scatter_kws={'alpha':0.6, 's':60, 'color':'#8e44ad'}, 
                                     line_kws={'color':'red', 'lw':2, 'label': f'Trend Line (R²={r2_val:.2f})'})
-                        ax_scatter.set_xlabel(f"Dry Film Thickness ({sel_dft_col})", fontweight='bold')
+                        ax_scatter.set_xlabel("Average Dry Film Thickness (µm)", fontweight='bold')
                         ax_scatter.set_ylabel("Online Gloss (GU)", fontweight='bold')
                         ax_scatter.grid(True, alpha=0.3)
                         ax_scatter.legend()
                         st.pyplot(fig_dft_scatter)
                         plt.close(fig_dft_scatter)
 
-                        # BIỂU ĐỒ 2: DUAL AXIS TREND
                         st.markdown("#### 2. Dual-Axis Production Trend")
                         fig_dual, ax1 = plt.subplots(figsize=(14, 5))
                         
@@ -682,8 +669,8 @@ if view_mode == "✨ Gloss Trend (SPC)":
 
                         ax2 = ax1.twinx()  
                         color2 = '#2980b9'
-                        ax2.set_ylabel(f'Thickness ({sel_dft_col})', color=color2, fontweight='bold')
-                        line2 = ax2.plot(df_dft_sub['x_seq'], df_dft_sub[sel_dft_col], marker='o', color=color2, lw=2, linestyle='--', label='Film Thickness')
+                        ax2.set_ylabel('Avg Thickness (µm)', color=color2, fontweight='bold')
+                        line2 = ax2.plot(df_dft_sub['x_seq'], df_dft_sub['Avg_DFT'], marker='o', color=color2, lw=2, linestyle='--', label='Film Thickness')
                         ax2.tick_params(axis='y', labelcolor=color2)
 
                         lines = line1 + line2
