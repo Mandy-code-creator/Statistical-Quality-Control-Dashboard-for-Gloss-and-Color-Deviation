@@ -394,12 +394,16 @@ elif view_mode == "Supplier Intelligence (Apples-to-Apples)":
                     ax_matrix.set_ylim(0, max_cpk)
                     ax_matrix.set_xlim(-max_bias_abs, max_bias_abs)
                     
-                    # Thu nhỏ icon trong Legend
-                    leg = ax_matrix.legend(bbox_to_anchor=(0.5, -0.15), loc='upper center', ncol=3)
+                    # Bẫy lỗi triệt để: Dùng markerscale và ép size cho mọi định dạng của Seaborn
+                    leg = ax_matrix.legend(bbox_to_anchor=(0.5, -0.15), loc='upper center', ncol=3, markerscale=0.3)
                     handles = leg.legend_handles if hasattr(leg, 'legend_handles') else leg.legendHandles
                     for h in handles:
+                        # 1. Ép nhỏ nếu hệ thống dùng PathCollection
                         if hasattr(h, 'set_sizes'):
-                            h.set_sizes([120])
+                            h.set_sizes([80]) 
+                        # 2. Ép nhỏ nếu hệ thống dùng Line2D
+                        if hasattr(h, 'set_markersize'):
+                            h.set_markersize(8)
 
                     plt.tight_layout()
                     st.pyplot(fig_matrix)
