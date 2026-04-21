@@ -272,7 +272,7 @@ if view_mode == "Master Summary & Pareto":
         st.success("🎉 Great! No NG data recorded in this filtered period.")
 
 # ==========================================
-# TIER 2: SUPPLIER INTELLIGENCE
+# TIER 2: SUPPLIER INTELLIGENCE (WITH HEATMAP)
 # ==========================================
 elif view_mode == "Supplier Intelligence (Apples-to-Apples)":
     st.info("💡 Logic: Suppliers are compared ONLY within the same Color, Resin, Gloss Spec Range, and Thickness specifications to prevent false alarms.")
@@ -402,12 +402,11 @@ elif view_mode == "Supplier Intelligence (Apples-to-Apples)":
                         use_container_width=True, hide_index=True
                     )
 
-                # --- MỚI THÊM: BIỂU ĐỒ BATCH TREND ---
+                # --- NEW ADDITION: HEATMAP & BATCH TREND ---
                 st.markdown("---")
-                st.subheader("📈 Batch-by-Batch Gloss Deviation (Bias Trend)")
-                st.caption("Track how each supplier's gloss deviates from the exact target across sequential batches in this segment.")
+                st.subheader("🔥 Supplier Deviation Pattern (Heatmap)")
+                st.caption("Visualizes the sequential batch-by-batch bias for each supplier. Deep Red/Blue indicates high deviation from target.")
                 
-                # Tính Bias trung bình theo từng Batch
                 batch_trend = df_seg.groupby(['Supplier', 'Batch_Lot']).agg(
                     Ngay_SX=('Ngay_SX', 'min'),
                     Mean_Gloss=('Online_Gloss_Top', 'mean')
@@ -415,6 +414,25 @@ elif view_mode == "Supplier Intelligence (Apples-to-Apples)":
                 
                 batch_trend = batch_trend.sort_values('Ngay_SX')
                 batch_trend['Bias'] = batch_trend['Mean_Gloss'] - numeric_gloss_target
+                
+                # Create Sequential Batch Number for Heatmap alignment
+                batch_trend['Batch_Seq'] = batch_trend.groupby('Supplier').cumcount() + 1
+                
+                heatmap_data = batch_trend.pivot(index='Supplier', columns='Batch_Seq', values='Bias')
+                
+                fig_heat, ax_heat = plt.subplots(figsize=(14, max(3, len(valid_suppliers) * 1.2)))
+                sns.heatmap(heatmap_data, cmap='coolwarm', center=0, annot=True, fmt=".1f", 
+                            cbar_kws={'label': 'Gloss Bias (GU)'}, ax=ax_heat, 
+                            linewidths=.5, vmin=-3, vmax=3)
+                
+                ax_heat.set_title("Batch-by-Batch Bias Heatmap", fontweight='bold', pad=15)
+                ax_heat.set_xlabel("Sequential Batch Number", fontweight='bold')
+                ax_heat.set_ylabel("Supplier", fontweight='bold')
+                st.pyplot(fig_heat)
+                plt.close(fig_heat)
+
+                st.markdown("---")
+                st.subheader("📈 Batch-by-Batch Gloss Deviation (Timeline Trend)")
                 
                 fig_trend, ax_trend = plt.subplots(figsize=(14, 5))
                 sns.lineplot(data=batch_trend, x='Batch_Lot', y='Bias', hue='Supplier', marker='o', ax=ax_trend, lw=2, markersize=8)
@@ -429,7 +447,6 @@ elif view_mode == "Supplier Intelligence (Apples-to-Apples)":
                 ax_trend.set_ylabel("Gloss Bias (GU)", fontweight='bold')
                 plt.xticks(rotation=45, ha='right')
                 
-                # Giảm bớt nhãn trục X nếu có quá nhiều Batch
                 locs, labels = plt.xticks()
                 if len(locs) > 40:
                     step = max(1, len(locs) // 25) 
