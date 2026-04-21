@@ -8,14 +8,14 @@ from sklearn.linear_model import LinearRegression
 
 # --- 1. UI SETUP ---
 st.set_page_config(page_title="Steel QA Master Dashboard Pro", layout="wide", page_icon="🏭")
-sns.set_theme(style="whitegrid") # Giữ nguyên theme của bạn
+sns.set_theme(style="whitegrid")
 
 # --- 2. DATA LOAD & PREP ---
 @st.cache_data(ttl=300)
 def load_and_prep_data():
     sheet_url = "https://docs.google.com/spreadsheets/d/1ugm7G1kgGmSlk5PhoKk62h_bs5pX4bDuwUgdaELLYHE/export?format=csv&gid=0"
     try:
-        df = pd.read_csv(sheet_url, engine='pyarrow') # Giữ nguyên tối ưu tốc độ
+        df = pd.read_csv(sheet_url, engine='pyarrow')
         
         # COLUMN MAPPING
         col_map = {
@@ -31,6 +31,7 @@ def load_and_prep_data():
             'NORTH_TOP_FILM_THICK': 'DFT_N', 'SOUTH_TOP_FILM_THICK': 'DFT_S',
             '正面漆膜厚': 'Target_Top', 'TTMFILM_THICK': 'Target_Primer'
         }
+        
         for col in df.columns:
             if '下限' in col and '光澤' in col: col_map[col] = 'Gloss_LSL'
             elif '上限' in col and '光澤' in col: col_map[col] = 'Gloss_USL'
@@ -71,17 +72,33 @@ def load_and_prep_data():
         df = df[(df['Gloss_LSL'] > 0) & (df['Gloss_USL'] > 0)]
 
         df['Ngay_SX'] = pd.to_datetime(df['Ngay_SX'], errors='coerce').dt.date
-        df['Online_Gloss_Top'] = df[['G_Top_N', 'G_Top_S']].mean(axis=1)
         
+        if 'G_Top_N' in df.columns and 'G_Top_S' in df.columns:
+            df['Online_Gloss_Top'] = df[['G_Top_N', 'G_Top_S']].mean(axis=1)
+        else:
+            df['Online_Gloss_Top'] = np.nan
+            
         df = df.dropna(subset=['Online_Gloss_Top'])
         df = df[df['Online_Gloss_Top'] > 0]
 
-        df['ΔE'] = df[['dE_N', 'dE_S']].mean(axis=1)
+        if 'dE_N' in df.columns and 'dE_S' in df.columns:
+            df['ΔE'] = df[['dE_N', 'dE_S']].mean(axis=1)
+        else:
+            df['ΔE'] = np.nan
+            
         df['Gap_Gloss'] = df['Online_Gloss_Top'] - df['Gloss_Lab']
-        df['Avg_DFT'] = df[['DFT_N', 'DFT_S']].mean(axis=1)
-        df['Target_DFT'] = (df['Target_Top'].fillna(0) + df['Target_Primer'].fillna(0)) * 0.9
+        
+        if 'DFT_N' in df.columns and 'DFT_S' in df.columns:
+            df['Avg_DFT'] = df[['DFT_N', 'DFT_S']].mean(axis=1)
+        else:
+            df['Avg_DFT'] = np.nan
+            
+        if 'Target_Top' in df.columns and 'Target_Primer' in df.columns:
+            df['Target_DFT'] = (df['Target_Top'].fillna(0) + df['Target_Primer'].fillna(0)) * 0.9
+        else:
+            df['Target_DFT'] = np.nan
 
-        # Chuyển đổi dữ liệu để tăng tốc RAM
+        # DOWNCASTING TO CATEGORY TO SAVE RAM
         for col in ['Supplier', 'Coating_Type', 'Color_Group']:
             df[col] = df[col].astype('category')
             
@@ -93,34 +110,34 @@ def load_and_prep_data():
 df_raw = load_and_prep_data()
 if df_raw.empty: st.stop()
 
-# --- 3. SIDEBAR TÁI CẤU TRÚC (3 TẦNG PHÂN TÍCH) ---
+# --- 3. SIDEBAR: 3-TIER ARCHITECTURE ---
 with st.sidebar:
     st.title("🏭 QA Dashboard Pro")
-    if st.button("🔄 Làm mới dữ liệu", use_container_width=True, type="primary"):
+    if st.button("🔄 Refresh Data", use_container_width=True, type="primary"):
         st.cache_data.clear()
         st.rerun()
 
     st.markdown("---")
-    st.subheader("🛠️ Cấu trúc Phân tích")
+    st.subheader("🛠️ Analysis Structure")
     
     analysis_level = st.radio(
-        "Chọn tầng phân tích:",
-        ["📋 Tầng 1: Báo cáo Vĩ mô (Executive)", 
-         "📈 Tầng 2: Giám sát Vận hành (Operational)", 
-         "🔬 Tầng 3: Truy vết & Hành động (Diagnostic)"]
+        "Select Analysis Tier:",
+        ["📋 Tier 1: Executive View", 
+         "📈 Tier 2: Operational View", 
+         "🔬 Tier 3: Diagnostic View"]
     )
 
-    if "Tầng 1" in analysis_level:
-        view_mode = st.selectbox("Chọn báo cáo:", ["Master Summary & Pareto", "Supplier Benchmarking"])
-    elif "Tầng 2" in analysis_level:
-        view_mode = st.selectbox("Chọn báo cáo:", ["Gloss Trend (SPC)", "Color Shift Analysis", "Statistical Limits (Scope Comparison)"])
+    if "Tier 1" in analysis_level:
+        view_mode = st.selectbox("Select Report:", ["Master Summary & Pareto", "Supplier Benchmarking"])
+    elif "Tier 2" in analysis_level:
+        view_mode = st.selectbox("Select Report:", ["Gloss Trend (SPC)", "Color Shift Analysis", "Statistical Limits (Scope Comparison)"])
     else:
-        view_mode = st.selectbox("Chọn báo cáo:", ["Process vs Material (DFT & Root Cause)", "Predictive Compensation & Targeting"])
+        view_mode = st.selectbox("Select Report:", ["Process vs Material (DFT & Root Cause)", "Predictive Compensation & Targeting"])
 
     st.markdown("---")
-    st.subheader("🔍 Bộ lọc")
+    st.subheader("🔍 Global Filters")
     min_date, max_date = df_raw['Ngay_SX'].min(), df_raw['Ngay_SX'].max()
-    date_range = st.date_input("Khoảng thời gian:", [min_date, max_date], min_value=min_date, max_value=max_date)
+    date_range = st.date_input("Date Range:", [min_date, max_date], min_value=min_date, max_value=max_date)
     
     list_sup = ['All'] + sorted(df_raw['Supplier'].unique().tolist())
     sel_sup = st.selectbox("🏭 Supplier:", list_sup)
@@ -144,7 +161,7 @@ with st.sidebar:
         st.session_state["custom_gloss_rules"] = edited_rules
 
 # ==============================================================================
-# LỌC DỮ LIỆU & TÍNH TOÁN PASS/FAIL (VECTORIZED)
+# DATA FILTERING & PASS/FAIL CALCULATION (VECTORIZED)
 # ==============================================================================
 STANDARD_LINE_OFFSET = 2.0 
 df = df_raw.copy()
@@ -183,14 +200,14 @@ if sel_col != 'All': dff = dff[dff['Color_Group'] == sel_col]
 
 with st.sidebar:
     st.markdown("---")
-    st.caption(f"📦 Đang hiển thị: {len(dff)} cuộn")
+    st.caption(f"📦 Showing: {len(dff)} coils")
 
-# --- HIỂN THỊ CHẾ ĐỘ (VIEW MODE) ---
+# --- DISPLAY VIEWS ---
 st.title(view_mode)
 st.markdown("---")
 
 # ==========================================
-# TẦNG 1: EXECUTIVE VIEW
+# TIER 1: EXECUTIVE VIEW
 # ==========================================
 if view_mode == "Master Summary & Pareto":
     st.info("Master Data table, grouped by Resin Type, Color Code, and Supplier.")
@@ -221,7 +238,7 @@ if view_mode == "Master Summary & Pareto":
     )
     
     st.markdown("---")
-    st.markdown("### 📉 Phân tích Pareto: Rủi ro trọng yếu (Top NG)")
+    st.markdown("### 📉 Pareto Chart: Top NG Contributors")
     df_ng = dff[dff['Final_Status'] == '❌ FAIL/NG'].copy()
 
     if not df_ng.empty:
@@ -232,24 +249,24 @@ if view_mode == "Master Summary & Pareto":
 
         fig_pareto, ax1 = plt.subplots(figsize=(14, 5))
         sns.barplot(data=pareto_data_top, x='Ma_Son', y='NG_Count', hue='Supplier', dodge=False, ax=ax1, palette='pastel')
-        ax1.set_ylabel("Số lượng cuộn lỗi (NG)", fontweight='bold')
-        ax1.set_xlabel("Mã Sơn", fontweight='bold')
+        ax1.set_ylabel("NG Coils", fontweight='bold')
+        ax1.set_xlabel("Paint Code", fontweight='bold')
         ax1.tick_params(axis='x', rotation=45)
         
         ax2 = ax1.twinx()
         ax2.plot(range(len(pareto_data_top)), pareto_data_top['Cum_Percentage'], color='red', marker='D', ms=7, lw=2.5)
-        ax2.axhline(80, color='gray', linestyle='--', lw=1.5, label='Mốc 80%')
-        ax2.set_ylabel("Phần trăm tích lũy (%)", color='red', fontweight='bold')
+        ax2.axhline(80, color='gray', linestyle='--', lw=1.5, label='80% Threshold')
+        ax2.set_ylabel("Cumulative Percentage (%)", color='red', fontweight='bold')
         ax2.set_ylim(0, 105)
         
         for i, txt in enumerate(pareto_data_top['Cum_Percentage']):
             ax2.annotate(f"{txt:.1f}%", (i, txt), textcoords="offset points", xytext=(0,10), ha='center', fontsize=8, fontweight='bold')
 
-        plt.title("Biểu đồ Pareto: Phân bổ lỗi theo mã sơn", fontweight='bold')
+        plt.title("Pareto Chart: Defect Distribution by Paint Code", fontweight='bold')
         st.pyplot(fig_pareto)
         plt.close(fig_pareto)
     else:
-        st.success("🎉 Tuyệt vời! Không có dữ liệu lỗi (NG) trong bộ lọc hiện tại.")
+        st.success("🎉 Great! No NG data recorded in this filtered period.")
 
 elif view_mode == "Supplier Benchmarking":
     st.header("🤝 Executive Supplier Benchmarking")
@@ -459,7 +476,7 @@ elif view_mode == "Supplier Benchmarking":
             st.warning("⚠️ Insufficient data (needs at least 2 batches per supplier) to perform comparison.")
 
 # ==========================================
-# TẦNG 2: OPERATIONAL VIEW
+# TIER 2: OPERATIONAL VIEW
 # ==========================================
 elif view_mode == "Gloss Trend (SPC)":
     st.info("💡 SPC Analysis: Monitor the actual Gloss trend (Lab vs Line) across raw production sequence.")
@@ -1134,13 +1151,13 @@ elif view_mode == "Statistical Limits (Scope Comparison)":
         st.warning("⚠️ Insufficient data (needs at least 5 coils).")
 
 # ==========================================
-# TẦNG 3: DIAGNOSTIC VIEW
+# TIER 3: DIAGNOSTIC VIEW
 # ==========================================
 elif view_mode == "Process vs Material (DFT & Root Cause)":
     st.header("📏 Process vs. Material (Thickness Correlation & Residuals)")
     st.caption("Identify Root Cause: Does gloss fluctuate because the paint formulation is unstable (Material Issue), or because the operator applies uneven paint thickness (Process Issue)?")
     
-    required_cols = ['NORTH_TOP_FILM_THICK', 'SOUTH_TOP_FILM_THICK', '正面漆膜厚', 'TTMFILM_THICK']
+    required_cols = ['DFT_N', 'DFT_S', 'Target_Top', 'Target_Primer']
     missing_cols = [c for c in required_cols if c not in dff.columns]
     
     if missing_cols:
@@ -1148,7 +1165,7 @@ elif view_mode == "Process vs Material (DFT & Root Cause)":
     else:
         st.info("💡 **Dry Film Thickness (DFT)** is the average of North/South edges. It is compared against the **Target DFT** `(Top Paint + Primer) * 90%`.")
         
-        dff_dft = dff.dropna(subset=['Color_Group', 'Supplier', 'Online_Gloss_Top', 'Coating_Type', 'Gloss_LSL', 'Gloss_USL'] + required_cols).copy()
+        dff_dft = dff.dropna(subset=['Color_Group', 'Supplier', 'Online_Gloss_Top', 'Coating_Type', 'Gloss_LSL', 'Gloss_USL', 'Avg_DFT', 'Target_DFT']).copy()
         
         dff_dft['Segment_Name'] = (
             "🎨 " + dff_dft['Color_Group'].astype(str) + " | 🏭 " + dff_dft['Supplier'].astype(str) + 
@@ -1163,7 +1180,7 @@ elif view_mode == "Process vs Material (DFT & Root Cause)":
             horizontal=True
         )
         
-        is_macro = "Macro" in analysis_level_dft
+        is_macro = "Macro View" in analysis_level_dft
         
         if is_macro:
             seg_counts = dff_dft.groupby('Segment_Name')['Batch_Lot'].nunique()
@@ -1219,7 +1236,6 @@ elif view_mode == "Process vs Material (DFT & Root Cause)":
                     
                 c_t3.metric("⚖️ Avg Deviation", f"{avg_diff:+.2f} µm", diff_status, delta_color="inverse" if abs(avg_diff) > 1.0 else "normal")
 
-                # RESIDUAL ANALYSIS MỚI THÊM VÀO
                 X_val = df_plot[['Avg_DFT']].values
                 y_val = df_plot['Online_Gloss_Top'].values
                 model = LinearRegression().fit(X_val, y_val)
@@ -1273,17 +1289,17 @@ elif view_mode == "Process vs Material (DFT & Root Cause)":
                 st.pyplot(fig_dual)
                 plt.close(fig_dual)
                 
-                st.markdown("#### 3. Phân tích Phần dư (Residual Analysis)")
-                st.caption("Biểu đồ này hiển thị độ lệch bóng CÒN LẠI sau khi đã trừ đi ảnh hưởng của Độ dày (DFT). Nếu các điểm phân tán rộng quá 2 đường gạch ngang màu đỏ, đó là lỗi 100% của Sơn (Công thức không ổn định).")
+                st.markdown("#### 3. Residual Analysis (Root Cause)")
+                st.caption("This chart isolates the Gloss deviation REMAINING after subtracting the DFT impact. If points scatter widely beyond the red lines, it indicates a Material (Paint) instability issue.")
                 
                 fig_res, ax_res = plt.subplots(figsize=(10, 4))
                 ax_res.scatter(df_plot['Avg_DFT'], df_plot['Residual'], color='purple', alpha=0.6, s=60)
                 ax_res.axhline(0, color='black', ls='--', lw=2)
-                ax_res.axhline(1.5, color='red', ls=':', lw=1.5, label='Ngưỡng rủi ro (±1.5 GU)')
+                ax_res.axhline(1.5, color='red', ls=':', lw=1.5, label='Risk Threshold (±1.5 GU)')
                 ax_res.axhline(-1.5, color='red', ls=':', lw=1.5)
                 ax_res.set_xlabel("Average DFT (µm)", fontweight='bold')
                 ax_res.set_ylabel("Residual Gloss (GU)", fontweight='bold')
-                ax_res.set_title("Biểu đồ Phần dư (Biến động độ bóng độc lập với DFT)", fontweight='bold')
+                ax_res.set_title("Residual Plot (Gloss Variation Independent of DFT)", fontweight='bold')
                 ax_res.legend()
                 st.pyplot(fig_res)
                 plt.close(fig_res)
@@ -1335,7 +1351,7 @@ elif view_mode == "Predictive Compensation & Targeting":
             st.info("Since tolerances can be asymmetric, the arithmetic mean (Max+Min)/2 is not always the true target. Please specify the exact target.")
             
             default_target = (line_lsl + line_usl) / 2.0
-            target_line = st.number_input("Specification Target (Line) [GU]:", value=float(default_target), step=0.1, help="Input the exact target requested by the customer/spec.")
+            target_line = st.number_input("Line Gloss Target [GU]:", value=float(default_target), step=0.1, help="Input the exact target requested by the customer/spec.")
             
             optimal_lab_input = target_line - mean_loss
             
@@ -1347,12 +1363,12 @@ elif view_mode == "Predictive Compensation & Targeting":
             col_target, col_guidance = st.columns([1, 2])
             
             with col_target:
-                st.metric("Specification Target (Line)", f"{target_line:.1f} GU", help="Defined explicitly by user.")
-                st.metric("Historical Process Bias", f"{mean_loss:+.2f} GU", help="Average drift caused by the production line for this specific paint.")
+                st.metric("Line Gloss Target", f"{target_line:.1f} GU", help="Defined explicitly by user.")
+                st.metric("Average System Bias", f"{mean_loss:+.2f} GU", help="Average drift caused by the production line for this specific paint.")
                 st.metric("Standard Deviation (Sigma, σ)", f"{std_loss:.2f} GU", help="Calculated variation (σ) of the historical bias. Used to define the Internal Control Limit.")
 
             with col_guidance:
-                st.success(f"#### Recommended Lab Input: **{optimal_lab_input:.1f} GU**")
+                st.success(f"#### Required Lab Input (Theoretical Value): **{optimal_lab_input:.1f} GU**")
                 st.write(f"To ensure the final product hits the exact target of **{target_line:.1f} GU** on the line, the laboratory should aim for a pre-production mix of **{optimal_lab_input:.1f} GU** to compensate for the process drift.")
                 st.warning(f"**Internal Control Limit (ICL): {icl_lcl:.1f} - {icl_ucl:.1f}** *(±1σ, with σ = {std_loss:.2f})*")
                 st.caption("Production is only authorized if Lab testing falls within this tightened range (±1σ).")
