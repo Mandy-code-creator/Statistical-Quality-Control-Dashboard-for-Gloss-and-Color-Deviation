@@ -482,9 +482,15 @@ elif view_mode == "Supplier Intelligence (Apples-to-Apples)":
                     ax.axhline(ucl, color='red', ls='--', lw=1.5, label=f'UCL (+3σ): {ucl:.1f}')
                     ax.axhline(lcl, color='red', ls='--', lw=1.5, label=f'LCL (-3σ): {lcl:.1f}')
                     
-                    # Plot Reference Spec
+                    # Plot Reference Spec & Line Control Limits
                     ax.axhline(numeric_gloss_target, color='black', ls='-', lw=1.5, alpha=0.6, label=f'Spec Target: {numeric_gloss_target}')
-                    ax.axhspan(lsl_val, usl_val, color='gray', alpha=0.1, label='Spec Tolerance')
+                    
+                    # Thêm 2 đường Line USL và Line LSL (Giới hạn kiểm soát của Gloss trên chuyền)
+                    ax.axhline(usl_val, color='#d35400', ls='-.', lw=2, label=f'Line USL (Max): {usl_val:.1f}')
+                    ax.axhline(lsl_val, color='#d35400', ls='-.', lw=2, label=f'Line LSL (Min): {lsl_val:.1f}')
+                    
+                    # Giữ lại dải màu xám cho dễ nhìn nhưng ẩn khỏi Legend để bớt rối
+                    ax.axhspan(lsl_val, usl_val, color='gray', alpha=0.1)
                     
                     cp_val = comp_table.loc[comp_table['Supplier']==sup, 'Cp (Potential)'].values[0]
                     ax.set_title(f"Supplier: {sup} (Cp: {cp_val:.2f})", fontweight='bold')
