@@ -1227,7 +1227,8 @@ elif view_mode == "🤝 Supplier Capability":
             fig_trend, (ax_gloss, ax_color) = plt.subplots(2, 1, figsize=(14, 10), sharex=False)
 
             if is_mixed:
-                trend_data['Trace'] = trend_data['Supplier'] + " (" + trend_data['Ma_Son'].str[-4:] + ")"
+                # Ép kiểu Supplier và Ma_Son về chuỗi (str) trước khi nối ghép
+                trend_data['Trace'] = trend_data['Supplier'].astype(str) + " (" + trend_data['Ma_Son'].astype(str).str[-4:] + ")"
                 y_col = 'Mean_Dev'
                 y_label = "Deviation from Target (ΔGloss)"
                 chart_title = "Gloss Deviation Trend (Normalized to 0 Target)"
