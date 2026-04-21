@@ -275,10 +275,11 @@ if view_mode == "Master Summary & Pareto":
 # TIER 2: SUPPLIER INTELLIGENCE (Apples-to-Apples)
 # ==========================================
 elif view_mode == "Supplier Intelligence (Apples-to-Apples)":
-    st.info("💡 Logic: Suppliers are compared ONLY within the same Color, Resin, Gloss Spec, and Thickness structure to ensure technical fairness.")
+    st.info("💡 Logic: Suppliers are compared ONLY within the same Color, Resin, Gloss Spec, and Thickness structure. Actual DFT is factored in to isolate pure Paint Quality.")
 
-    df_valid_specs = dff.dropna(subset=['Coating_Type', 'Color_Group', 'Gloss_LSL', 'Gloss_USL', 'Target_Top', 'Target_Primer']).copy()
+    df_valid_specs = dff.dropna(subset=['Coating_Type', 'Color_Group', 'Gloss_LSL', 'Gloss_USL', 'Target_Top', 'Target_Primer', 'Avg_DFT']).copy()
     
+    # Format labels: Gloss (18~32) and DFT (20-5)
     df_valid_specs['Gloss_Spec'] = df_valid_specs.apply(lambda r: f"{r['Gloss_LSL']:g}~{r['Gloss_USL']:g}", axis=1)
     df_valid_specs['DFT_Spec'] = df_valid_specs.apply(lambda r: f"{r['Target_Top']:g}-{r['Target_Primer']:g}", axis=1)
     df_valid_specs['Numeric_Target'] = (df_valid_specs['Gloss_LSL'] + df_valid_specs['Gloss_USL']) / 2.0
@@ -295,18 +296,17 @@ elif view_mode == "Supplier Intelligence (Apples-to-Apples)":
             if not df_f1.empty:
                 f_color = st.selectbox("2. Color Group:", sorted(df_f1['Color_Group'].unique()))
                 df_f2 = df_f1[df_f1['Color_Group'] == f_color]
-            else: f_color = None
         with c3:
-            if not df_f1.empty and not df_f2.empty:
+            if not df_f2.empty:
                 f_gloss_spec = st.selectbox("3. Gloss Spec (LSL~USL):", sorted(df_f2['Gloss_Spec'].unique()))
                 df_f3 = df_f2[df_f2['Gloss_Spec'] == f_gloss_spec]
-            else: f_gloss_spec = None
         with c4:
-            if not df_f1.empty and not df_f2.empty and not df_f3.empty:
+            if not df_f3.empty:
                 f_dft_spec = st.selectbox("4. Target DFT (Top-Primer):", sorted(df_f3['DFT_Spec'].unique()))
             else: f_dft_spec = None
 
         if f_resin and f_color and f_gloss_spec and f_dft_spec:
+            # Final segmented filter
             df_seg = df_valid_specs[
                 (df_valid_specs['Coating_Type'] == f_resin) & 
                 (df_valid_specs['Color_Group'] == f_color) & 
@@ -316,7 +316,6 @@ elif view_mode == "Supplier Intelligence (Apples-to-Apples)":
 
             numeric_gloss_target = df_seg['Numeric_Target'].iloc[0]
 
-            st.markdown("---")
             if len(df_seg) < 5:
                 st.warning("⚠️ Not enough historical data in this segment for statistical significance (Min. 5 coils).")
             else:
@@ -324,18 +323,34 @@ elif view_mode == "Supplier Intelligence (Apples-to-Apples)":
                 valid_suppliers = batch_counts[batch_counts >= 1].index
                 df_seg = df_seg[df_seg['Supplier'].isin(valid_suppliers)]
 
-                # SPC Calculations
+                # 2. Advanced SPC Calculations (Cp, Ca, Cpk) & DFT Integration
                 comp_table = df_seg.groupby('Supplier').agg(
                     Batches=('Batch_Lot', 'nunique'), 
                     Coils=('Online_Gloss_Top', 'count'), 
                     Mean_Gloss=('Online_Gloss_Top', 'mean'), 
                     Std_Gloss=('Online_Gloss_Top', 'std'), 
+                    Std_DFT=('Avg_DFT', 'std'), # TÍNH ĐỘ LỆCH CHUẨN ĐỘ DÀY THỰC TẾ
                     Avg_dE=('ΔE', 'mean')
                 ).reset_index()
 
                 lsl_val = df_seg['Line_LSL'].iloc[0]
                 usl_val = df_seg['Line_USL'].iloc[0]
                 tolerance = usl_val - lsl_val
+
+                # Bóc tách lỗi sơn bằng AI (Residual Std)
+                res_stds = []
+                for sup in comp_table['Supplier']:
+                    sup_df = df_seg[df_seg['Supplier'] == sup]
+                    if len(sup_df) > 2 and sup_df['Avg_DFT'].std() > 0:
+                        X = sup_df[['Avg_DFT']].values
+                        y = sup_df['Online_Gloss_Top'].values
+                        model = LinearRegression().fit(X, y)
+                        res = y - model.predict(X)
+                        res_stds.append(res.std())
+                    else:
+                        res_stds.append(sup_df['Online_Gloss_Top'].std() if len(sup_df) > 1 else np.nan)
+                
+                comp_table['Paint Instability (Res.Std)'] = res_stds
 
                 def calc_spc(row):
                     if pd.isna(row['Std_Gloss']) or row['Std_Gloss'] == 0: 
@@ -345,127 +360,117 @@ elif view_mode == "Supplier Intelligence (Apples-to-Apples)":
                     cpk = cp * (1 - (abs(ca) / 100))
                     return pd.Series([cp, ca, cpk])
 
-                comp_table[['Cp (Potential)', 'Ca (%)', 'Cpk (Stability)']] = comp_table.apply(calc_spc, axis=1)
-                comp_table['Bias (Accuracy)'] = comp_table['Mean_Gloss'] - numeric_gloss_target
-                comp_table = comp_table.sort_values(by='Cpk (Stability)', ascending=False)
+                comp_table[['Cp', 'Ca (%)', 'Cpk']] = comp_table.apply(calc_spc, axis=1)
+                comp_table['Bias'] = comp_table['Mean_Gloss'] - numeric_gloss_target
+                comp_table = comp_table.sort_values(by='Cpk', ascending=False)
 
-                c1, c2 = st.columns([2.5, 2.5]) 
+                # 3. Capability Matrix Visualization
+                st.markdown("---")
+                col_m, col_t = st.columns([3, 2.5])
                 
-                with c1:
+                with col_m:
                     st.subheader("📊 Capability Matrix (Accuracy vs Stability)")
-                    st.caption(f"Segment: {f_resin} | {f_color} | {f_gloss_spec} GU | {f_dft_spec} µm")
-                    
                     fig_matrix, ax_matrix = plt.subplots(figsize=(9, 6))
-                    max_cpk = max(2.0, comp_table['Cpk (Stability)'].max() + 0.2) if not comp_table['Cpk (Stability)'].isna().all() else 2.0
-                    max_bias_abs = max(abs(comp_table['Bias (Accuracy)'].max()), abs(comp_table['Bias (Accuracy)'].min())) + 1 if not pd.isna(comp_table['Bias (Accuracy)'].max()) else 3
+                    
+                    max_cpk = max(2.0, comp_table['Cpk'].max() + 0.2) if not comp_table['Cpk'].isna().all() else 2.0
+                    max_bias_abs = max(abs(comp_table['Bias'].max()), abs(comp_table['Bias'].min())) + 1
 
                     ax_matrix.axhspan(1.33, max_cpk, facecolor='#27ae60', alpha=0.3, label='Excellent (Cpk > 1.33)')
                     ax_matrix.axhspan(1.0, 1.33, facecolor='#f1c40f', alpha=0.3, label='Warning (1.0 < Cpk < 1.33)')
                     ax_matrix.axhspan(0, 1.0, facecolor='#c0392b', alpha=0.3, label='High Risk (Cpk < 1.0)')
-                    ax_matrix.axvline(0, color='black', linestyle='--', linewidth=2, label=f'Perfect Target ({numeric_gloss_target} GU)')
+                    ax_matrix.axvline(0, color='black', linestyle='--', linewidth=2)
                     
-                    sns.scatterplot(
-                        data=comp_table, x='Bias (Accuracy)', y='Cpk (Stability)', hue='Supplier', 
-                        s=800, edgecolor='black', linewidth=1.5, palette='tab10', ax=ax_matrix, zorder=5 
-                    )
+                    sns.scatterplot(data=comp_table, x='Bias', y='Cpk', hue='Supplier', s=600, edgecolor='black', ax=ax_matrix, zorder=5)
                     
-                    import matplotlib.patheffects as path_effects
-                    for i in range(comp_table.shape[0]):
-                        label_text = str(comp_table['Supplier'].iloc[i])
-                        x_pos = comp_table['Bias (Accuracy)'].iloc[i]
-                        y_pos = comp_table['Cpk (Stability)'].iloc[i]
-                        ax_matrix.text(
-                            x_pos, y_pos + (max_cpk * 0.05), label_text, 
-                            fontsize=11, fontweight='bold', color='black',
-                            horizontalalignment='center', zorder=6,
-                            path_effects=[path_effects.withStroke(linewidth=3, foreground="white")]
-                        )
-
-                    ax_matrix.set_xlabel("Systematic Bias (Average Gloss - Target) [GU]", fontweight='bold')
-                    ax_matrix.set_ylabel("Stability Index (Cpk)", fontweight='bold')
-                    ax_matrix.set_ylim(0, max_cpk)
-                    ax_matrix.set_xlim(-max_bias_abs, max_bias_abs)
-                    
-                    # Fix Legend Icon Size
-                    leg = ax_matrix.legend(bbox_to_anchor=(0.5, -0.15), loc='upper center', ncol=3, markerscale=0.3)
+                    leg = ax_matrix.legend(bbox_to_anchor=(0.5, -0.2), loc='upper center', ncol=3, markerscale=0.4)
                     handles = leg.legend_handles if hasattr(leg, 'legend_handles') else leg.legendHandles
                     for h in handles:
-                        if hasattr(h, 'set_sizes'): h.set_sizes([80])
+                        if hasattr(h, 'set_sizes'): h.set_sizes([100])
                         if hasattr(h, 'set_markersize'): h.set_markersize(8)
 
-                    plt.tight_layout()
+                    ax_matrix.set_xlabel("Systematic Bias (Mean - Target) [GU]", fontweight='bold')
+                    ax_matrix.set_ylabel("Stability Index (Cpk)", fontweight='bold')
+                    ax_matrix.set_xlim(-max_bias_abs, max_bias_abs)
+                    ax_matrix.set_ylim(0, max_cpk)
                     st.pyplot(fig_matrix)
-                    plt.close(fig_matrix)
 
-                with c2:
-                    st.subheader("🏆 Segment Leaderboard")
+                with col_t:
+                    st.subheader("🏆 Supplier Leaderboard")
+                    st.caption("A high 'Paint Instability' score isolates material flaw from operator film thickness variations.")
                     st.dataframe(
-                        comp_table[['Supplier', 'Batches', 'Coils', 'Mean_Gloss', 'Std_Gloss', 'Cp (Potential)', 'Ca (%)', 'Cpk (Stability)', 'Avg_dE']].style.format({
-                            'Mean_Gloss': '{:.1f}', 'Std_Gloss': '{:.2f}', 
-                            'Cp (Potential)': '{:.2f}', 'Ca (%)': '{:+.1f}%', 'Cpk (Stability)': '{:.2f}', 'Avg_dE': '{:.2f}'
-                        }).background_gradient(cmap='RdYlGn', subset=['Cpk (Stability)', 'Cp (Potential)'])
-                          .background_gradient(cmap='coolwarm', subset=['Ca (%)'], vmin=-100, vmax=100), 
+                        comp_table[['Supplier', 'Coils', 'Cpk', 'Ca (%)', 'Std_DFT', 'Paint Instability (Res.Std)']].style.format({
+                            'Cpk': '{:.2f}', 'Ca (%)': '{:+.1f}%', 'Std_DFT': '{:.2f}', 'Paint Instability (Res.Std)': '{:.2f}'
+                        }).background_gradient(cmap='RdYlGn', subset=['Cpk'])
+                          .background_gradient(cmap='coolwarm', subset=['Ca (%)'], vmin=-100, vmax=100)
+                          .background_gradient(cmap='Reds', subset=['Paint Instability (Res.Std)']),
                         use_container_width=True, hide_index=True
                     )
 
-                # Data prep for Batch timelines
+                # 4. Pattern Recognition: Heatmap & Batch Trend
+                st.markdown("---")
+                st.subheader("🔥 Supplier Deviation Heatmap (Batch Pattern)")
+                st.caption("Visualizes sequential batch performance. Red/Blue cells indicate deviations from target.")
+                
                 batch_data = df_seg.groupby(['Supplier', 'Batch_Lot']).agg(
-                    Ngay_SX=('Ngay_SX', 'min'),
-                    Mean_Gloss=('Online_Gloss_Top', 'mean')
-                ).dropna().reset_index()
-                batch_data = batch_data.sort_values('Ngay_SX')
+                    Ngay=('Ngay_SX', 'min'), 
+                    Mean_Gloss=('Online_Gloss_Top', 'mean'),
+                    Mean_DFT=('Avg_DFT', 'mean')
+                ).reset_index().sort_values('Ngay')
+                
                 batch_data['Bias'] = batch_data['Mean_Gloss'] - numeric_gloss_target
+                batch_data['Seq'] = batch_data.groupby('Supplier').cumcount() + 1
+                
+                hm_data = batch_data.pivot(index='Supplier', columns='Seq', values='Bias')
+                fig_h, ax_h = plt.subplots(figsize=(14, max(3, len(comp_table)*0.8)))
+                sns.heatmap(hm_data, cmap='coolwarm', center=0, annot=True, fmt=".1f", linewidths=.5, ax=ax_h, vmin=-3, vmax=3)
+                ax_h.set_xlabel("Sequential Batch Number")
+                st.pyplot(fig_h)
 
                 st.markdown("---")
-                st.subheader("🔥 Supplier Deviation Pattern (Heatmap)")
-                st.caption("Visualizes the sequential batch-by-batch bias. Deep Red/Blue indicates high deviation from target.")
+                st.subheader("📈 Root Cause Validation: Gloss vs Actual DFT Timeline")
+                st.caption("Dual-Axis chart: If the gray dashed line (Actual DFT) is stable but the colored line (Gloss) fluctuates widely, the paint is unstable.")
                 
-                batch_data['Batch_Seq'] = batch_data.groupby('Supplier').cumcount() + 1
-                heatmap_data = batch_data.pivot(index='Supplier', columns='Batch_Seq', values='Bias')
+                fig_l, ax_l = plt.subplots(figsize=(14, 5))
                 
-                fig_heat, ax_heat = plt.subplots(figsize=(14, max(3, len(valid_suppliers) * 1.2)))
-                sns.heatmap(heatmap_data, cmap='coolwarm', center=0, annot=True, fmt=".1f", 
-                            cbar_kws={'label': 'Gloss Bias (GU)'}, ax=ax_heat, 
-                            linewidths=.5, vmin=-3, vmax=3)
-                ax_heat.set_xlabel("Sequential Batch Number", fontweight='bold')
-                ax_heat.set_ylabel("Supplier", fontweight='bold')
-                st.pyplot(fig_heat)
-                plt.close(fig_heat)
-
-                st.markdown("---")
-                st.subheader("📈 Batch-by-Batch Gloss Deviation (Timeline Trend)")
-                fig_trend, ax_trend = plt.subplots(figsize=(14, 5))
-                sns.lineplot(data=batch_data, x='Batch_Lot', y='Bias', hue='Supplier', marker='o', ax=ax_trend, lw=2, markersize=8)
+                # Plot Gloss Bias on primary Y-axis
+                sns.lineplot(data=batch_data, x='Batch_Lot', y='Bias', hue='Supplier', marker='o', ax=ax_l, lw=2.5, markersize=8)
+                ax_l.axhline(0, color='black', lw=2, label=f'Target Gloss ({numeric_gloss_target} GU)')
+                ax_l.axhline(1.5, color='red', ls=':', lw=1.5)
+                ax_l.axhline(-1.5, color='red', ls=':', lw=1.5)
+                ax_l.set_ylabel("Gloss Bias (GU)", fontweight='bold')
                 
-                ax_trend.axhline(0, color='black', lw=2, label=f'Target ({numeric_gloss_target} GU)')
-                ax_trend.axhline(1.5, color='red', ls=':', lw=1.5, label='Warning Limit (±1.5 GU)')
-                ax_trend.axhline(-1.5, color='red', ls=':', lw=1.5)
-                ax_trend.axhline(2.0, color='red', ls='--', lw=1.5, label='Control Limit (±2.0 GU)')
-                ax_trend.axhline(-2.0, color='red', ls='--', lw=1.5)
+                # Plot Actual DFT on secondary Y-axis
+                ax_dft = ax_l.twinx()
+                sns.lineplot(data=batch_data, x='Batch_Lot', y='Mean_DFT', color='gray', linestyle='--', marker='x', ax=ax_dft, alpha=0.6)
                 
-                ax_trend.set_xlabel("Batch Lot (Chronological Order)", fontweight='bold')
-                ax_trend.set_ylabel("Gloss Bias (GU)", fontweight='bold')
-                plt.xticks(rotation=45, ha='right')
+                # Add target DFT reference
+                target_dft_numeric = float(f_dft_spec.split('-')[0]) + float(f_dft_spec.split('-')[1]) # Rough approx for plot
+                ax_dft.set_ylabel("Actual DFT (µm)", color='gray', fontweight='bold')
+                ax_dft.tick_params(axis='y', labelcolor='gray')
                 
-                locs, labels = plt.xticks()
+                # Align labels
+                ax_l.set_xlabel("Batch Lot (Chronological Order)", fontweight='bold')
+                ax_l.tick_params(axis='x', rotation=45)
+                locs = ax_l.get_xticks()
                 if len(locs) > 40:
-                    step = max(1, len(locs) // 25) 
-                    for i, label in enumerate(labels):
-                        if i % step != 0: label.set_visible(False)
-                        
-                ax_trend.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
-                ax_trend.grid(True, alpha=0.3)
-                st.pyplot(fig_trend)
-                plt.close(fig_trend)
-
-                # --- MỚI THÊM: X-BAR CONTROL CHART ---
+                    for i, label in enumerate(ax_l.get_xticklabels()):
+                        if i % max(1, len(locs)//25) != 0: label.set_visible(False)
+                
+                # Combine legends
+                lines_1, labels_1 = ax_l.get_legend_handles_labels()
+                ax_l.legend(lines_1, labels_1, bbox_to_anchor=(1.05, 1), loc='upper left')
+                ax_l.grid(True, alpha=0.3)
+                
+                st.pyplot(fig_l)
+                plt.close(fig_l)
+                
+                # --- X-BAR CONTROL CHART ---
                 st.markdown("---")
                 st.subheader("📊 X-bar Control Chart (Batch Means by Supplier)")
                 st.caption("Evaluates the internal statistical stability of each supplier. Control limits (UCL/LCL) are calculated dynamically based on ±3σ of their own batch means, isolating their performance from the absolute target.")
 
-                num_suppliers = len(valid_suppliers)
-                fig_xbar, axes = plt.subplots(num_suppliers, 1, figsize=(14, 4 * num_suppliers), sharex=False)
-                if num_suppliers == 1: axes = [axes]
+                fig_xbar, axes = plt.subplots(len(valid_suppliers), 1, figsize=(14, 4 * len(valid_suppliers)), sharex=False)
+                if len(valid_suppliers) == 1: axes = [axes]
 
                 for i, sup in enumerate(valid_suppliers):
                     sup_data = batch_data[batch_data['Supplier'] == sup].copy()
@@ -484,15 +489,11 @@ elif view_mode == "Supplier Intelligence (Apples-to-Apples)":
                     
                     # Plot Reference Spec & Line Control Limits
                     ax.axhline(numeric_gloss_target, color='black', ls='-', lw=1.5, alpha=0.6, label=f'Spec Target: {numeric_gloss_target}')
-                    
-                    # Thêm 2 đường Line USL và Line LSL (Giới hạn kiểm soát của Gloss trên chuyền)
                     ax.axhline(usl_val, color='#d35400', ls='-.', lw=2, label=f'Line USL (Max): {usl_val:.1f}')
                     ax.axhline(lsl_val, color='#d35400', ls='-.', lw=2, label=f'Line LSL (Min): {lsl_val:.1f}')
-                    
-                    # Giữ lại dải màu xám cho dễ nhìn nhưng ẩn khỏi Legend để bớt rối
                     ax.axhspan(lsl_val, usl_val, color='gray', alpha=0.1)
                     
-                    cp_val = comp_table.loc[comp_table['Supplier']==sup, 'Cp (Potential)'].values[0]
+                    cp_val = comp_table.loc[comp_table['Supplier']==sup, 'Cp'].values[0]
                     ax.set_title(f"Supplier: {sup} (Cp: {cp_val:.2f})", fontweight='bold')
                     ax.set_ylabel("Gloss (GU)")
                     ax.set_xticks(sup_data['x_seq'])
@@ -504,12 +505,13 @@ elif view_mode == "Supplier Intelligence (Apples-to-Apples)":
                         for idx, label in enumerate(ax.xaxis.get_ticklabels()):
                             if idx % step_xbar != 0: label.set_visible(False)
                             
-                    ax.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
+                    ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
                     ax.grid(True, alpha=0.3)
 
                 plt.tight_layout()
                 st.pyplot(fig_xbar)
                 plt.close(fig_xbar)
+
 
 # ==========================================
 # TIER 3: OPERATIONAL VIEW
@@ -555,22 +557,10 @@ elif view_mode == "Gloss Trend (SPC)":
                 risk_alert = risk_summary[risk_summary['Status'] != '🟢 Safe'].copy()
 
                 if not risk_alert.empty:
-                    risk_alert = risk_alert.sort_values(by='Status', ascending=True)
-                    risk_alert = risk_alert[['Ma_Son', 'Supplier', 'Batches', 'Coils', 'Issue Source', 'Lab_Min', 'Lab_Max', 'Line_Min', 'Line_Max', 'Status']]
-                    risk_alert.columns = ['Paint Code', 'Supplier', 'Batches', 'Coils', 'Issue Source', 'Lab Min', 'Lab Max', 'Line Min', 'Line Max', 'Status']
-
-                    def highlight_status(val):
-                        if '🔴' in str(val): return 'color: white; background-color: #e74c3c; font-weight: bold;'
-                        if '🟠' in str(val): return 'color: white; background-color: #f39c12; font-weight: bold;'
-                        return ''
-                    st.dataframe(
-                        risk_alert.style.format({
-                            'Lab Min': '{:.1f}', 'Lab Max': '{:.1f}', 'Line Min': '{:.1f}', 'Line Max': '{:.1f}'
-                        }).map(highlight_status, subset=['Status']),
-                        use_container_width=True, hide_index=True
-                    )
-                else:
-                    st.success("🎉 No paint codes are out of limits at this time!")
+                    risk_alert = risk_alert.sort_values('Status')
+                    st.dataframe(risk_alert[['Ma_Son', 'Supplier', 'Batches', 'Coils', 'Issue Source', 'Lab_Min', 'Lab_Max', 'Line_Min', 'Line_Max', 'Status']].style.format({
+                        'Lab_Min': '{:.1f}', 'Lab_Max': '{:.1f}', 'Line_Min': '{:.1f}', 'Line_Max': '{:.1f}'
+                    }), use_container_width=True, hide_index=True)
 
     st.markdown("---")
     
