@@ -120,7 +120,6 @@ with st.sidebar:
     st.markdown("---")
     st.subheader("🛠️ Analysis Structure")
     
-    # --- ĐÃ SỬA THÀNH 4 TẦNG ---
     analysis_level = st.radio(
         "Select Analysis Tier:",
         ["📋 Tier 1: Executive View", 
@@ -276,9 +275,13 @@ if view_mode == "Master Summary & Pareto":
 # TIER 2: SUPPLIER INTELLIGENCE
 # ==========================================
 elif view_mode == "Supplier Intelligence (Apples-to-Apples)":
-    st.info("💡 Logic: Suppliers are compared ONLY within the same Color, Resin, Gloss Target, and Thickness specifications to prevent false alarms.")
+    st.info("💡 Logic: Suppliers are compared ONLY within the same Color, Resin, Gloss Spec Range, and Thickness specifications to prevent false alarms.")
 
+    # Drop missing values to create clean segments
     df_valid_specs = dff.dropna(subset=['Coating_Type', 'Color_Group', 'Gloss_LSL', 'Gloss_USL', 'Target_DFT']).copy()
+    
+    # Create the Gloss_Spec string for better UI representation
+    df_valid_specs['Gloss_Spec'] = df_valid_specs.apply(lambda row: f"{row['Gloss_LSL']:g}~{row['Gloss_USL']:g}", axis=1)
     df_valid_specs['Gloss_Target'] = (df_valid_specs['Gloss_LSL'] + df_valid_specs['Gloss_USL']) / 2.0
 
     if df_valid_specs.empty:
@@ -297,23 +300,25 @@ elif view_mode == "Supplier Intelligence (Apples-to-Apples)":
                 f_color = None
         with col3:
             if not df_f1.empty and not df_f2.empty:
-                f_gloss = st.selectbox("3. Gloss Target (GU):", sorted(df_f2['Gloss_Target'].unique()))
-                df_f3 = df_f2[df_f2['Gloss_Target'] == f_gloss]
+                f_gloss_spec = st.selectbox("3. Gloss Spec (LSL~USL):", sorted(df_f2['Gloss_Spec'].unique()))
+                df_f3 = df_f2[df_f2['Gloss_Spec'] == f_gloss_spec]
             else:
-                f_gloss = None
+                f_gloss_spec = None
         with col4:
             if not df_f1.empty and not df_f2.empty and not df_f3.empty:
                 f_dft = st.selectbox("4. Target DFT (µm):", sorted(df_f3['Target_DFT'].unique()))
             else:
                 f_dft = None
 
-        if f_resin and f_color and f_gloss and f_dft:
+        if f_resin and f_color and f_gloss_spec and f_dft:
             df_seg = df_valid_specs[
                 (df_valid_specs['Coating_Type'] == f_resin) & 
                 (df_valid_specs['Color_Group'] == f_color) & 
-                (abs(df_valid_specs['Gloss_Target'] - f_gloss) < 0.1) & 
+                (df_valid_specs['Gloss_Spec'] == f_gloss_spec) & 
                 (abs(df_valid_specs['Target_DFT'] - f_dft) < 0.1)
             ].copy()
+
+            numeric_gloss_target = df_seg['Gloss_Target'].iloc[0]
 
             st.markdown("---")
             if len(df_seg) < 5:
@@ -339,14 +344,14 @@ elif view_mode == "Supplier Intelligence (Apples-to-Apples)":
                     return min((USL_seg - row['Mean_Gloss']) / (3 * row['Std_Gloss']), (row['Mean_Gloss'] - LSL_seg) / (3 * row['Std_Gloss']))
 
                 comp_table['Cpk (Stability)'] = comp_table.apply(calc_cpk_table, axis=1)
-                comp_table['Bias (Accuracy)'] = comp_table['Mean_Gloss'] - f_gloss
+                comp_table['Bias (Accuracy)'] = comp_table['Mean_Gloss'] - numeric_gloss_target
                 comp_table = comp_table.sort_values(by='Cpk (Stability)', ascending=False)
 
                 c1, c2 = st.columns([2.5, 2.5]) 
                 
                 with c1:
                     st.subheader("📊 Capability Matrix (Accuracy vs Stability)")
-                    st.caption(f"Segment: {f_resin} | {f_color} | {f_gloss}GU | {f_dft}µm")
+                    st.caption(f"Segment: {f_resin} | {f_color} | {f_gloss_spec} GU | {f_dft}µm")
                     
                     fig_matrix, ax_matrix = plt.subplots(figsize=(9, 6))
                     
@@ -357,7 +362,7 @@ elif view_mode == "Supplier Intelligence (Apples-to-Apples)":
                     ax_matrix.axhspan(1.0, 1.33, facecolor='#f1c40f', alpha=0.3, label='Warning (1.0 < Cpk < 1.33)')
                     ax_matrix.axhspan(0, 1.0, facecolor='#c0392b', alpha=0.3, label='High Risk (Cpk < 1.0)')
                     
-                    ax_matrix.axvline(0, color='black', linestyle='--', linewidth=2, label='Perfect Target (Bias = 0)')
+                    ax_matrix.axvline(0, color='black', linestyle='--', linewidth=2, label=f'Perfect Target ({numeric_gloss_target} GU)')
                     
                     sns.scatterplot(
                         data=comp_table, x='Bias (Accuracy)', y='Cpk (Stability)', hue='Supplier', 
@@ -396,6 +401,46 @@ elif view_mode == "Supplier Intelligence (Apples-to-Apples)":
                           .background_gradient(cmap='bwr', subset=['Bias (Accuracy)'], vmin=-2, vmax=2), 
                         use_container_width=True, hide_index=True
                     )
+
+                # --- MỚI THÊM: BIỂU ĐỒ BATCH TREND ---
+                st.markdown("---")
+                st.subheader("📈 Batch-by-Batch Gloss Deviation (Bias Trend)")
+                st.caption("Track how each supplier's gloss deviates from the exact target across sequential batches in this segment.")
+                
+                # Tính Bias trung bình theo từng Batch
+                batch_trend = df_seg.groupby(['Supplier', 'Batch_Lot']).agg(
+                    Ngay_SX=('Ngay_SX', 'min'),
+                    Mean_Gloss=('Online_Gloss_Top', 'mean')
+                ).dropna().reset_index()
+                
+                batch_trend = batch_trend.sort_values('Ngay_SX')
+                batch_trend['Bias'] = batch_trend['Mean_Gloss'] - numeric_gloss_target
+                
+                fig_trend, ax_trend = plt.subplots(figsize=(14, 5))
+                sns.lineplot(data=batch_trend, x='Batch_Lot', y='Bias', hue='Supplier', marker='o', ax=ax_trend, lw=2, markersize=8)
+                
+                ax_trend.axhline(0, color='black', lw=2, label=f'Target ({numeric_gloss_target} GU)')
+                ax_trend.axhline(1.5, color='red', ls=':', lw=1.5, label='Warning Limit (±1.5 GU)')
+                ax_trend.axhline(-1.5, color='red', ls=':', lw=1.5)
+                ax_trend.axhline(2.0, color='red', ls='--', lw=1.5, label='Control Limit (±2.0 GU)')
+                ax_trend.axhline(-2.0, color='red', ls='--', lw=1.5)
+                
+                ax_trend.set_xlabel("Batch Lot (Chronological Order)", fontweight='bold')
+                ax_trend.set_ylabel("Gloss Bias (GU)", fontweight='bold')
+                plt.xticks(rotation=45, ha='right')
+                
+                # Giảm bớt nhãn trục X nếu có quá nhiều Batch
+                locs, labels = plt.xticks()
+                if len(locs) > 40:
+                    step = max(1, len(locs) // 25) 
+                    for i, label in enumerate(labels):
+                        if i % step != 0: label.set_visible(False)
+                        
+                ax_trend.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
+                ax_trend.grid(True, alpha=0.3)
+                
+                st.pyplot(fig_trend)
+                plt.close(fig_trend)
 
 # ==========================================
 # TIER 3: OPERATIONAL VIEW
