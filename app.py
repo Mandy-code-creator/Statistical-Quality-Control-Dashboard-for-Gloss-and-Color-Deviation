@@ -272,17 +272,21 @@ if view_mode == "Master Summary & Pareto":
         st.success("🎉 Great! No NG data recorded in this filtered period.")
 
 # ==========================================
+# ==========================================
 # TIER 2: SUPPLIER INTELLIGENCE (WITH HEATMAP)
 # ==========================================
 elif view_mode == "Supplier Intelligence (Apples-to-Apples)":
     st.info("💡 Logic: Suppliers are compared ONLY within the same Color, Resin, Gloss Spec Range, and Thickness specifications to prevent false alarms.")
 
-    # Drop missing values to create clean segments
-    df_valid_specs = dff.dropna(subset=['Coating_Type', 'Color_Group', 'Gloss_LSL', 'Gloss_USL', 'Target_DFT']).copy()
+    # ĐÃ SỬA: Thêm Target_Top và Target_Primer vào điều kiện lọc
+    df_valid_specs = dff.dropna(subset=['Coating_Type', 'Color_Group', 'Gloss_LSL', 'Gloss_USL', 'Target_Top', 'Target_Primer']).copy()
     
-    # Create the Gloss_Spec string for better UI representation
+    # Tạo các chuỗi hiển thị thân thiện cho UI
     df_valid_specs['Gloss_Spec'] = df_valid_specs.apply(lambda row: f"{row['Gloss_LSL']:g}~{row['Gloss_USL']:g}", axis=1)
     df_valid_specs['Gloss_Target'] = (df_valid_specs['Gloss_LSL'] + df_valid_specs['Gloss_USL']) / 2.0
+    
+    # ĐÃ SỬA: Nối chuỗi Độ dày Top và Primer (VD: 20-5)
+    df_valid_specs['DFT_Spec'] = df_valid_specs.apply(lambda row: f"{row['Target_Top']:g}-{row['Target_Primer']:g}", axis=1)
 
     if df_valid_specs.empty:
         st.warning("⚠️ Insufficient technical specification data (Missing Targets or Specs) to perform segmentation.")
@@ -306,16 +310,18 @@ elif view_mode == "Supplier Intelligence (Apples-to-Apples)":
                 f_gloss_spec = None
         with col4:
             if not df_f1.empty and not df_f2.empty and not df_f3.empty:
-                f_dft = st.selectbox("4. Target DFT (µm):", sorted(df_f3['Target_DFT'].unique()))
+                # ĐÃ SỬA: Đổi tên nhãn và gán biến DFT_Spec
+                f_dft_spec = st.selectbox("4. Target DFT (Top-Primer):", sorted(df_f3['DFT_Spec'].unique()))
             else:
-                f_dft = None
+                f_dft_spec = None
 
-        if f_resin and f_color and f_gloss_spec and f_dft:
+        if f_resin and f_color and f_gloss_spec and f_dft_spec:
+            # Lọc phân khúc theo đúng chuẩn chuỗi DFT_Spec
             df_seg = df_valid_specs[
                 (df_valid_specs['Coating_Type'] == f_resin) & 
                 (df_valid_specs['Color_Group'] == f_color) & 
                 (df_valid_specs['Gloss_Spec'] == f_gloss_spec) & 
-                (abs(df_valid_specs['Target_DFT'] - f_dft) < 0.1)
+                (df_valid_specs['DFT_Spec'] == f_dft_spec)
             ].copy()
 
             numeric_gloss_target = df_seg['Gloss_Target'].iloc[0]
@@ -351,7 +357,8 @@ elif view_mode == "Supplier Intelligence (Apples-to-Apples)":
                 
                 with c1:
                     st.subheader("📊 Capability Matrix (Accuracy vs Stability)")
-                    st.caption(f"Segment: {f_resin} | {f_color} | {f_gloss_spec} GU | {f_dft}µm")
+                    # ĐÃ SỬA: Cập nhật nhãn caption hiển thị
+                    st.caption(f"Segment: {f_resin} | {f_color} | {f_gloss_spec} GU | {f_dft_spec} µm")
                     
                     fig_matrix, ax_matrix = plt.subplots(figsize=(9, 6))
                     
@@ -386,7 +393,14 @@ elif view_mode == "Supplier Intelligence (Apples-to-Apples)":
                     ax_matrix.set_ylabel("Stability Index (Cpk)", fontweight='bold')
                     ax_matrix.set_ylim(0, max_cpk)
                     ax_matrix.set_xlim(-max_bias_abs, max_bias_abs)
-                    ax_matrix.legend(bbox_to_anchor=(0.5, -0.15), loc='upper center', ncol=3)
+                    
+                    # Thu nhỏ icon trong Legend
+                    leg = ax_matrix.legend(bbox_to_anchor=(0.5, -0.15), loc='upper center', ncol=3)
+                    handles = leg.legend_handles if hasattr(leg, 'legend_handles') else leg.legendHandles
+                    for h in handles:
+                        if hasattr(h, 'set_sizes'):
+                            h.set_sizes([120])
+
                     plt.tight_layout()
                     st.pyplot(fig_matrix)
                     plt.close(fig_matrix)
@@ -402,7 +416,7 @@ elif view_mode == "Supplier Intelligence (Apples-to-Apples)":
                         use_container_width=True, hide_index=True
                     )
 
-                # --- NEW ADDITION: HEATMAP & BATCH TREND ---
+                # --- HEATMAP & BATCH TREND ---
                 st.markdown("---")
                 st.subheader("🔥 Supplier Deviation Pattern (Heatmap)")
                 st.caption("Visualizes the sequential batch-by-batch bias for each supplier. Deep Red/Blue indicates high deviation from target.")
@@ -415,7 +429,6 @@ elif view_mode == "Supplier Intelligence (Apples-to-Apples)":
                 batch_trend = batch_trend.sort_values('Ngay_SX')
                 batch_trend['Bias'] = batch_trend['Mean_Gloss'] - numeric_gloss_target
                 
-                # Create Sequential Batch Number for Heatmap alignment
                 batch_trend['Batch_Seq'] = batch_trend.groupby('Supplier').cumcount() + 1
                 
                 heatmap_data = batch_trend.pivot(index='Supplier', columns='Batch_Seq', values='Bias')
