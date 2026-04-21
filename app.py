@@ -88,7 +88,6 @@ def load_and_prep_data():
             
         df['Gap_Gloss'] = df['Online_Gloss_Top'] - df['Gloss_Lab']
         
-        # DFT Calculations (Using Mapped Names)
         if 'DFT_N' in df.columns and 'DFT_S' in df.columns:
             df['Avg_DFT'] = df[['DFT_N', 'DFT_S']].mean(axis=1)
         else:
@@ -111,7 +110,7 @@ def load_and_prep_data():
 df_raw = load_and_prep_data()
 if df_raw.empty: st.stop()
 
-# --- 3. SIDEBAR: 3-TIER ARCHITECTURE ---
+# --- 3. SIDEBAR: 4-TIER ARCHITECTURE ---
 with st.sidebar:
     st.title("🏭 QA Dashboard Pro")
     if st.button("🔄 Refresh Data", use_container_width=True, type="primary"):
@@ -121,16 +120,20 @@ with st.sidebar:
     st.markdown("---")
     st.subheader("🛠️ Analysis Structure")
     
+    # --- ĐÃ SỬA THÀNH 4 TẦNG ---
     analysis_level = st.radio(
         "Select Analysis Tier:",
         ["📋 Tier 1: Executive View", 
-         "📈 Tier 2: Operational View", 
-         "🔬 Tier 3: Diagnostic View"]
+         "🤝 Tier 2: Supplier Intelligence",
+         "📈 Tier 3: Operational View", 
+         "🔬 Tier 4: Diagnostic View"]
     )
 
     if "Tier 1" in analysis_level:
-        view_mode = st.selectbox("Select Report:", ["Master Summary & Pareto", "Supplier Intelligence (Apples-to-Apples)"])
+        view_mode = "Master Summary & Pareto"
     elif "Tier 2" in analysis_level:
+        view_mode = "Supplier Intelligence (Apples-to-Apples)"
+    elif "Tier 3" in analysis_level:
         view_mode = st.selectbox("Select Report:", ["Gloss Trend (SPC)", "Color Shift Analysis", "Statistical Limits (Scope Comparison)"])
     else:
         view_mode = st.selectbox("Select Report:", ["Process vs Material (DFT & Root Cause)", "Predictive Compensation & Targeting"])
@@ -269,11 +272,12 @@ if view_mode == "Master Summary & Pareto":
     else:
         st.success("🎉 Great! No NG data recorded in this filtered period.")
 
+# ==========================================
+# TIER 2: SUPPLIER INTELLIGENCE
+# ==========================================
 elif view_mode == "Supplier Intelligence (Apples-to-Apples)":
-    st.header("🕵️ Supplier Intelligence: Segmented Benchmarking")
-    st.info("Logic: Suppliers are compared ONLY within the same Color, Resin, Gloss Target, and Thickness specifications to prevent false alarms.")
+    st.info("💡 Logic: Suppliers are compared ONLY within the same Color, Resin, Gloss Target, and Thickness specifications to prevent false alarms.")
 
-    # Drop missing values to create clean segments
     df_valid_specs = dff.dropna(subset=['Coating_Type', 'Color_Group', 'Gloss_LSL', 'Gloss_USL', 'Target_DFT']).copy()
     df_valid_specs['Gloss_Target'] = (df_valid_specs['Gloss_LSL'] + df_valid_specs['Gloss_USL']) / 2.0
 
@@ -286,106 +290,115 @@ elif view_mode == "Supplier Intelligence (Apples-to-Apples)":
             f_resin = st.selectbox("1. Resin Type:", sorted(df_valid_specs['Coating_Type'].unique()))
             df_f1 = df_valid_specs[df_valid_specs['Coating_Type'] == f_resin]
         with col2:
-            f_color = st.selectbox("2. Color Group:", sorted(df_f1['Color_Group'].unique()))
-            df_f2 = df_f1[df_f1['Color_Group'] == f_color]
+            if not df_f1.empty:
+                f_color = st.selectbox("2. Color Group:", sorted(df_f1['Color_Group'].unique()))
+                df_f2 = df_f1[df_f1['Color_Group'] == f_color]
+            else:
+                f_color = None
         with col3:
-            f_gloss = st.selectbox("3. Gloss Target (GU):", sorted(df_f2['Gloss_Target'].unique()))
-            df_f3 = df_f2[df_f2['Gloss_Target'] == f_gloss]
+            if not df_f1.empty and not df_f2.empty:
+                f_gloss = st.selectbox("3. Gloss Target (GU):", sorted(df_f2['Gloss_Target'].unique()))
+                df_f3 = df_f2[df_f2['Gloss_Target'] == f_gloss]
+            else:
+                f_gloss = None
         with col4:
-            f_dft = st.selectbox("4. Target DFT (µm):", sorted(df_f3['Target_DFT'].unique()))
+            if not df_f1.empty and not df_f2.empty and not df_f3.empty:
+                f_dft = st.selectbox("4. Target DFT (µm):", sorted(df_f3['Target_DFT'].unique()))
+            else:
+                f_dft = None
 
-        # Filter dataset to the exact segment
-        df_seg = df_valid_specs[
-            (df_valid_specs['Coating_Type'] == f_resin) & 
-            (df_valid_specs['Color_Group'] == f_color) & 
-            (abs(df_valid_specs['Gloss_Target'] - f_gloss) < 0.1) & 
-            (abs(df_valid_specs['Target_DFT'] - f_dft) < 0.1)
-        ].copy()
+        if f_resin and f_color and f_gloss and f_dft:
+            df_seg = df_valid_specs[
+                (df_valid_specs['Coating_Type'] == f_resin) & 
+                (df_valid_specs['Color_Group'] == f_color) & 
+                (abs(df_valid_specs['Gloss_Target'] - f_gloss) < 0.1) & 
+                (abs(df_valid_specs['Target_DFT'] - f_dft) < 0.1)
+            ].copy()
 
-        st.markdown("---")
-        if len(df_seg) < 5:
-            st.warning("⚠️ Insufficient data in this specific segment to perform benchmarking (Min. 5 coils required). Try a broader date range or different segment.")
-        else:
-            batch_counts = df_seg.groupby('Supplier')['Batch_Lot'].nunique()
-            valid_suppliers = batch_counts[batch_counts >= 1].index
-            df_seg = df_seg[df_seg['Supplier'].isin(valid_suppliers)]
+            st.markdown("---")
+            if len(df_seg) < 5:
+                st.warning("⚠️ Insufficient data in this specific segment to perform benchmarking (Min. 5 coils required). Try a broader date range or different segment.")
+            else:
+                batch_counts = df_seg.groupby('Supplier')['Batch_Lot'].nunique()
+                valid_suppliers = batch_counts[batch_counts >= 1].index
+                df_seg = df_seg[df_seg['Supplier'].isin(valid_suppliers)]
 
-            comp_table = df_seg.groupby('Supplier').agg(
-                Batches=('Batch_Lot', 'nunique'), 
-                Coils=('Online_Gloss_Top', 'count'), 
-                Mean_Gloss=('Online_Gloss_Top', 'mean'), 
-                Std_Gloss=('Online_Gloss_Top', 'std'), 
-                Avg_dE=('ΔE', 'mean')
-            ).reset_index()
+                comp_table = df_seg.groupby('Supplier').agg(
+                    Batches=('Batch_Lot', 'nunique'), 
+                    Coils=('Online_Gloss_Top', 'count'), 
+                    Mean_Gloss=('Online_Gloss_Top', 'mean'), 
+                    Std_Gloss=('Online_Gloss_Top', 'std'), 
+                    Avg_dE=('ΔE', 'mean')
+                ).reset_index()
 
-            LSL_seg = df_seg['Line_LSL'].iloc[0]
-            USL_seg = df_seg['Line_USL'].iloc[0]
+                LSL_seg = df_seg['Line_LSL'].iloc[0]
+                USL_seg = df_seg['Line_USL'].iloc[0]
 
-            def calc_cpk_table(row):
-                if pd.isna(row['Std_Gloss']) or row['Std_Gloss'] == 0: return np.nan
-                return min((USL_seg - row['Mean_Gloss']) / (3 * row['Std_Gloss']), (row['Mean_Gloss'] - LSL_seg) / (3 * row['Std_Gloss']))
+                def calc_cpk_table(row):
+                    if pd.isna(row['Std_Gloss']) or row['Std_Gloss'] == 0: return np.nan
+                    return min((USL_seg - row['Mean_Gloss']) / (3 * row['Std_Gloss']), (row['Mean_Gloss'] - LSL_seg) / (3 * row['Std_Gloss']))
 
-            comp_table['Cpk (Stability)'] = comp_table.apply(calc_cpk_table, axis=1)
-            comp_table['Bias (Accuracy)'] = comp_table['Mean_Gloss'] - f_gloss
-            comp_table = comp_table.sort_values(by='Cpk (Stability)', ascending=False)
+                comp_table['Cpk (Stability)'] = comp_table.apply(calc_cpk_table, axis=1)
+                comp_table['Bias (Accuracy)'] = comp_table['Mean_Gloss'] - f_gloss
+                comp_table = comp_table.sort_values(by='Cpk (Stability)', ascending=False)
 
-            c1, c2 = st.columns([2.5, 2.5]) 
-            
-            with c1:
-                st.subheader("📊 Capability Matrix (Accuracy vs Stability)")
-                st.caption(f"Segment: {f_resin} | {f_color} | {f_gloss}GU | {f_dft}µm")
+                c1, c2 = st.columns([2.5, 2.5]) 
                 
-                fig_matrix, ax_matrix = plt.subplots(figsize=(9, 6))
-                
-                max_cpk = max(2.0, comp_table['Cpk (Stability)'].max() + 0.2) if not comp_table['Cpk (Stability)'].isna().all() else 2.0
-                max_bias_abs = max(abs(comp_table['Bias (Accuracy)'].max()), abs(comp_table['Bias (Accuracy)'].min())) + 1 if not pd.isna(comp_table['Bias (Accuracy)'].max()) else 3
-
-                ax_matrix.axhspan(1.33, max_cpk, facecolor='#27ae60', alpha=0.3, label='Excellent (Cpk > 1.33)')
-                ax_matrix.axhspan(1.0, 1.33, facecolor='#f1c40f', alpha=0.3, label='Warning (1.0 < Cpk < 1.33)')
-                ax_matrix.axhspan(0, 1.0, facecolor='#c0392b', alpha=0.3, label='High Risk (Cpk < 1.0)')
-                
-                ax_matrix.axvline(0, color='black', linestyle='--', linewidth=2, label='Perfect Target (Bias = 0)')
-                
-                sns.scatterplot(
-                    data=comp_table, x='Bias (Accuracy)', y='Cpk (Stability)', hue='Supplier', 
-                    s=800, edgecolor='black', linewidth=1.5, palette='tab10', ax=ax_matrix, zorder=5 
-                )
-                
-                import matplotlib.patheffects as path_effects
-                for i in range(comp_table.shape[0]):
-                    label_text = str(comp_table['Supplier'].iloc[i])
-                    x_pos = comp_table['Bias (Accuracy)'].iloc[i]
-                    y_pos = comp_table['Cpk (Stability)'].iloc[i]
+                with c1:
+                    st.subheader("📊 Capability Matrix (Accuracy vs Stability)")
+                    st.caption(f"Segment: {f_resin} | {f_color} | {f_gloss}GU | {f_dft}µm")
                     
-                    ax_matrix.text(
-                        x_pos, y_pos + (max_cpk * 0.05), label_text, 
-                        fontsize=11, fontweight='bold', color='black',
-                        horizontalalignment='center', zorder=6,
-                        path_effects=[path_effects.withStroke(linewidth=3, foreground="white")]
+                    fig_matrix, ax_matrix = plt.subplots(figsize=(9, 6))
+                    
+                    max_cpk = max(2.0, comp_table['Cpk (Stability)'].max() + 0.2) if not comp_table['Cpk (Stability)'].isna().all() else 2.0
+                    max_bias_abs = max(abs(comp_table['Bias (Accuracy)'].max()), abs(comp_table['Bias (Accuracy)'].min())) + 1 if not pd.isna(comp_table['Bias (Accuracy)'].max()) else 3
+
+                    ax_matrix.axhspan(1.33, max_cpk, facecolor='#27ae60', alpha=0.3, label='Excellent (Cpk > 1.33)')
+                    ax_matrix.axhspan(1.0, 1.33, facecolor='#f1c40f', alpha=0.3, label='Warning (1.0 < Cpk < 1.33)')
+                    ax_matrix.axhspan(0, 1.0, facecolor='#c0392b', alpha=0.3, label='High Risk (Cpk < 1.0)')
+                    
+                    ax_matrix.axvline(0, color='black', linestyle='--', linewidth=2, label='Perfect Target (Bias = 0)')
+                    
+                    sns.scatterplot(
+                        data=comp_table, x='Bias (Accuracy)', y='Cpk (Stability)', hue='Supplier', 
+                        s=800, edgecolor='black', linewidth=1.5, palette='tab10', ax=ax_matrix, zorder=5 
+                    )
+                    
+                    import matplotlib.patheffects as path_effects
+                    for i in range(comp_table.shape[0]):
+                        label_text = str(comp_table['Supplier'].iloc[i])
+                        x_pos = comp_table['Bias (Accuracy)'].iloc[i]
+                        y_pos = comp_table['Cpk (Stability)'].iloc[i]
+                        
+                        ax_matrix.text(
+                            x_pos, y_pos + (max_cpk * 0.05), label_text, 
+                            fontsize=11, fontweight='bold', color='black',
+                            horizontalalignment='center', zorder=6,
+                            path_effects=[path_effects.withStroke(linewidth=3, foreground="white")]
+                        )
+
+                    ax_matrix.set_xlabel("Systematic Bias (Average Gloss - Target) [GU]", fontweight='bold')
+                    ax_matrix.set_ylabel("Stability Index (Cpk)", fontweight='bold')
+                    ax_matrix.set_ylim(0, max_cpk)
+                    ax_matrix.set_xlim(-max_bias_abs, max_bias_abs)
+                    ax_matrix.legend(bbox_to_anchor=(0.5, -0.15), loc='upper center', ncol=3)
+                    plt.tight_layout()
+                    st.pyplot(fig_matrix)
+                    plt.close(fig_matrix)
+
+                with c2:
+                    st.subheader("🏆 Segment Leaderboard")
+                    st.dataframe(
+                        comp_table.style.format({
+                            'Mean_Gloss': '{:.1f}', 'Std_Gloss': '{:.2f}', 
+                            'Bias (Accuracy)': '{:+.2f}', 'Cpk (Stability)': '{:.2f}', 'Avg_dE': '{:.2f}'
+                        }).background_gradient(cmap='RdYlGn', subset=['Cpk (Stability)'])
+                          .background_gradient(cmap='bwr', subset=['Bias (Accuracy)'], vmin=-2, vmax=2), 
+                        use_container_width=True, hide_index=True
                     )
 
-                ax_matrix.set_xlabel("Systematic Bias (Average Gloss - Target) [GU]", fontweight='bold')
-                ax_matrix.set_ylabel("Stability Index (Cpk)", fontweight='bold')
-                ax_matrix.set_ylim(0, max_cpk)
-                ax_matrix.set_xlim(-max_bias_abs, max_bias_abs)
-                ax_matrix.legend(bbox_to_anchor=(0.5, -0.15), loc='upper center', ncol=3)
-                plt.tight_layout()
-                st.pyplot(fig_matrix)
-                plt.close(fig_matrix)
-
-            with c2:
-                st.subheader("🏆 Segment Leaderboard")
-                st.dataframe(
-                    comp_table.style.format({
-                        'Mean_Gloss': '{:.1f}', 'Std_Gloss': '{:.2f}', 
-                        'Bias (Accuracy)': '{:+.2f}', 'Cpk (Stability)': '{:.2f}', 'Avg_dE': '{:.2f}'
-                    }).background_gradient(cmap='RdYlGn', subset=['Cpk (Stability)'])
-                      .background_gradient(cmap='bwr', subset=['Bias (Accuracy)'], vmin=-2, vmax=2), 
-                    use_container_width=True, hide_index=True
-                )
-
 # ==========================================
-# TIER 2: OPERATIONAL VIEW
+# TIER 3: OPERATIONAL VIEW
 # ==========================================
 elif view_mode == "Gloss Trend (SPC)":
     st.info("💡 SPC Analysis: Monitor the actual Gloss trend (Lab vs Line) across raw production sequence.")
@@ -1060,7 +1073,7 @@ elif view_mode == "Statistical Limits (Scope Comparison)":
         st.warning("⚠️ Insufficient data (needs at least 5 coils).")
 
 # ==========================================
-# TIER 3: DIAGNOSTIC VIEW
+# TIER 4: DIAGNOSTIC VIEW
 # ==========================================
 elif view_mode == "Process vs Material (DFT & Root Cause)":
     st.header("📏 Process vs. Material (Thickness Correlation & Residuals)")
