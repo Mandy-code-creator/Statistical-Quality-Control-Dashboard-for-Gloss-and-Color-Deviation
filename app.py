@@ -558,7 +558,8 @@ elif view_mode == "Gloss Trend (SPC)":
         
         with tab_top_risk:
             if not risk_alert.empty:
-                top_15 = risk_alert['Paint Code'].head(15).tolist()
+                # Đã sửa 'Paint Code' thành 'Ma_Son'
+                top_15 = risk_alert['Ma_Son'].head(15).tolist()
                 for i, code in enumerate(top_15):
                     st.markdown(f"#### #{i+1}: `{code}`")
                     render_spc_analysis(code, dff, f"risk_{i}")
