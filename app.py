@@ -266,6 +266,8 @@ if view_mode == "Master Summary & Pareto":
             ax2.annotate(f"{txt:.1f}%", (i, txt), textcoords="offset points", xytext=(0,10), ha='center', fontsize=8, fontweight='bold')
 
         plt.title("Pareto Chart: Defect Distribution by Paint Code", fontweight='bold')
+        # --- THÊM DÒNG NÀY: Tránh việc Legend bị Streamlit cắt mất khi đưa ra lề ---
+        fig_pareto.tight_layout()
         st.pyplot(fig_pareto)
         plt.close(fig_pareto)
     else:
