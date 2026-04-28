@@ -920,7 +920,8 @@ elif view_mode == "Process vs Material (DFT & Root Cause)":
 
                 st.markdown("#### 1. Thickness vs Gloss Scatter Correlation")
                 fig_dft_scatter, ax_scatter = plt.subplots(figsize=(10, 5))
-                sns.regplot(data=df_plot, x='Avg_DFT', y='Online_Gloss_Top', ax=ax_scatter, 
+                sns.regplot(data=df_plot, x='Avg_DFT', y='Online_Gloss_Top', ax=ax_scatter,
+                            ci=None, #
                             scatter_kws={'alpha':0.6, 's':60, 'color':'#8e44ad'}, 
                             line_kws={'color':'red', 'lw':2, 'label': f'Trend Line (R²={r2_val:.2f})'})
                 ax_scatter.axvline(avg_target, color='green', linestyle='--', lw=2, label=f'Target DFT ({avg_target:.1f})')
