@@ -211,12 +211,13 @@ st.markdown("---")
 
 # ==========================================
 # ==========================================
+# ==========================================
 # TIER 1: EXECUTIVE VIEW
 # ==========================================
 if view_mode == "Master Summary & Pareto":
     st.info("Master Data table, grouped by Resin Type, Color Code, and Supplier.")
     
-    # --- 1. BẢNG TỔNG HỢP (MASTER SUMMARY) ---
+    # --- 1. MASTER SUMMARY TABLE ---
     summary_table = dff.groupby(['Coating_Type', 'Color_Code', 'Supplier']).agg({
         'Batch_Lot': 'count',
         'Gloss_Lab': ['mean', 'std', 'min', 'max'],
@@ -244,7 +245,7 @@ if view_mode == "Master Summary & Pareto":
     
     st.markdown("---")
     
-    # --- 2. BIỂU ĐỒ PARETO (ĐÃ FIX LỖI LEGEND) ---
+    # --- 2. PARETO CHART (CLEAN VIEW) ---
     st.markdown("### 📉 Pareto Chart: Top NG Contributors")
     df_ng = dff[dff['Final_Status'] == '❌ FAIL/NG'].copy()
 
@@ -254,34 +255,37 @@ if view_mode == "Master Summary & Pareto":
         pareto_data['Cum_Percentage'] = pareto_data['NG_Count'].cumsum() / pareto_data['NG_Count'].sum() * 100
         pareto_data_top = pareto_data.head(15)
 
-        fig_pareto, ax1 = plt.subplots(figsize=(14, 6.5)) # Tăng chiều cao khung hình
+        # Khởi tạo figure với chiều cao đủ để hiển thị legend
+        fig_pareto, ax1 = plt.subplots(figsize=(14, 6))
         
         # Vẽ biểu đồ cột
         sns.barplot(data=pareto_data_top, x='Ma_Son', y='NG_Count', hue='Supplier', dodge=False, ax=ax1, palette='pastel')
         
-        # Xử lý Legend: Kéo lên trên cùng, dàn đều 5 cột
+        # Cấu hình Legend: Dàn hàng ngang (ncol), đẩy lên nóc (bbox_to_anchor)
         handles, labels = ax1.get_legend_handles_labels()
-        ax1.legend(handles, labels, title='Supplier', loc='lower center', bbox_to_anchor=(0.5, 1.05), ncol=5)
+        ax1.legend(handles, labels, title='Supplier', loc='lower center', 
+                   bbox_to_anchor=(0.5, 1.02), ncol=5, frameon=True)
 
         ax1.set_ylabel("NG Coils", fontweight='bold')
         ax1.set_xlabel("Paint Code", fontweight='bold')
         ax1.tick_params(axis='x', rotation=45)
         
-        # Vẽ đường line lũy kế trục Y thứ 2
+        # Vẽ trục Y thứ 2 cho đường lũy kế
         ax2 = ax1.twinx()
         ax2.plot(range(len(pareto_data_top)), pareto_data_top['Cum_Percentage'], color='red', marker='D', ms=7, lw=2.5)
         ax2.axhline(80, color='gray', linestyle='--', lw=1.5, label='80% Threshold')
         ax2.set_ylabel("Cumulative Percentage (%)", color='red', fontweight='bold')
         
-        # Tăng trần trục Y lên 115 để đường màu đỏ không đâm vào nóc biểu đồ
-        ax2.set_ylim(0, 115) 
+        # Giới hạn trục Y2 để không đè vào Legend
+        ax2.set_ylim(0, 110) 
         
-        # Gắn nhãn % lên các điểm data
+        # Chú thích % trên từng điểm nút
         for i, txt in enumerate(pareto_data_top['Cum_Percentage']):
-            ax2.annotate(f"{txt:.1f}%", (i, txt), textcoords="offset points", xytext=(0,10), ha='center', fontsize=8, fontweight='bold')
+            ax2.annotate(f"{txt:.1f}%", (i, txt), textcoords="offset points", 
+                         xytext=(0,10), ha='center', fontsize=8, fontweight='bold')
 
-        # Nâng Title lên cao bằng padding (pad=45) để nhường chỗ cho Legend
-        plt.title("Pareto Chart: Defect Distribution by Paint Code", fontweight='bold', pad=45)
+        # Tối ưu hóa khoảng cách khung hình
+        fig_pareto.tight_layout()
         
         st.pyplot(fig_pareto)
         plt.close(fig_pareto)
