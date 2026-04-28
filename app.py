@@ -273,25 +273,24 @@ if view_mode == "Master Summary & Pareto":
 
 # ==========================================
 # ==========================================
-# ==========================================
 # TIER 2: SUPPLIER INTELLIGENCE (Heatmap & Drill-Down)
 # ==========================================
 elif view_mode == "Supplier Intelligence (Apples-to-Apples)":
-    st.info("💡 Logic: Xếp hạng năng lực (Cpk) toàn cảnh qua Bản đồ nhiệt. Chọn phân khúc rủi ro cao từ danh sách để đi sâu vào phân tích nguyên nhân gốc rễ (Root Cause).")
+    st.info("💡 Logic: Overall Capability (Cpk) ranking via Heatmap. Select a high-risk segment from the list to drill down into Root Cause analysis.")
 
-    # Lọc dữ liệu có đầy đủ thông số kỹ thuật
+    # Drop missing spec data
     df_valid_specs = dff.dropna(subset=['Coating_Type', 'Color_Group', 'Gloss_LSL', 'Gloss_USL', 'Target_Top', 'Target_Primer', 'Avg_DFT']).copy()
     
-    # Format labels (Đã sửa lỗi hiển thị dấu trừ thành dấu cộng cho DFT)
+    # Format labels
     df_valid_specs['Gloss_Spec'] = df_valid_specs.apply(lambda r: f"{r['Gloss_LSL']:g}~{r['Gloss_USL']:g}", axis=1)
     df_valid_specs['DFT_Spec'] = df_valid_specs.apply(lambda r: f"{r['Target_Top']:g} + {r['Target_Primer']:g}", axis=1)
     df_valid_specs['Numeric_Target'] = (df_valid_specs['Gloss_LSL'] + df_valid_specs['Gloss_USL']) / 2.0
 
     if df_valid_specs.empty:
-        st.warning("⚠️ Không có đủ dữ liệu kỹ thuật để phân tích so sánh.")
+        st.warning("⚠️ Insufficient technical spec data for comparison.")
     else:
         # ---------------------------------------------------------
-        # BƯỚC 1: TÍNH TOÁN TỔNG THỂ & HIỂN THỊ MA TRẬN HEATMAP
+        # STEP 1: GLOBAL CALCULATION & HEATMAP MATRIX
         # ---------------------------------------------------------
         df_scan = df_valid_specs.groupby(['Coating_Type', 'Color_Group', 'Gloss_Spec', 'DFT_Spec']).agg(
             Coils=('Online_Gloss_Top', 'count'),
@@ -301,28 +300,28 @@ elif view_mode == "Supplier Intelligence (Apples-to-Apples)":
             Line_USL=('Line_USL', 'first')
         ).reset_index()
         
-        # Chỉ phân tích nhóm có từ 5 cuộn trở lên
+        # Only analyze segments with >= 5 coils
         df_scan = df_scan[df_scan['Coils'] >= 5].copy()
         
         if df_scan.empty:
-            st.warning("⚠️ Cần ít nhất 5 cuộn thép trong cùng một phân khúc để chạy mô hình thống kê.")
+            st.warning("⚠️ Min. 5 coils required in a single segment for statistical modeling.")
         else:
-            # Tính toán Cpk tổng thể cho từng phân khúc
+            # Calculate overall Cpk
             df_scan['Tolerance'] = df_scan['Line_USL'] - df_scan['Line_LSL']
             df_scan['Numeric_Target'] = (df_scan['Line_LSL'] + df_scan['Line_USL']) / 2.0
-            df_scan['Std_Gloss'] = df_scan['Std_Gloss'].replace(0, 0.1) # Tránh lỗi chia 0
+            df_scan['Std_Gloss'] = df_scan['Std_Gloss'].replace(0, 0.1) # Prevent division by zero
             
             df_scan['Cp'] = df_scan['Tolerance'] / (6 * df_scan['Std_Gloss'])
             df_scan['Ca (%)'] = (df_scan['Mean_Gloss'] - df_scan['Numeric_Target']) / (df_scan['Tolerance'] / 2) * 100
             df_scan['Cpk'] = df_scan['Cp'] * (1 - df_scan['Ca (%)'].abs() / 100)
             
-            # Sắp xếp phân khúc từ Tệ nhất (Rủi ro cao) đến Tốt nhất
+            # Sort from Worst (High Risk) to Best
             df_scan = df_scan.sort_values('Cpk', ascending=True)
 
-            st.write("### 🗺️ Ma Trận Năng Lực Chất Lượng (Cpk Heatmap)")
-            st.caption("Bản đồ nhiệt thể hiện sự tương quan chất lượng giữa Nhựa và Nhóm Màu. Điểm Đỏ/Cam cảnh báo rủi ro cao (Cpk < 1.33).")
+            st.write("### 🗺️ Quality Capability Matrix (Cpk Heatmap)")
+            st.caption("Correlation between Resin and Color Group. Red/Orange indicates process risk (Cpk < 1.33).")
             
-            # Bảng Pivot Heatmap
+            # Pivot Table for Heatmap
             pivot_cpk = df_scan.pivot_table(index='Coating_Type', columns='Color_Group', values='Cpk', aggfunc='mean')
             st.dataframe(
                 pivot_cpk.style.format("{:.2f}", na_rep="-")
@@ -333,21 +332,21 @@ elif view_mode == "Supplier Intelligence (Apples-to-Apples)":
             st.markdown("---")
 
             # ---------------------------------------------------------
-            # BƯỚC 2: SMART SELECT & LỌC DỮ LIỆU CHI TIẾT
+            # STEP 2: SMART SELECT & DRILL-DOWN
             # ---------------------------------------------------------
-            st.write("### 🔍 Phân Tích Chi Tiết Nhà Cung Cấp (Drill-Down)")
+            st.write("### 🔍 Supplier Detailed Analysis (Drill-Down)")
             
-            # Tạo chuỗi nhãn thông minh với Icon
+            # Create Smart Labels
             def make_label(r):
                 icon = "🔴" if r['Cpk'] < 1.0 else ("🟠" if r['Cpk'] < 1.33 else "🟢")
-                return f"{icon} Cpk: {r['Cpk']:.2f} | Nhựa: {r['Coating_Type']} | Màu: {r['Color_Group']} | Gloss: {r['Gloss_Spec']} | DFT: {r['DFT_Spec']} ({r['Coils']} cuộn)"
+                return f"{icon} Cpk: {r['Cpk']:.2f} | Resin: {r['Coating_Type']} | Color: {r['Color_Group']} | Gloss: {r['Gloss_Spec']} | DFT: {r['DFT_Spec']} ({r['Coils']} coils)"
                 
             df_scan['Smart_Label'] = df_scan.apply(make_label, axis=1)
             
-            # Dropdown duy nhất
-            sel_label = st.selectbox("🎯 Chọn phân khúc ưu tiên xử lý (Đã sắp xếp tự động từ Rủi ro cao nhất):", df_scan['Smart_Label'].tolist())
+            # Single Smart Dropdown
+            sel_label = st.selectbox("🎯 Select priority segment (Auto-sorted by highest risk):", df_scan['Smart_Label'].tolist())
             
-            # Tách dữ liệu theo lựa chọn
+            # Extract selected data
             sel_row = df_scan[df_scan['Smart_Label'] == sel_label].iloc[0]
             f_resin = sel_row['Coating_Type']
             f_color = sel_row['Color_Group']
@@ -364,7 +363,7 @@ elif view_mode == "Supplier Intelligence (Apples-to-Apples)":
             tolerance = usl_val - lsl_val
 
             # ---------------------------------------------------------
-            # BƯỚC 3: TÍNH TOÁN NĂNG LỰC NHÀ CUNG CẤP (BENCHMARKING)
+            # STEP 3: BENCHMARKING CALCULATION
             # ---------------------------------------------------------
             comp_table = df_seg.groupby('Supplier').agg(
                 Coils=('Online_Gloss_Top', 'count'), 
@@ -374,7 +373,7 @@ elif view_mode == "Supplier Intelligence (Apples-to-Apples)":
                 Avg_dE=('ΔE', 'mean')
             ).reset_index()
 
-            # AI Residual Analysis (Độ bất ổn của sơn)
+            # AI Residual Analysis
             res_stds = []
             for sup in comp_table['Supplier']:
                 sup_df = df_seg[df_seg['Supplier'] == sup]
@@ -396,7 +395,7 @@ elif view_mode == "Supplier Intelligence (Apples-to-Apples)":
             comp_table = comp_table.sort_values('Cpk', ascending=False)
 
             # ---------------------------------------------------------
-            # BƯỚC 4: VISUALIZATION MATRIX & LEADERBOARD
+            # STEP 4: VISUALIZATION MATRIX & LEADERBOARD
             # ---------------------------------------------------------
             st.markdown("---")
             col_m, col_t = st.columns([3, 2.5])
@@ -422,7 +421,7 @@ elif view_mode == "Supplier Intelligence (Apples-to-Apples)":
                 }).background_gradient(cmap='RdYlGn', subset=['Cpk']).background_gradient(cmap='coolwarm', subset=['Ca (%)'], vmin=-100, vmax=100), use_container_width=True, hide_index=True)
 
             # ---------------------------------------------------------
-            # BƯỚC 5: ROOT CAUSE SCATTER PLOT (Đã thêm ci=None)
+            # STEP 5: ROOT CAUSE SCATTER PLOT
             # ---------------------------------------------------------
             st.markdown("---")
             st.subheader("🔬 Root Cause Validation: DFT vs Gloss Correlation")
@@ -432,7 +431,6 @@ elif view_mode == "Supplier Intelligence (Apples-to-Apples)":
             fig_sc, ax_sc = plt.subplots(figsize=(10, 6))
             for idx, sup in enumerate(comp_table['Supplier']):
                 sup_d = batch_data[batch_data['Supplier']==sup]
-                # Thêm ci=None để tránh bóng mờ khổng lồ khi dữ liệu ít
                 if len(sup_d) > 1: 
                     sns.regplot(data=sup_d, x='Mean_DFT', y='Bias', label=sup, ax=ax_sc, ci=None, scatter_kws={'s':80, 'alpha':0.7}, line_kws={'lw':2.5})
                 else: 
@@ -448,7 +446,7 @@ elif view_mode == "Supplier Intelligence (Apples-to-Apples)":
             plt.close(fig_sc)
 
             # ---------------------------------------------------------
-            # BƯỚC 6: X-BAR CONTROL CHART
+            # STEP 6: X-BAR CONTROL CHART
             # ---------------------------------------------------------
             st.markdown("---")
             st.subheader("📊 X-bar Control Chart (Supplier Stability)")
@@ -462,7 +460,7 @@ elif view_mode == "Supplier Intelligence (Apples-to-Apples)":
                 sig = sup_d['Mean_Gloss'].std() if len(sup_d)>1 else 0.1
                 
                 ax.plot(sup_d.index, sup_d['Mean_Gloss'], marker='o', lw=2, label='Batch Mean')
-                ax.axhline(mu, color='green', label=f'Trung bình thực tế (μ): {mu:.1f}')
+                ax.axhline(mu, color='green', label=f'Process Mean (μ): {mu:.1f}')
                 ax.axhline(mu+3*sig, color='red', ls='--', label=f'UCL: {mu+3*sig:.1f}')
                 ax.axhline(mu-3*sig, color='red', ls='--', label=f'LCL: {mu-3*sig:.1f}')
                 ax.axhline(usl_val, color='#d35400', ls='-.', lw=2, label=f'Line Max: {usl_val:.1f}')
