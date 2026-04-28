@@ -355,7 +355,7 @@ elif view_mode == "Supplier Intelligence (Apples-to-Apples)":
             fig_sc, ax_sc = plt.subplots(figsize=(10, 6))
             for idx, sup in enumerate(comp_table['Supplier']):
                 sup_d = batch_data[batch_data['Supplier']==sup]
-                if len(sup_d) > 1: sns.regplot(data=sup_d, x='Mean_DFT', y='Bias', label=sup, ax=ax_sc, scatter_kws={'s':80, 'alpha':0.7}, line_kws={'lw':2.5})
+                if len(sup_d) > 1: sns.regplot(data=sup_d, x='Mean_DFT', y='Bias', label=sup, ax=ax_sc, ci=None, scatter_kws={'s':80, 'alpha':0.7}, line_kws={'lw':2.5})
                 else: sns.scatterplot(data=sup_d, x='Mean_DFT', y='Bias', label=sup, ax=ax_sc, s=80)
             ax_sc.axhline(0, color='black', lw=2)
             ax_sc.axhline(1.5, color='red', ls=':', lw=1.5)
