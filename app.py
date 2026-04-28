@@ -273,47 +273,116 @@ if view_mode == "Master Summary & Pareto":
 
 # ==========================================
 # ==========================================
-# TIER 2: SUPPLIER INTELLIGENCE (Full Integrated)
+# ==========================================
+# TIER 2: SUPPLIER INTELLIGENCE (Heatmap & Drill-Down)
 # ==========================================
 elif view_mode == "Supplier Intelligence (Apples-to-Apples)":
-    st.info("💡 Logic: Suppliers are compared ONLY within the same technical segment. Actual DFT is factored in to isolate pure Paint Quality.")
+    st.info("💡 Logic: Xếp hạng năng lực (Cpk) toàn cảnh qua Bản đồ nhiệt. Chọn phân khúc rủi ro cao từ danh sách để đi sâu vào phân tích nguyên nhân gốc rễ (Root Cause).")
 
+    # Lọc dữ liệu có đầy đủ thông số kỹ thuật
     df_valid_specs = dff.dropna(subset=['Coating_Type', 'Color_Group', 'Gloss_LSL', 'Gloss_USL', 'Target_Top', 'Target_Primer', 'Avg_DFT']).copy()
     
-    # Format labels
+    # Format labels (Đã sửa lỗi hiển thị dấu trừ thành dấu cộng cho DFT)
     df_valid_specs['Gloss_Spec'] = df_valid_specs.apply(lambda r: f"{r['Gloss_LSL']:g}~{r['Gloss_USL']:g}", axis=1)
-    df_valid_specs['DFT_Spec'] = df_valid_specs.apply(lambda r: f"{r['Target_Top']:g}-{r['Target_Primer']:g}", axis=1)
+    df_valid_specs['DFT_Spec'] = df_valid_specs.apply(lambda r: f"{r['Target_Top']:g} + {r['Target_Primer']:g}", axis=1)
     df_valid_specs['Numeric_Target'] = (df_valid_specs['Gloss_LSL'] + df_valid_specs['Gloss_USL']) / 2.0
 
     if df_valid_specs.empty:
-        st.warning("⚠️ Insufficient data for benchmarking.")
+        st.warning("⚠️ Không có đủ dữ liệu kỹ thuật để phân tích so sánh.")
     else:
-        st.write("### 🔒 Step 1: Define Segment")
-        c1, c2, c3, c4 = st.columns(4)
-        with c1: f_resin = st.selectbox("1. Resin Type:", sorted(df_valid_specs['Coating_Type'].unique()))
-        with c2: f_color = st.selectbox("2. Color Group:", sorted(df_valid_specs[df_valid_specs['Coating_Type']==f_resin]['Color_Group'].unique()))
-        with c3: f_gloss_spec = st.selectbox("3. Gloss Spec:", sorted(df_valid_specs[(df_valid_specs['Coating_Type']==f_resin) & (df_valid_specs['Color_Group']==f_color)]['Gloss_Spec'].unique()))
-        with c4: f_dft_spec = st.selectbox("4. DFT Spec:", sorted(df_valid_specs[(df_valid_specs['Coating_Type']==f_resin) & (df_valid_specs['Color_Group']==f_color) & (df_valid_specs['Gloss_Spec']==f_gloss_spec)]['DFT_Spec'].unique()))
-
-        df_seg = df_valid_specs[(df_valid_specs['Coating_Type']==f_resin) & (df_valid_specs['Color_Group']==f_color) & (df_valid_specs['Gloss_Spec']==f_gloss_spec) & (df_valid_specs['DFT_Spec']==f_dft_spec)].copy()
-        numeric_gloss_target = df_seg['Numeric_Target'].iloc[0]
-
-        if len(df_seg) < 5:
-            st.warning("⚠️ Min. 5 coils required for analysis.")
+        # ---------------------------------------------------------
+        # BƯỚC 1: TÍNH TOÁN TỔNG THỂ & HIỂN THỊ MA TRẬN HEATMAP
+        # ---------------------------------------------------------
+        df_scan = df_valid_specs.groupby(['Coating_Type', 'Color_Group', 'Gloss_Spec', 'DFT_Spec']).agg(
+            Coils=('Online_Gloss_Top', 'count'),
+            Mean_Gloss=('Online_Gloss_Top', 'mean'),
+            Std_Gloss=('Online_Gloss_Top', 'std'),
+            Line_LSL=('Line_LSL', 'first'),
+            Line_USL=('Line_USL', 'first')
+        ).reset_index()
+        
+        # Chỉ phân tích nhóm có từ 5 cuộn trở lên
+        df_scan = df_scan[df_scan['Coils'] >= 5].copy()
+        
+        if df_scan.empty:
+            st.warning("⚠️ Cần ít nhất 5 cuộn thép trong cùng một phân khúc để chạy mô hình thống kê.")
         else:
-            # 2. Benchmarking Calculation
-            comp_table = df_seg.groupby('Supplier').agg(Coils=('Online_Gloss_Top', 'count'), Mean_Gloss=('Online_Gloss_Top', 'mean'), Std_Gloss=('Online_Gloss_Top', 'std'), Std_DFT=('Avg_DFT', 'std'), Avg_dE=('ΔE', 'mean')).reset_index()
-            lsl_val, usl_val = df_seg['Line_LSL'].iloc[0], df_seg['Line_USL'].iloc[0]
+            # Tính toán Cpk tổng thể cho từng phân khúc
+            df_scan['Tolerance'] = df_scan['Line_USL'] - df_scan['Line_LSL']
+            df_scan['Numeric_Target'] = (df_scan['Line_LSL'] + df_scan['Line_USL']) / 2.0
+            df_scan['Std_Gloss'] = df_scan['Std_Gloss'].replace(0, 0.1) # Tránh lỗi chia 0
+            
+            df_scan['Cp'] = df_scan['Tolerance'] / (6 * df_scan['Std_Gloss'])
+            df_scan['Ca (%)'] = (df_scan['Mean_Gloss'] - df_scan['Numeric_Target']) / (df_scan['Tolerance'] / 2) * 100
+            df_scan['Cpk'] = df_scan['Cp'] * (1 - df_scan['Ca (%)'].abs() / 100)
+            
+            # Sắp xếp phân khúc từ Tệ nhất (Rủi ro cao) đến Tốt nhất
+            df_scan = df_scan.sort_values('Cpk', ascending=True)
+
+            st.write("### 🗺️ Ma Trận Năng Lực Chất Lượng (Cpk Heatmap)")
+            st.caption("Bản đồ nhiệt thể hiện sự tương quan chất lượng giữa Nhựa và Nhóm Màu. Điểm Đỏ/Cam cảnh báo rủi ro cao (Cpk < 1.33).")
+            
+            # Bảng Pivot Heatmap
+            pivot_cpk = df_scan.pivot_table(index='Coating_Type', columns='Color_Group', values='Cpk', aggfunc='mean')
+            st.dataframe(
+                pivot_cpk.style.format("{:.2f}", na_rep="-")
+                         .background_gradient(cmap='RdYlGn', vmin=0.5, vmax=1.5, axis=None),
+                use_container_width=True
+            )
+
+            st.markdown("---")
+
+            # ---------------------------------------------------------
+            # BƯỚC 2: SMART SELECT & LỌC DỮ LIỆU CHI TIẾT
+            # ---------------------------------------------------------
+            st.write("### 🔍 Phân Tích Chi Tiết Nhà Cung Cấp (Drill-Down)")
+            
+            # Tạo chuỗi nhãn thông minh với Icon
+            def make_label(r):
+                icon = "🔴" if r['Cpk'] < 1.0 else ("🟠" if r['Cpk'] < 1.33 else "🟢")
+                return f"{icon} Cpk: {r['Cpk']:.2f} | Nhựa: {r['Coating_Type']} | Màu: {r['Color_Group']} | Gloss: {r['Gloss_Spec']} | DFT: {r['DFT_Spec']} ({r['Coils']} cuộn)"
+                
+            df_scan['Smart_Label'] = df_scan.apply(make_label, axis=1)
+            
+            # Dropdown duy nhất
+            sel_label = st.selectbox("🎯 Chọn phân khúc ưu tiên xử lý (Đã sắp xếp tự động từ Rủi ro cao nhất):", df_scan['Smart_Label'].tolist())
+            
+            # Tách dữ liệu theo lựa chọn
+            sel_row = df_scan[df_scan['Smart_Label'] == sel_label].iloc[0]
+            f_resin = sel_row['Coating_Type']
+            f_color = sel_row['Color_Group']
+            f_gloss_spec = sel_row['Gloss_Spec']
+            f_dft_spec = sel_row['DFT_Spec']
+
+            df_seg = df_valid_specs[(df_valid_specs['Coating_Type']==f_resin) & 
+                                    (df_valid_specs['Color_Group']==f_color) & 
+                                    (df_valid_specs['Gloss_Spec']==f_gloss_spec) & 
+                                    (df_valid_specs['DFT_Spec']==f_dft_spec)].copy()
+                                    
+            numeric_gloss_target = sel_row['Numeric_Target']
+            lsl_val, usl_val = sel_row['Line_LSL'], sel_row['Line_USL']
             tolerance = usl_val - lsl_val
 
-            # AI Residual Analysis
+            # ---------------------------------------------------------
+            # BƯỚC 3: TÍNH TOÁN NĂNG LỰC NHÀ CUNG CẤP (BENCHMARKING)
+            # ---------------------------------------------------------
+            comp_table = df_seg.groupby('Supplier').agg(
+                Coils=('Online_Gloss_Top', 'count'), 
+                Mean_Gloss=('Online_Gloss_Top', 'mean'), 
+                Std_Gloss=('Online_Gloss_Top', 'std'), 
+                Std_DFT=('Avg_DFT', 'std'), 
+                Avg_dE=('ΔE', 'mean')
+            ).reset_index()
+
+            # AI Residual Analysis (Độ bất ổn của sơn)
             res_stds = []
             for sup in comp_table['Supplier']:
                 sup_df = df_seg[df_seg['Supplier'] == sup]
                 if len(sup_df) > 2 and sup_df['Avg_DFT'].std() > 0:
                     model = LinearRegression().fit(sup_df[['Avg_DFT']].values, sup_df['Online_Gloss_Top'].values)
                     res_stds.append((sup_df['Online_Gloss_Top'].values - model.predict(sup_df[['Avg_DFT']].values)).std())
-                else: res_stds.append(sup_df['Online_Gloss_Top'].std() if len(sup_df)>1 else 0)
+                else: 
+                    res_stds.append(sup_df['Online_Gloss_Top'].std() if len(sup_df)>1 else 0)
             comp_table['Paint Instability (Res.Std)'] = res_stds
 
             def calc_spc(row):
@@ -326,7 +395,9 @@ elif view_mode == "Supplier Intelligence (Apples-to-Apples)":
             comp_table['Bias'] = comp_table['Mean_Gloss'] - numeric_gloss_target
             comp_table = comp_table.sort_values('Cpk', ascending=False)
 
-            # 3. Visualization Matrix & Leaderboard
+            # ---------------------------------------------------------
+            # BƯỚC 4: VISUALIZATION MATRIX & LEADERBOARD
+            # ---------------------------------------------------------
             st.markdown("---")
             col_m, col_t = st.columns([3, 2.5])
             with col_m:
@@ -342,11 +413,17 @@ elif view_mode == "Supplier Intelligence (Apples-to-Apples)":
                     if hasattr(h, 'set_sizes'): h.set_sizes([100])
                     if hasattr(h, 'set_markersize'): h.set_markersize(8)
                 st.pyplot(fig_m)
+                plt.close(fig_m)
+                
             with col_t:
                 st.subheader("🏆 Leaderboard")
-                st.dataframe(comp_table[['Supplier', 'Coils', 'Cpk', 'Ca (%)', 'Std_DFT', 'Paint Instability (Res.Std)']].style.format({'Cpk':'{:.2f}', 'Ca (%)':'{:+.1f}%', 'Std_DFT':'{:.2f}', 'Paint Instability (Res.Std)':'{:.2f}'}).background_gradient(cmap='RdYlGn', subset=['Cpk']).background_gradient(cmap='coolwarm', subset=['Ca (%)'], vmin=-100, vmax=100), use_container_width=True, hide_index=True)
+                st.dataframe(comp_table[['Supplier', 'Coils', 'Cpk', 'Ca (%)', 'Std_DFT', 'Paint Instability (Res.Std)']].style.format({
+                    'Cpk':'{:.2f}', 'Ca (%)':'{:+.1f}%', 'Std_DFT':'{:.2f}', 'Paint Instability (Res.Std)':'{:.2f}'
+                }).background_gradient(cmap='RdYlGn', subset=['Cpk']).background_gradient(cmap='coolwarm', subset=['Ca (%)'], vmin=-100, vmax=100), use_container_width=True, hide_index=True)
 
-            # 4. Root Cause Scatter Plot
+            # ---------------------------------------------------------
+            # BƯỚC 5: ROOT CAUSE SCATTER PLOT (Đã thêm ci=None)
+            # ---------------------------------------------------------
             st.markdown("---")
             st.subheader("🔬 Root Cause Validation: DFT vs Gloss Correlation")
             batch_data = df_seg.groupby(['Supplier', 'Batch_Lot']).agg(Ngay=('Ngay_SX', 'min'), Mean_Gloss=('Online_Gloss_Top', 'mean'), Mean_DFT=('Avg_DFT', 'mean')).reset_index().sort_values('Ngay')
@@ -355,8 +432,12 @@ elif view_mode == "Supplier Intelligence (Apples-to-Apples)":
             fig_sc, ax_sc = plt.subplots(figsize=(10, 6))
             for idx, sup in enumerate(comp_table['Supplier']):
                 sup_d = batch_data[batch_data['Supplier']==sup]
-                if len(sup_d) > 1: sns.regplot(data=sup_d, x='Mean_DFT', y='Bias', label=sup, ax=ax_sc, ci=None, scatter_kws={'s':80, 'alpha':0.7}, line_kws={'lw':2.5})
-                else: sns.scatterplot(data=sup_d, x='Mean_DFT', y='Bias', label=sup, ax=ax_sc, s=80)
+                # Thêm ci=None để tránh bóng mờ khổng lồ khi dữ liệu ít
+                if len(sup_d) > 1: 
+                    sns.regplot(data=sup_d, x='Mean_DFT', y='Bias', label=sup, ax=ax_sc, ci=None, scatter_kws={'s':80, 'alpha':0.7}, line_kws={'lw':2.5})
+                else: 
+                    sns.scatterplot(data=sup_d, x='Mean_DFT', y='Bias', label=sup, ax=ax_sc, s=80)
+                    
             ax_sc.axhline(0, color='black', lw=2)
             ax_sc.axhline(1.5, color='red', ls=':', lw=1.5)
             ax_sc.axhline(-1.5, color='red', ls=':', lw=1.5)
@@ -364,19 +445,24 @@ elif view_mode == "Supplier Intelligence (Apples-to-Apples)":
             ax_sc.set_ylabel("Gloss Bias [GU]", fontweight='bold')
             ax_sc.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
             st.pyplot(fig_sc)
+            plt.close(fig_sc)
 
-            # 5. X-bar Control Chart
+            # ---------------------------------------------------------
+            # BƯỚC 6: X-BAR CONTROL CHART
+            # ---------------------------------------------------------
             st.markdown("---")
             st.subheader("📊 X-bar Control Chart (Supplier Stability)")
             fig_x, axes = plt.subplots(len(comp_table['Supplier']), 1, figsize=(14, 4 * len(comp_table['Supplier'])))
             if len(comp_table['Supplier']) == 1: axes = [axes]
+            
             for i, sup in enumerate(comp_table['Supplier']):
                 sup_d = batch_data[batch_data['Supplier']==sup].copy().reset_index()
                 ax = axes[i]
                 mu = sup_d['Mean_Gloss'].mean()
                 sig = sup_d['Mean_Gloss'].std() if len(sup_d)>1 else 0.1
+                
                 ax.plot(sup_d.index, sup_d['Mean_Gloss'], marker='o', lw=2, label='Batch Mean')
-                ax.axhline(mu, color='green', label=f'CL: {mu:.1f}')
+                ax.axhline(mu, color='green', label=f'Trung bình thực tế (μ): {mu:.1f}')
                 ax.axhline(mu+3*sig, color='red', ls='--', label=f'UCL: {mu+3*sig:.1f}')
                 ax.axhline(mu-3*sig, color='red', ls='--', label=f'LCL: {mu-3*sig:.1f}')
                 ax.axhline(usl_val, color='#d35400', ls='-.', lw=2, label=f'Line Max: {usl_val:.1f}')
@@ -385,8 +471,10 @@ elif view_mode == "Supplier Intelligence (Apples-to-Apples)":
                 ax.set_xticks(sup_d.index)
                 ax.set_xticklabels(sup_d['Batch_Lot'], rotation=45, ha='right')
                 ax.legend(bbox_to_anchor=(1.01, 1), loc='upper left')
+            
             plt.tight_layout()
             st.pyplot(fig_x)
+            plt.close(fig_x)
 # ==========================================
 # TIER 3: OPERATIONAL VIEW
 # ==========================================
