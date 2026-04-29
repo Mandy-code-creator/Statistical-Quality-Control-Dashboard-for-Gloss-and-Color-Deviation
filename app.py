@@ -435,11 +435,17 @@ elif view_mode == "Supplier Intelligence (Apples-to-Apples)":
                 plt.close(fig_m)
                 
             with col_t:
-                st.subheader("🏆 Leaderboard")
-                st.dataframe(comp_table[['Supplier', 'Coils', 'Cpk', 'Ca (%)', 'Std_DFT', 'Paint Instability (Res.Std)']].style.format({
-                    'Cpk':'{:.2f}', 'Ca (%)':'{:+.1f}%', 'Std_DFT':'{:.2f}', 'Paint Instability (Res.Std)':'{:.2f}'
-                }).background_gradient(cmap='RdYlGn', subset=['Cpk']).background_gradient(cmap='coolwarm', subset=['Ca (%)'], vmin=-100, vmax=100), use_container_width=True, hide_index=True)
-
+            st.subheader("🏆 Leaderboard")
+            # Thêm 'Cp' vào danh sách các cột hiển thị dưới đây
+            st.dataframe(comp_table[['Supplier', 'Coils', 'Cp', 'Cpk', 'Ca (%)', 'Std_DFT', 'Paint Instability (Res.Std)']].style.format({
+                'Cp':'{:.2f}', # Thêm định dạng cho Cp
+                'Cpk':'{:.2f}', 
+                'Ca (%)':'{:+.1f}%', 
+                'Std_DFT':'{:.2f}', 
+                'Paint Instability (Res.Std)':'{:.2f}'
+            }).background_gradient(cmap='RdYlGn', subset=['Cpk', 'Cp']) # Có thể thêm màu cho Cp nếu muốn
+              .background_gradient(cmap='coolwarm', subset=['Ca (%)'], vmin=-100, vmax=100), 
+            use_container_width=True, hide_index=True)
             # ---------------------------------------------------------
             # STEP 5: ROOT CAUSE SCATTER PLOT
             # ---------------------------------------------------------
