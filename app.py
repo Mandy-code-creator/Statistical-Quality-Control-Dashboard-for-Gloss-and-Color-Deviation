@@ -156,7 +156,9 @@ with st.sidebar:
 
     with st.expander("🛠️ Custom Paint Specs", expanded=False):
         st.caption("Override control limits for specific paint codes.")
-        if "custom_gloss_rules" not in st.session_state:
+        
+        # Check if it doesn't exist OR if it's holding the old Vietnamese column name
+        if "custom_gloss_rules" not in st.session_state or "Ma_Son" in st.session_state["custom_gloss_rules"].columns:
             init_data = pd.DataFrame({
                 "Paint_Code": ["", "", ""], "Lab_LSL": [0.0, 0.0, 0.0], "Lab_USL": [0.0, 0.0, 0.0],
                 "Line_LSL": [0.0, 0.0, 0.0], "Line_USL": [0.0, 0.0, 0.0]
