@@ -22,7 +22,7 @@ def load_and_prep_data():
             '產出鋼捲號碼': 'Coil_No', '鋼捲號碼': 'Coil_No', '鋼捲號': 'Coil_No', '卷号': 'Coil_No', 'Coil ID': 'Coil_No',
             '訂單號碼': 'Order_No', '訂單號': 'Order_No', '工單號': 'Order_No', '工單': 'Order_No', 
             '線別': 'Line', '產線': 'Line', '生產線': 'Line', '機台': 'Line', 
-            '生產日期': 'Ngay_SX', '製造批號': 'Batch_Lot', '塗料編號': 'Ma_Son',
+            '生產日期': 'Prod_Date', '製造批號': 'Batch_Lot', '塗料編號': 'Paint_Code',
             '光澤': 'Gloss_Lab',
             'NORTH_TOP_BLANCH': 'G_Top_N', 'SOUTH_TOP_BLANCH': 'G_Top_S',
             'NORTH_BACK_BLANCH': 'G_Back_N', 'SOUTH_BACK_BLANCH': 'G_Back_S',
@@ -42,7 +42,7 @@ def load_and_prep_data():
         if 'Order_No' not in df.columns: df['Order_No'] = 'Unknown Order'
         if 'Coil_No' not in df.columns: df['Coil_No'] = 'Unknown Coil'
             
-        df['Ma_Son_Str'] = df['Ma_Son'].astype(str).str.upper().str.strip()
+        df['Paint_Code_Str'] = df['Paint_Code'].astype(str).str.upper().str.strip()
 
         v_map = {
             'S':'Yungchi', 'T':'AKZO NOBEL(Taiwan)', 'A':'AKZO NOBEL', 'B':'Beckers', 
@@ -52,26 +52,29 @@ def load_and_prep_data():
         r_map = {'1':'PU','2':'PE','3':'EPOXY','4':'PVC','5':'PVDF','6':'SMP','7':'AC','8':'WB','9':'IP','A':'PVB','B':'PVF'}
         c_map = {'0':'Clear','1':'Red','R':'Red','O':'Orange','2':'Orange','Y':'Yellow','3':'Yellow','4':'Green','G':'Green','5':'Blue','L':'Blue','V':'Violet','6':'Violet','N':'Brown','7':'Brown','T':'White','H':'White','W':'White','8':'White','A':'Gray','C':'Gray','9':'Gray','B':'Black','S':'Silver','M':'Metallic'}
         
-        df['Supplier'] = df['Ma_Son_Str'].str[1].map(v_map).fillna('Unknown')
-        df['Coating_Type'] = df['Ma_Son_Str'].str[2].map(r_map).fillna('Unknown')
-        df['Color_Group'] = df['Ma_Son_Str'].str[6].map(c_map).fillna('Other')
-        df['Color_Code'] = df['Ma_Son_Str'].str[-4:] 
+        df['Supplier'] = df['Paint_Code_Str'].str[1].map(v_map).fillna('Unknown')
+        df['Coating_Type'] = df['Paint_Code_Str'].str[2].map(r_map).fillna('Unknown')
+        df['Color_Group'] = df['Paint_Code_Str'].str[6].map(c_map).fillna('Other')
+        df['Color_Code'] = df['Paint_Code_Str'].str[-4:] 
+        
+        # Consolidate specific color codes into a unified reporting group
+        df['Color_Code'] = df['Color_Code'].replace({'GE00': 'GE_Group', 'GE01': 'GE_Group'})
 
         num_cols = ['Gloss_Lab', 'G_Top_N', 'G_Top_S', 'G_Back_N', 'G_Back_S', 'dE_N', 'dE_S', 'dL_N', 'da_N', 'db_N', 'Gloss_LSL', 'Gloss_USL', 'DFT_N', 'DFT_S', 'Target_Top', 'Target_Primer']
         for c in num_cols:
             if c in df.columns: df[c] = pd.to_numeric(df[c], errors='coerce')
 
         # DATA CLEANING
-        df = df.dropna(subset=['Gloss_Lab', 'Ma_Son'])
+        df = df.dropna(subset=['Gloss_Lab', 'Paint_Code'])
         df = df[df['Gloss_Lab'] > 0] 
         invalid_codes = ['0', '00', '000', '0000', 'NA', 'N/A', 'NAN', 'NULL', 'NONE']
-        df = df[~df['Ma_Son_Str'].isin(invalid_codes)]
+        df = df[~df['Paint_Code_Str'].isin(invalid_codes)]
         df = df[~df['Color_Code'].isin(invalid_codes)]
 
         df = df.dropna(subset=['Gloss_LSL', 'Gloss_USL'])
         df = df[(df['Gloss_LSL'] > 0) & (df['Gloss_USL'] > 0)]
 
-        df['Ngay_SX'] = pd.to_datetime(df['Ngay_SX'], errors='coerce').dt.date
+        df['Prod_Date'] = pd.to_datetime(df['Prod_Date'], errors='coerce').dt.date
         
         if 'G_Top_N' in df.columns and 'G_Top_S' in df.columns:
             df['Online_Gloss_Top'] = df[['G_Top_N', 'G_Top_S']].mean(axis=1)
@@ -102,7 +105,7 @@ def load_and_prep_data():
         for col in ['Supplier', 'Coating_Type', 'Color_Group']:
             df[col] = df[col].astype('category')
             
-        return df.dropna(subset=['Supplier', 'Ngay_SX']).sort_values('Ngay_SX')
+        return df.dropna(subset=['Supplier', 'Prod_Date']).sort_values('Prod_Date')
     except Exception as e:
         st.error(f"⚠️ System Error: {e}")
         return pd.DataFrame()
@@ -139,7 +142,7 @@ with st.sidebar:
 
     st.markdown("---")
     st.subheader("🔍 Global Filters")
-    min_date, max_date = df_raw['Ngay_SX'].min(), df_raw['Ngay_SX'].max()
+    min_date, max_date = df_raw['Prod_Date'].min(), df_raw['Prod_Date'].max()
     date_range = st.date_input("Date Range:", [min_date, max_date], min_value=min_date, max_value=max_date)
     
     list_sup = ['All'] + sorted(df_raw['Supplier'].unique().tolist())
@@ -155,7 +158,7 @@ with st.sidebar:
         st.caption("Override control limits for specific paint codes.")
         if "custom_gloss_rules" not in st.session_state:
             init_data = pd.DataFrame({
-                "Ma_Son": ["", "", ""], "Lab_LSL": [0.0, 0.0, 0.0], "Lab_USL": [0.0, 0.0, 0.0],
+                "Paint_Code": ["", "", ""], "Lab_LSL": [0.0, 0.0, 0.0], "Lab_USL": [0.0, 0.0, 0.0],
                 "Line_LSL": [0.0, 0.0, 0.0], "Line_USL": [0.0, 0.0, 0.0]
             })
             st.session_state["custom_gloss_rules"] = init_data
@@ -171,15 +174,15 @@ df = df_raw.copy()
 df['Line_LSL'] = df['Gloss_LSL'] - STANDARD_LINE_OFFSET
 df['Line_USL'] = df['Gloss_USL'] + STANDARD_LINE_OFFSET
 
-custom_df = st.session_state["custom_gloss_rules"].dropna(subset=["Ma_Son"])
-custom_df = custom_df[custom_df["Ma_Son"].str.strip() != ""]
+custom_df = st.session_state["custom_gloss_rules"].dropna(subset=["Paint_Code"])
+custom_df = custom_df[custom_df["Paint_Code"].str.strip() != ""]
 
 if not custom_df.empty:
     custom_df = custom_df.rename(columns={
         'Lab_LSL': 'c_Lab_LSL', 'Lab_USL': 'c_Lab_USL', 
         'Line_LSL': 'c_Line_LSL', 'Line_USL': 'c_Line_USL'
     })
-    df = df.merge(custom_df, on='Ma_Son', how='left')
+    df = df.merge(custom_df, on='Paint_Code', how='left')
     
     df['Gloss_LSL'] = np.where(df['c_Lab_LSL'].notna() & (df['c_Lab_LSL'] > 0), df['c_Lab_LSL'], df['Gloss_LSL'])
     df['Gloss_USL'] = np.where(df['c_Lab_USL'].notna() & (df['c_Lab_USL'] > 0), df['c_Lab_USL'], df['Gloss_USL'])
@@ -196,7 +199,7 @@ df['Final_Status'] = np.where(df['Gloss_Pass'] & df['Color_Pass'], '✅ PASS', '
 
 dff = df.copy()
 if len(date_range) == 2:
-    dff = dff[(dff['Ngay_SX'] >= date_range[0]) & (dff['Ngay_SX'] <= date_range[1])]
+    dff = dff[(dff['Prod_Date'] >= date_range[0]) & (dff['Prod_Date'] <= date_range[1])]
 if sel_sup != 'All': dff = dff[dff['Supplier'] == sel_sup]
 if sel_res != 'All': dff = dff[dff['Coating_Type'] == sel_res]
 if sel_col != 'All': dff = dff[dff['Color_Group'] == sel_col]
@@ -215,7 +218,6 @@ st.markdown("---")
 if view_mode == "Master Summary & Pareto":
     st.info("Master Data table, grouped by Resin Type, Color Code, and Supplier.")
     
-    # --- 1. MASTER SUMMARY TABLE ---
     summary_table = dff.groupby(['Coating_Type', 'Color_Code', 'Supplier']).agg({
         'Batch_Lot': 'count',
         'Gloss_Lab': ['mean', 'std', 'min', 'max'],
@@ -242,20 +244,18 @@ if view_mode == "Master Summary & Pareto":
     )
     
     st.markdown("---")
-    
-    # --- 2. PARETO CHART (CLEAN VIEW) ---
     st.markdown("### 📉 Pareto Chart: Top NG Contributors")
     df_ng = dff[dff['Final_Status'] == '❌ FAIL/NG'].copy()
 
     if not df_ng.empty:
-        pareto_data = df_ng.groupby(['Ma_Son', 'Supplier']).size().reset_index(name='NG_Count')
+        pareto_data = df_ng.groupby(['Paint_Code', 'Supplier']).size().reset_index(name='NG_Count')
         pareto_data = pareto_data.sort_values(by='NG_Count', ascending=False)
         pareto_data['Cum_Percentage'] = pareto_data['NG_Count'].cumsum() / pareto_data['NG_Count'].sum() * 100
         pareto_data_top = pareto_data.head(15)
 
         fig_pareto, ax1 = plt.subplots(figsize=(14, 6))
         
-        sns.barplot(data=pareto_data_top, x='Ma_Son', y='NG_Count', hue='Supplier', dodge=False, ax=ax1, palette='pastel')
+        sns.barplot(data=pareto_data_top, x='Paint_Code', y='NG_Count', hue='Supplier', dodge=False, ax=ax1, palette='pastel')
         
         handles, labels = ax1.get_legend_handles_labels()
         ax1.legend(handles, labels, title='Supplier', loc='lower center', 
@@ -330,7 +330,6 @@ elif view_mode == "Supplier Intelligence (Apples-to-Apples)":
             )
 
             st.markdown("---")
-
             st.write("### 🔍 Supplier Detailed Analysis (Drill-Down)")
             
             def make_label(r):
@@ -338,7 +337,6 @@ elif view_mode == "Supplier Intelligence (Apples-to-Apples)":
                 return f"{icon} Cpk: {r['Cpk']:.2f} | Resin: {r['Coating_Type']} | Color: {r['Color_Group']} | Gloss: {r['Gloss_Spec']} | DFT: {r['DFT_Spec']} ({r['Coils']} coils)"
                 
             df_scan['Smart_Label'] = df_scan.apply(make_label, axis=1)
-            
             sel_label = st.selectbox("🎯 Select priority segment (Auto-sorted by highest risk):", df_scan['Smart_Label'].tolist())
             
             sel_row = df_scan[df_scan['Smart_Label'] == sel_label].iloc[0]
@@ -419,7 +417,7 @@ elif view_mode == "Supplier Intelligence (Apples-to-Apples)":
 
             st.markdown("---")
             st.subheader("🔬 Root Cause Validation: DFT vs Gloss Correlation")
-            batch_data = df_seg.groupby(['Supplier', 'Batch_Lot']).agg(Ngay=('Ngay_SX', 'min'), Mean_Gloss=('Online_Gloss_Top', 'mean'), Mean_DFT=('Avg_DFT', 'mean')).reset_index().sort_values('Ngay')
+            batch_data = df_seg.groupby(['Supplier', 'Batch_Lot']).agg(Date_Min=('Prod_Date', 'min'), Mean_Gloss=('Online_Gloss_Top', 'mean'), Mean_DFT=('Avg_DFT', 'mean')).reset_index().sort_values('Date_Min')
             batch_data['Bias'] = batch_data['Mean_Gloss'] - numeric_gloss_target
             
             fig_sc, ax_sc = plt.subplots(figsize=(10, 6))
@@ -477,7 +475,7 @@ elif view_mode == "Gloss Trend (SPC)":
         df_valid_radar = dff.dropna(subset=['Online_Gloss_Top', 'Line_LSL', 'Line_USL', 'Gloss_Lab', 'Gloss_LSL', 'Gloss_USL', 'Batch_Lot'])
         
         if not df_valid_radar.empty:
-            risk_summary = df_valid_radar.groupby(['Ma_Son', 'Supplier']).agg(
+            risk_summary = df_valid_radar.groupby(['Paint_Code', 'Supplier']).agg(
                 Batches=('Batch_Lot', 'nunique'), Coils=('Online_Gloss_Top', 'count'),
                 Line_Min=('Online_Gloss_Top', 'min'), Line_Max=('Online_Gloss_Top', 'max'),
                 Line_LSL=('Line_LSL', 'first'), Line_USL=('Line_USL', 'first'),
@@ -510,14 +508,14 @@ elif view_mode == "Gloss Trend (SPC)":
 
                 if not risk_alert.empty:
                     risk_alert = risk_alert.sort_values('Status')
-                    st.dataframe(risk_alert[['Ma_Son', 'Supplier', 'Batches', 'Coils', 'Issue Source', 'Lab_Min', 'Lab_Max', 'Line_Min', 'Line_Max', 'Status']].style.format({
+                    st.dataframe(risk_alert[['Paint_Code', 'Supplier', 'Batches', 'Coils', 'Issue Source', 'Lab_Min', 'Lab_Max', 'Line_Min', 'Line_Max', 'Status']].style.format({
                         'Lab_Min': '{:.1f}', 'Lab_Max': '{:.1f}', 'Line_Min': '{:.1f}', 'Line_Max': '{:.1f}'
                     }), use_container_width=True, hide_index=True)
 
     st.markdown("---")
     
     def render_spc_analysis(paint_code, data_source, key_suffix):
-        dff_g = data_source[data_source['Ma_Son'] == paint_code].copy()
+        dff_g = data_source[data_source['Paint_Code'] == paint_code].copy()
         dff_g = dff_g.dropna(subset=['Gloss_LSL', 'Gloss_USL', 'Gloss_Lab', 'Online_Gloss_Top'])
         
         if len(dff_g) <= 1:
@@ -527,7 +525,7 @@ elif view_mode == "Gloss Trend (SPC)":
         lsl_val, usl_val = dff_g['Gloss_LSL'].iloc[0], dff_g['Gloss_USL'].iloc[0]
         line_lsl_val, line_usl_val = dff_g['Line_LSL'].iloc[0], dff_g['Line_USL'].iloc[0]
         
-        st.success(f"📅 **Timeframe:** `{dff_g['Ngay_SX'].min()}` to `{dff_g['Ngay_SX'].max()}` | **Volume:** {dff_g['Batch_Lot'].nunique()} Batches ({len(dff_g)} Coils).")
+        st.success(f"📅 **Timeframe:** `{dff_g['Prod_Date'].min()}` to `{dff_g['Prod_Date'].max()}` | **Volume:** {dff_g['Batch_Lot'].nunique()} Batches ({len(dff_g)} Coils).")
 
         fig_trend, ax_trend = plt.subplots(figsize=(14, 4.5))
         dff_g['x_seq'] = list(range(len(dff_g)))
@@ -630,13 +628,13 @@ elif view_mode == "Gloss Trend (SPC)":
         st.pyplot(fig_dist)
         plt.close('all')
 
-    list_ma_son_tab2 = sorted(dff['Ma_Son'].dropna().unique().tolist())
-    if list_ma_son_tab2:
+    list_paint_codes_tab2 = sorted(dff['Paint_Code'].dropna().unique().tolist())
+    if list_paint_codes_tab2:
         tab_top_risk, tab_custom = st.tabs(["🚨 Top At-Risk Codes", "🔍 Manual Analysis"])
         
         with tab_top_risk:
             if not risk_alert.empty:
-                top_15 = risk_alert['Ma_Son'].head(15).tolist()
+                top_15 = risk_alert['Paint_Code'].head(15).tolist()
                 for i, code in enumerate(top_15):
                     st.markdown(f"#### #{i+1}: `{code}`")
                     render_spc_analysis(code, dff, f"risk_{i}")
@@ -645,23 +643,23 @@ elif view_mode == "Gloss Trend (SPC)":
                 st.success("✅ All processes are stable.")
 
         with tab_custom:
-            sel_ma_son = st.selectbox("🎯 Select Paint Code:", list_ma_son_tab2, key="manual_sel")
-            render_spc_analysis(sel_ma_son, dff, "manual")
+            sel_paint_code = st.selectbox("🎯 Select Paint Code:", list_paint_codes_tab2, key="manual_sel")
+            render_spc_analysis(sel_paint_code, dff, "manual")
 
 elif view_mode == "Color Shift Analysis":
     st.info("💡 Trend analysis of Total Color Difference (ΔE) and distribution of individual color components (ΔL, Δa, Δb) to detect color drift.")
     
-    list_ma_son_tab3 = sorted(dff['Ma_Son'].dropna().unique().tolist())
-    if list_ma_son_tab3:
-        sel_ma_son_tab3 = st.selectbox("🎯 Select Full Paint Code for Color Analysis:", list_ma_son_tab3, key="tab3_mason")
-        dff_c = dff[dff['Ma_Son'] == sel_ma_son_tab3].copy()
+    list_paint_codes_tab3 = sorted(dff['Paint_Code'].dropna().unique().tolist())
+    if list_paint_codes_tab3:
+        sel_paint_code_tab3 = st.selectbox("🎯 Select Full Paint Code for Color Analysis:", list_paint_codes_tab3, key="tab3_paintcode")
+        dff_c = dff[dff['Paint_Code'] == sel_paint_code_tab3].copy()
         
         if not dff_c.empty:
-            dff_c_batch = dff_c.groupby('Batch_Lot', as_index=False).agg({'Ngay_SX': 'min', 'ΔE': 'mean'}).sort_values('Ngay_SX')
+            dff_c_batch = dff_c.groupby('Batch_Lot', as_index=False).agg({'Prod_Date': 'min', 'ΔE': 'mean'}).sort_values('Prod_Date')
             dff_c_batch['Batch_Lot'] = dff_c_batch['Batch_Lot'].astype(str)
 
             st.markdown("---")
-            st.subheader(f"📈 Avg Total Color Difference Trend (ΔE) - {sel_ma_son_tab3}")
+            st.subheader(f"📈 Avg Total Color Difference Trend (ΔE) - {sel_paint_code_tab3}")
             fig_c1, ax_c1 = plt.subplots(figsize=(12, 4))
             ax_c1.plot(dff_c_batch['Batch_Lot'], dff_c_batch['ΔE'], marker='o', color='#e74c3c', lw=2, label='Avg ΔE')
             ax_c1.axhline(1.0, color='red', ls='--', lw=2, label='Spec Limit (ΔE = 1.0)')
@@ -746,14 +744,14 @@ elif view_mode == "Statistical Limits (Scope Comparison)":
     st.header("📊 Control Limits: IQR & Sigma Scopes")
     st.info("💡 Determine dynamic control limits based on **Standard Deviation**. Outliers are automatically filtered using the **IQR Method** to ensure accurate baseline calculations.")
 
-    ma_son_list = sorted(dff['Ma_Son'].dropna().unique().tolist())
-    if not ma_son_list:
+    paint_code_list = sorted(dff['Paint_Code'].dropna().unique().tolist())
+    if not paint_code_list:
         st.stop()
         
     col_s1, col_s2 = st.columns([1, 2])
     with col_s1:
         search_keyword = st.text_input("🔍 Search Paint Code:", "").upper()
-    filtered_list = [code for code in ma_son_list if search_keyword in code]
+    filtered_list = [code for code in paint_code_list if search_keyword in code]
     with col_s2:
         if filtered_list:
             sel_code = st.selectbox("🎯 Select Paint Code:", filtered_list)
@@ -761,7 +759,7 @@ elif view_mode == "Statistical Limits (Scope Comparison)":
             st.warning("❌ No paint code found.")
             st.stop()
             
-    dff_spc = dff[dff['Ma_Son'] == sel_code].copy().dropna(subset=['Online_Gloss_Top']).sort_values('Ngay_SX')
+    dff_spc = dff[dff['Paint_Code'] == sel_code].copy().dropna(subset=['Online_Gloss_Top']).sort_values('Prod_Date')
     
     if len(dff_spc) >= 5:
         line_lsl = dff_spc['Line_LSL'].iloc[0]
@@ -931,10 +929,10 @@ elif view_mode == "Process vs Material (DFT & Root Cause)":
             label_text = "🎯 Select Product Segment (Macro View):"
             col_target = 'Segment_Name'
         else:
-            valid_targets = dff_dft.groupby("Ma_Son")['Batch_Lot'].nunique()
+            valid_targets = dff_dft.groupby("Paint_Code")['Batch_Lot'].nunique()
             valid_targets = valid_targets[valid_targets >= 3].index.tolist()
             label_text = "🎯 Select Paint Code (Detailed View):"
-            col_target = 'Ma_Son'
+            col_target = 'Paint_Code'
         
         if not valid_targets:
             st.warning("⚠️ Need at least 3 batches of data to run correlation analysis.")
@@ -945,15 +943,15 @@ elif view_mode == "Process vs Material (DFT & Root Cause)":
             
             if is_macro:
                 df_plot = df_raw_dft.groupby('Batch_Lot').agg(
-                    Ngay_SX_min=('Ngay_SX', 'min'),
+                    Date_Min=('Prod_Date', 'min'),
                     Online_Gloss_Top=('Online_Gloss_Top', 'mean'),
                     Avg_DFT=('Avg_DFT', 'mean'),
                     Target_DFT=('Target_DFT', 'mean')
-                ).sort_values('Ngay_SX_min').reset_index()
+                ).sort_values('Date_Min').reset_index()
                 x_label_seq = "Production Sequence (Batch Number)"
             else:
-                df_plot = df_raw_dft.sort_values('Ngay_SX').reset_index(drop=True)
-                df_plot['Ngay_SX_min'] = df_plot['Ngay_SX']
+                df_plot = df_raw_dft.sort_values('Prod_Date').reset_index(drop=True)
+                df_plot['Date_Min'] = df_plot['Prod_Date']
                 x_label_seq = "Production Sequence (Coil Number)"
                 
             df_plot['x_seq'] = list(range(len(df_plot)))
@@ -1053,14 +1051,14 @@ elif view_mode == "Process vs Material (DFT & Root Cause)":
 
 elif view_mode == "Predictive Compensation & Targeting":
     st.header("⚖️ Predictive Compensation & Lab Optimization")
-    st.info("Logic: App learns the historical bias (Loss) per paint code to calculate the 'Theoretical Lab Input' required to hit the exact target specification on the line.")
+    st.info("Logic: App learns the historical bias (Loss) per paint code to calculate the 'Theoretical Value' required to hit the exact target specification on the line.")
 
-    ma_son_list = sorted(dff['Ma_Son'].dropna().unique().tolist())
-    if ma_son_list:
+    paint_code_list = sorted(dff['Paint_Code'].dropna().unique().tolist())
+    if paint_code_list:
         col_s1, col_s2 = st.columns([1, 2])
         with col_s1:
             search_keyword = st.text_input("🔍 Search Paint Code to Optimize:", "").upper()
-        filtered_list = [code for code in ma_son_list if search_keyword in code]
+        filtered_list = [code for code in paint_code_list if search_keyword in code]
         
         with col_s2:
             if filtered_list:
@@ -1069,26 +1067,29 @@ elif view_mode == "Predictive Compensation & Targeting":
                 st.warning("No paint code found.")
                 st.stop()
 
-        dff_model = dff[dff['Ma_Son'] == sel_code].dropna(subset=['Online_Gloss_Top', 'Gloss_Lab']).sort_values(['Ngay_SX', 'Coil_No'])
+        dff_model = dff[dff['Paint_Code'] == sel_code].dropna(subset=['Online_Gloss_Top', 'Gloss_Lab']).sort_values(['Prod_Date', 'Coil_No']).copy()
 
         if len(dff_model) >= 5:
+            # Shift calculations to Coil-level directly
+            dff_model['Loss'] = dff_model['Online_Gloss_Top'] - dff_model['Gloss_Lab']
+            
+            mean_lab_hist = dff_model['Gloss_Lab'].mean()
+            mean_line_hist = dff_model['Online_Gloss_Top'].mean()
+            std_lab_hist = dff_model['Gloss_Lab'].std() if dff_model['Gloss_Lab'].std() > 0 else 0.5
+            std_line_hist = dff_model['Online_Gloss_Top'].std() if dff_model['Online_Gloss_Top'].std() > 0 else 0.5
+            
+            actual_visual_bias = mean_line_hist - mean_lab_hist
+            std_loss = dff_model['Loss'].std() if dff_model['Loss'].std() > 0 else 0.5
+            
+            line_lsl = dff_model['Line_LSL'].iloc[0]
+            line_usl = dff_model['Line_USL'].iloc[0]
+            
+            # Batch analysis kept only for sequence plotting at the bottom
             batch_analysis = dff_model.groupby('Batch_Lot').agg({
-                'Ngay_SX': 'min',
-                'Gloss_Lab': 'first', 
+                'Prod_Date': 'min',
+                'Gloss_Lab': 'mean', 
                 'Online_Gloss_Top': 'mean',
-                'Gloss_LSL': 'first',
-                'Gloss_USL': 'first',
-                'Line_LSL': 'first',
-                'Line_USL': 'first'
-            }).sort_values('Ngay_SX').reset_index()
-
-            batch_analysis['Loss'] = batch_analysis['Online_Gloss_Top'] - batch_analysis['Gloss_Lab']
-            
-            mean_loss = batch_analysis['Loss'].mean()
-            std_loss = batch_analysis['Loss'].std() if batch_analysis['Loss'].std() > 0 else 0.5
-            
-            line_lsl = batch_analysis['Line_LSL'].iloc[0]
-            line_usl = batch_analysis['Line_USL'].iloc[0]
+            }).sort_values('Prod_Date').reset_index()
             
             st.markdown("---")
             st.subheader("🎯 Center Target Definition")
@@ -1097,7 +1098,7 @@ elif view_mode == "Predictive Compensation & Targeting":
             default_target = (line_lsl + line_usl) / 2.0
             target_line = st.number_input("Line Gloss Target [GU]:", value=float(default_target), step=0.1, help="Input the exact target requested by the customer/spec.")
             
-            optimal_lab_input = target_line - mean_loss
+            optimal_lab_input = target_line - actual_visual_bias
             
             icl_lcl = optimal_lab_input - (1 * std_loss)
             icl_ucl = optimal_lab_input + (1 * std_loss)
@@ -1108,7 +1109,7 @@ elif view_mode == "Predictive Compensation & Targeting":
             
             with col_target:
                 st.metric("Line Gloss Target", f"{target_line:.1f} GU", help="Defined explicitly by user.")
-                st.metric("Average System Bias", f"{mean_loss:+.2f} GU", help="Average drift caused by the production line for this specific paint.")
+                st.metric("Average System Bias", f"{actual_visual_bias:+.2f} GU", help="Average drift caused by the production line for this specific paint.")
                 st.metric("Standard Deviation (Sigma, σ)", f"{std_loss:.2f} GU", help="Calculated variation (σ) of the historical bias. Used to define the Internal Control Limit.")
 
             with col_guidance:
@@ -1122,11 +1123,6 @@ elif view_mode == "Predictive Compensation & Targeting":
             st.caption("Illustrates the systematic offset ('Absolute Bias') between the Assigned Value (Lab) and Achieved Value (Line).")
 
             fig_bell, ax_bell = plt.subplots(figsize=(12, 5))
-            
-            mean_lab_hist = batch_analysis['Gloss_Lab'].mean()
-            std_lab_hist = batch_analysis['Gloss_Lab'].std() if batch_analysis['Gloss_Lab'].std() > 0 else 0.5
-            mean_line_hist = batch_analysis['Online_Gloss_Top'].mean()
-            std_line_hist = batch_analysis['Online_Gloss_Top'].std() if batch_analysis['Online_Gloss_Top'].std() > 0 else 0.5
 
             x_min_bell = min(mean_lab_hist - 4*std_lab_hist, mean_line_hist - 4*std_line_hist)
             x_max_bell = max(mean_lab_hist + 4*std_lab_hist, mean_line_hist + 4*std_line_hist)
@@ -1145,7 +1141,7 @@ elif view_mode == "Predictive Compensation & Targeting":
             y_annotate = max(max(y_lab_bell), max(y_line_bell)) * 0.6
             ax_bell.annotate('', xy=(mean_lab_hist, y_annotate), xytext=(mean_line_hist, y_annotate),
                              arrowprops=dict(arrowstyle='<|-|>', color='#f39c12', lw=2.5, mutation_scale=15))
-            ax_bell.text((mean_lab_hist + mean_line_hist)/2, y_annotate + 0.02, f'Absolute Bias: {mean_loss:+.2f} GU', 
+            ax_bell.text((mean_lab_hist + mean_line_hist)/2, y_annotate + 0.02, f'Absolute Bias: {actual_visual_bias:+.2f} GU', 
                          ha='center', va='bottom', color='#f39c12', fontweight='bold', fontsize=11, bbox=dict(facecolor='white', alpha=0.8, edgecolor='none', pad=1))
 
             ax_bell.set_xlabel("Gloss Value (GU)")
@@ -1162,7 +1158,7 @@ elif view_mode == "Predictive Compensation & Targeting":
             fig_model, ax_model = plt.subplots(figsize=(14, 6))
             
             batch_labels = batch_analysis['Batch_Lot'].astype(str)
-            ax_model.plot(batch_labels, batch_analysis['Gloss_Lab'], marker='o', ls='--', color='gray', alpha=0.6, label='Actual Lab Input')
+            ax_model.plot(batch_labels, batch_analysis['Gloss_Lab'], marker='o', ls='--', color='gray', alpha=0.6, label='Actual Lab Input (Avg)')
             ax_model.plot(batch_labels, batch_analysis['Online_Gloss_Top'], marker='s', color='#2980b9', lw=2, label='Actual Line Output (Avg)')
             
             ax_model.axhline(target_line, color='red', ls='-', lw=2.5, label=f'Line Spec Target ({target_line:.1f})')
@@ -1186,7 +1182,7 @@ elif view_mode == "Predictive Compensation & Targeting":
             plt.close(fig_model)
 
             with st.expander("View Systematic Bias Data Details"):
-                st.dataframe(batch_analysis[['Batch_Lot', 'Gloss_Lab', 'Online_Gloss_Top', 'Loss']].tail(10))
+                st.dataframe(dff_model[['Batch_Lot', 'Gloss_Lab', 'Online_Gloss_Top', 'Loss']].tail(10))
 
         else:
             st.warning("⚠️ Insufficient historical data for this paint code to build a reliable compensation model (Min. 5 coils required).")
